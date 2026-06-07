@@ -25,5 +25,7 @@ export function computeProgressSignal(bytes, dlAgg, lastPct, snapshot) {
   const base = dlAgg != null ? String(dlAgg) : (lastPct || '0');
   // No byte counter → use the output tail so a build/resolve phase that emits new
   // lines counts as progress instead of a false stall (#1568).
-  return base + '|' + String(snapshot || '').slice(-300);
+  // Pip "Preparing packages" spinner changes per tick (e.g. "(48/49)"), so include it
+  // in the fingerprint so the stale watchdog doesn't trigger during that quiet phase.
+  return base + '|' + String(snapshot || '').slice(-400);
 }

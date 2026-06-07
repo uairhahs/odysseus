@@ -326,7 +326,11 @@ def setup_cookbook_routes() -> APIRouter:
         # slower-but-reliable downloader (resumes cleanly from the .incomplete files).
         # Use `python3 -m pip` not `pip` — macOS has no bare `pip` command.
         lines.append(f"command -v hf >/dev/null 2>&1 || {_pip_install_fallback_chain('huggingface_hub', upgrade=True)}")
-        if req.disable_hf_transfer:
+        # In a uv-managed venv (Docker), hf_transfer requires Rust to build from
+        # source and hangs. Skip the install attempt and fall back to the plain
+        # downloader; it's slower but reliable and resumes from .incomplete files.
+        _in_uv_venv = sys.prefix != sys.base_prefix and shutil.which("uv") is not None
+        if req.disable_hf_transfer or (_in_uv_venv and not req.remote_host):
             lines.append("export HF_HUB_ENABLE_HF_TRANSFER=0")
             lines.append("export HF_HUB_DOWNLOAD_MAX_WORKERS=4")
         else:

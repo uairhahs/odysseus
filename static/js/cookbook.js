@@ -1249,7 +1249,7 @@ function _wireTabEvents(body) {
       const _venvPy = (_envState.env === 'venv' && _envState.envPath)
         ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3`
         : 'python3';
-      _launchServeTask(`reinstall-${pkg}`, 'pip-reinstall', `${_venvPy} -m pip install --force-reinstall --no-deps ${pkg}`);
+      _launchServeTask(`reinstall-${pkg}`, 'pip-reinstall', `(uv pip install --force-reinstall --no-deps ${pkg} || ${_venvPy} -m pip install --force-reinstall --no-deps ${pkg})`);
     }, true);
   }
 

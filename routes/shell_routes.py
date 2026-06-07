@@ -1111,7 +1111,8 @@ def setup_shell_routes() -> APIRouter:
         pkg_q = shlex.quote(pip_name)
         upgrade_flag = " -U" if action == "update" else ""
         shell_cmd = (
-            f"uv pip install --no-cache-dir{upgrade_flag} {pkg_q}; "
+            "export UV_HTTP_TIMEOUT=300; "
+            f"uv pip install --no-cache-dir --link-mode=copy{upgrade_flag} {pkg_q}; "
             "_dep_rc=$?; "
             'printf "\\n=== Process exited with code %s ===\\n" "$_dep_rc"; '
             "exit \"$_dep_rc\""
@@ -1129,7 +1130,7 @@ def setup_shell_routes() -> APIRouter:
             pass  # tmux unavailable — fall back to synchronous
 
         # Synchronous fallback (no tmux).
-        cmd_args = ["uv", "pip", "install", "--no-cache-dir"]
+        cmd_args = ["uv", "pip", "install", "--no-cache-dir", "--link-mode=copy"]
         if action == "update":
             cmd_args.append("-U")
         cmd_args.append(pip_name)

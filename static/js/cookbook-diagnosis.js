@@ -391,11 +391,8 @@ export const ERROR_PATTERNS = [
     fixes: [
       { label: 'Try --trust-remote-code', action: (panel) => _serveAutoRetry(panel, '--trust-remote-code'), autofix: true },
       { label: 'Update vLLM on server', action: () => {
-        // Use the venv's python3 by absolute path when configured (SSH non-
-        // interactive sessions often pick user-site Python over the venv).
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('update-vllm', 'pip-update', `${_vp} -m pip install -U vllm transformers`);
+        // Prefer uv pip in uv-managed Docker environments; fall back to python3 -m pip for SSH/legacy.
+        _launchServeTask('update-vllm', 'pip-update', `(uv pip install -U vllm transformers || python3 -m pip install -U vllm transformers)`);
       }},
     ],
   },
@@ -404,9 +401,8 @@ export const ERROR_PATTERNS = [
     message: 'Transformers/kernels package mismatch.',
     fixes: [
       { label: 'Repair kernel package', action: () => {
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('repair-kernels', 'pip-update', `${_vp} -m pip install --user --break-system-packages kernels<0.15`);
+        // Prefer uv pip; fall back to pip with legacy flags for older environments.
+        _launchServeTask('repair-kernels', 'pip-update', `(uv pip install kernels<0.15 || python3 -m pip install --user --break-system-packages kernels<0.15)`);
       }},
       { label: 'Open Dependencies', action: () => _openCookbookDependencies('sglang') },
     ],
@@ -457,9 +453,8 @@ export const ERROR_PATTERNS = [
     message: 'Triton kernels version mismatch. Non-fatal warning — model will still run, just without optimized MoE kernels.',
     fixes: [
       { label: 'Update triton on server', action: () => {
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('update-triton', 'pip-update', `${_vp} -m pip install -U triton triton-kernels`);
+        // Prefer uv pip in uv-managed environments.
+        _launchServeTask('update-triton', 'pip-update', `(uv pip install -U triton triton-kernels || python3 -m pip install -U triton triton-kernels)`);
       }},
     ],
   },
@@ -482,9 +477,8 @@ export const ERROR_PATTERNS = [
     message: 'Model uses attention features unsupported in this vLLM version.',
     fixes: [
       { label: 'Update vLLM on server', action: () => {
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('update-vllm', 'pip-update', `${_vp} -m pip install -U vllm`);
+        // Prefer uv pip in uv-managed environments.
+        _launchServeTask('update-vllm', 'pip-update', `(uv pip install -U vllm || python3 -m pip install -U vllm)`);
       }},
     ],
   },
@@ -504,9 +498,8 @@ export const ERROR_PATTERNS = [
         // Hard fallback: vLLM 0.22 reaches into flashinfer for sampling kernels
         // even with VLLM_USE_FLASHINFER_SAMPLER=0 in some configs. Removing
         // the package forces it onto the native sampler.
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('uninstall-flashinfer', 'pip-update', `${_vp} -m pip uninstall flashinfer-python -y`);
+        // Prefer uv pip in uv-managed environments; fall back to python3 -m pip.
+        _launchServeTask('uninstall-flashinfer', 'pip-update', `(uv pip uninstall flashinfer-python -y || python3 -m pip uninstall flashinfer-python -y)`);
       }},
       { label: 'Edit serve', action: (panel) => _openServeEditFromDiagnosis(panel) },
     ],
@@ -521,16 +514,12 @@ export const ERROR_PATTERNS = [
     message: 'vLLM was built against a newer torch than what is installed. Reinstall vLLM so pip pulls a compatible torch (or upgrade torch directly).',
     fixes: [
       { label: 'Reinstall vLLM (pulls matching torch)', action: () => {
-        // Absolute path to the venv's python3 — bare `python3` lands in the
-        // wrong site-packages over SSH when ~/.local/bin precedes the venv.
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('reinstall-vllm', 'pip-reinstall', `${_vp} -m pip install --force-reinstall vllm`);
+        // Prefer uv pip in uv-managed Docker; fall back to python3 -m pip for SSH/legacy.
+        _launchServeTask('reinstall-vllm', 'pip-reinstall', `(uv pip install --force-reinstall vllm || python3 -m pip install --force-reinstall vllm)`);
       }},
       { label: 'Upgrade torch only', action: () => {
-        const _vp = (_envState.env === 'venv' && _envState.envPath)
-          ? `${_envState.envPath.replace(/\/+$/, '')}/bin/python3` : 'python3';
-        _launchServeTask('upgrade-torch', 'pip-update', `${_vp} -m pip install -U torch`);
+        // Prefer uv pip in uv-managed environments.
+        _launchServeTask('upgrade-torch', 'pip-update', `(uv pip install -U torch || python3 -m pip install -U torch)`);
       }},
     ],
   },

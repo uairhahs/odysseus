@@ -83,6 +83,22 @@ function _depInstallSucceeded(output) {
     && !/\bERROR\b|No matching distribution|Could not find a version|Traceback \(most recent call last\)/.test(text);
 }
 
+// Pip "Preparing packages" and install progress are progress signals that change per tick.
+// If we poll during those quiet phases, the output freezes but the task is still alive.
+// This prevents false crash detection when tmux session appears dead but pip is just
+// in dependency resolution, build, or wheel-installation phases.
+function _outputEndsInPipPreparingSpinner(output) {
+  const text = String(output || '');
+  if (!text) return false;
+  // Look for:
+  // - "Preparing wheels for collected packages" (resolver phase)
+  // - [N/total] format (pip's package install progress bar)
+  // - (N/total) format (alternative progress format)
+  // - Progress bar with ░ characters (pip's visual progress)
+  const tail = text.slice(-500);
+  return /Preparing\s+\w+\s+for\s+collected\s+packages|\[\d+\/\d+\]|\(\d+\/\d+\)|░|█/i.test(tail);
+}
+
 function _shouldOfferCrashReport(task) {
   if (!task) return false;
   if (task._unreachable && task.type === 'serve') return true;
@@ -2528,7 +2544,11 @@ async function _reconnectTask(el, task) {
 
       if (data.exit_code !== 0) {
         failCount++;
-        if (failCount < 5) {
+        // Dependency installs need a higher threshold (8 vs 5) because they have
+        // long quiet phases (pip resolve, native build/compile) where polling
+        // fails transiently but the task is alive.
+        const failThreshold = task.payload?._dep ? 8 : 5;
+        if (failCount < failThreshold) {
           await new Promise(r => setTimeout(r, 3000));
           continue;
         }
@@ -2596,7 +2616,10 @@ async function _reconnectTask(el, task) {
             || (task.type === 'download'
               ? downloadLooksSuccessful
               : (_isPipTask ? pipLooksSuccessful : serveLooksReady));
-          if (!lastOutput.trim() || !looksSuccessful) {
+          // Before marking as crashed, check if output ends in pip "Preparing packages"
+          // spinner — this means we polled during a quiet phase, not a real crash.
+          const endsPipPreparingPhase = (task.payload?._dep || _isPipTask) && _outputEndsInPipPreparingSpinner(lastOutput);
+          if (!lastOutput.trim() || (!looksSuccessful && !endsPipPreparingPhase)) {
             _updateTask(task.sessionId, { status: 'crashed' });
             el.dataset.status = 'crashed';
             const badge = el.querySelector('.cookbook-task-status');

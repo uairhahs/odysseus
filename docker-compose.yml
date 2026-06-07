@@ -1,6 +1,13 @@
 services:
   odysseus:
-    build: .
+    container_name: odysseus
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Pass INSTALL_OPTIONAL=true to include optional dependencies (PyMuPDF, etc.)
+      # Default: false (MIT-core only, no AGPL dependencies)
+      args:
+        INSTALL_OPTIONAL: "${INSTALL_OPTIONAL:-true}"
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
     volumes:
@@ -12,6 +19,10 @@ services:
       # Cookbook local model cache. Inside Docker, "Local" means the Odysseus
       # container, so persist its HuggingFace cache under ./data/huggingface.
       - ./data/huggingface:/app/.cache/huggingface:z
+      # uv wheel/package cache — persisting this means cookbook dep installs
+      # (vLLM, torch, sglang, etc.) reuse cached wheels on container recreate
+      # instead of redownloading them.
+      - ./data/uv-cache:/app/.cache/uv:z
       # Cookbook-installed Python CLIs/packages (vLLM, llama-cpp-python, etc.)
       # land under /app/.local for the odysseus user. Persist them so a
       # container recreate does not silently remove installed serve engines.
@@ -70,6 +81,7 @@ services:
     restart: unless-stopped
 
   chromadb:
+    container_name: odysseus-chromadb
     image: docker.io/chromadb/chroma:latest
     ports:
       - "${CHROMADB_BIND:-127.0.0.1}:8100:8000"
@@ -80,6 +92,7 @@ services:
     restart: unless-stopped
 
   searxng:
+    container_name: odysseus-searxng
     # Pinned, not :latest — odysseus waits on searxng's healthcheck
     # (depends_on: condition: service_healthy), so a broken upstream `latest`
     # tag blocks the whole app from starting. 2026.6.2 crashes on boot with
@@ -122,14 +135,23 @@ services:
       - SETUID
       - DAC_OVERRIDE
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=5).read(1)\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8080/'', timeout=5).read(1)"',
+        ]
       interval: 5s
       timeout: 6s
       retries: 20
       start_period: 10s
     restart: unless-stopped
+    # Add manual DNS
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
   ntfy:
+    container_name: odysseus-ntfy
     image: docker.io/binwiederhier/ntfy
     command: serve
     ports:
