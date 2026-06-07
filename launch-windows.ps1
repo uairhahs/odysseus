@@ -99,21 +99,28 @@ if (-not $pyExe) {
 $pythonLabel = ("Using Python {0}: {1} {2}" -f $pyVersion, $pyExe, ($pyArgs -join ' ')).TrimEnd()
 Write-Host $pythonLabel
 
-# 2. Create the virtualenv if missing
+# 2. Create the virtualenv if missing (using uv for speed)
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Step "Installing uv (fast Python package manager)"
+    Write-Host "Installing uv via https://astral.sh/uv/install.sh"
+    # On Windows, uv installs via self-installer
+    Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing | Invoke-Expression
+    if ($LASTEXITCODE -ne 0) { Fail "Failed to install uv." }
+}
+
 $venvPy = Join-Path $PSScriptRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $venvPy)) {
     Write-Step "Creating virtual environment (venv)"
-    & $pyExe @pyArgs -m venv venv
+    uv venv venv --python ($pyExe + " " + ($pyArgs -join ' ')).Trim()
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $venvPy)) { Fail "Failed to create the virtual environment." }
 } else {
     Write-Host "venv already exists - skipping creation."
 }
 
-# 3. Install / update dependencies
+# 3. Install / update dependencies using uv
 Write-Step "Installing dependencies (first run can take a few minutes)"
-& $venvPy -m pip install --upgrade pip --quiet
-& $venvPy -m pip install -r requirements.txt
-if ($LASTEXITCODE -ne 0) { Fail "Dependency install failed. Scroll up for the pip error." }
+uv pip sync pyproject.toml
+if ($LASTEXITCODE -ne 0) { Fail "Dependency install failed. Scroll up for the uv error." }
 
 # 4. First-time setup (creates data dirs, DB, .env, admin user)
 Write-Step "Running first-time setup"

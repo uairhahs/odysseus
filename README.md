@@ -77,9 +77,11 @@ only when you intentionally want LAN/reverse-proxy access.
 ```bash
 git clone https://github.com/pewdiepie-archdaemon/odysseus.git
 cd odysseus
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# Install uv for fast, reliable Python dependency management
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Create environment and install deps from pyproject.toml
+uv venv venv
+uv pip install -e .
 python setup.py
 python -m uvicorn app:app --host 127.0.0.1 --port 7000
 ```
@@ -277,15 +279,16 @@ Or do it by hand:
 ```powershell
 git clone https://github.com/pewdiepie-archdaemon/odysseus.git
 cd odysseus
-py -3.11 -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+# Install uv for fast, reliable Python dependency management
+Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing | Invoke-Expression
+# Create environment and install deps from pyproject.toml
+uv venv venv
+uv pip install -e .
 python setup.py
 python -m uvicorn app:app --host 127.0.0.1 --port 7000
 ```
 
-If `python` points at an older interpreter, use `py -3.12` (or another installed
-3.11+ version) for the venv step.
+If `python` points at an older interpreter, uv will automatically detect and use a suitable version from `py -3.12` (or another installed 3.11+ version).
 
 **Requirements:** Python 3.11+. The core app (chat, agent, memory, documents,
 email, calendar, deep research) runs fully native. For full **Cookbook** background
@@ -305,8 +308,8 @@ If `chromadb-client` (the lightweight HTTP-only package) is installed alongside 
 
 **Fix:** uninstall `chromadb-client` and force-reinstall the full package:
 ```bash
-./venv/bin/pip uninstall chromadb-client -y
-./venv/bin/pip install --force-reinstall chromadb
+uv pip uninstall chromadb-client -y
+uv pip install --force-reinstall chromadb
 ```
 
 ### HTTPS + LAN/Tailscale exposure
@@ -324,7 +327,7 @@ To expose Odysseus on a local network or Tailscale with HTTPS:
 4. Install the `mkcert` CA on any other device you want to access Odysseus from (e.g., for iOS, email the `rootCA.pem` to yourself, install the profile, and trust it in Certificate Trust Settings).
 
 ### Optional Dependencies
-`requirements-optional.txt` contains packages that unlock extra features. It is not installed by default.
+Optional features are managed in `pyproject.toml` under `[project.optional-dependencies]` and can be installed with `uv pip install -e '.[optional]'`.
 
 | Package | Feature unlocked |
 |---------|-----------------|

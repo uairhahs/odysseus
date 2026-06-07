@@ -22,12 +22,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python deps first (layer cache). Optional extras (PyMuPDF AGPL, etc.)
-# are opt-in so the default image stays MIT-core; see requirements-optional.txt.
+# Install uv for fast, reliable Python dependency management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# Install Python deps from pyproject.toml. Optional extras (PyMuPDF AGPL, etc.)
+# are opt-in so the default image stays MIT-core. Use --no-cache-dir to minimize
+# image size. Copy pyproject.toml first for layer caching.
 ARG INSTALL_OPTIONAL=false
-COPY requirements.txt requirements-optional.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
-    && if [ "$INSTALL_OPTIONAL" = "true" ]; then pip install --no-cache-dir -r requirements-optional.txt; fi
+COPY pyproject.toml uv.lock ./
+RUN uv pip install --no-cache-dir -r pyproject.toml \
+    && if [ "$INSTALL_OPTIONAL" = "true" ]; then uv pip install --no-cache-dir -r pyproject.toml[optional]; fi
 
 # Copy app code
 COPY . .

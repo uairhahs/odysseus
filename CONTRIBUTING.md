@@ -34,9 +34,12 @@ docker compose up -d --build
 Manual development uses Python 3.11+:
 
 ```bash
-python3 -m venv venv
+# Install uv for fast, reliable Python dependency management
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Create environment and install deps
+uv venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+uv pip install -e .
 python -m uvicorn app:app --host 0.0.0.0 --port 7000
 ```
 

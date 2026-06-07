@@ -80,8 +80,9 @@ jobs:
         if: steps.docs-check.outputs.docs_only != 'true'
         with:
           python-version: "3.11"
-          cache: pip
-      - run: pip install -r requirements.txt
+      - uses: astral-sh/setup-uv@v1
+        if: steps.docs-check.outputs.docs_only != 'true'
+      - run: uv pip install -r pyproject.toml
         if: steps.docs-check.outputs.docs_only != 'true'
       - run: mkdir -p data  # sqlite DB lives at ./data/app.db
         if: steps.docs-check.outputs.docs_only != 'true'

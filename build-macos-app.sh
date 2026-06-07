@@ -87,9 +87,13 @@ die_gui() {
 [ -x "$UVICORN" ] || die_gui "Odysseus isn't set up yet. Open Terminal and run:
 
 cd $INSTALL_DIR
-python3.11 -m venv venv
-./venv/bin/pip install -r requirements.txt
-./venv/bin/python setup.py"
+./start-macos.sh
+
+Or manually:
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ~/.cargo/bin/uv venv venv
+  ~/.cargo/bin/uv pip install -e .
+  ./venv/bin/python setup.py"
 
 # Open the UI in a chrome-less app window (Chromium browsers), else default browser.
 open_ui() {

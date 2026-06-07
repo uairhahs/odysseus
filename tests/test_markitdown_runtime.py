@@ -30,7 +30,7 @@ def test_missing_dependency_error_is_user_actionable(monkeypatch):
 
     message = str(exc.value)
     assert message == MARKITDOWN_MISSING
-    assert "requirements-optional.txt" in message
+    assert ".[optional]" in message
 
 
 def test_convert_returns_none_when_dependency_missing(monkeypatch):
