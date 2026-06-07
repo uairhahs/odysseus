@@ -195,16 +195,19 @@ def _pip_install_attempt(pip_cmd: str) -> str:
     )
 
 
-def _pip_install_fallback_chain(package: str, *, python_cmd: str = "python3 -m pip", upgrade: bool = False) -> str:
-    """Build a bash pip install fallback chain that surfaces errors.
+def _pip_install_fallback_chain(package: str, *, python_cmd: str = "uv pip", upgrade: bool = False) -> str:
+    """Build a bash install fallback chain that surfaces errors.
 
-    Try the active interpreter/environment first. ``--user`` is invalid
-    inside many venvs, so only attempt the ``--user`` fallback when NOT
-    inside a venv.
+    Prefers ``uv pip install`` (uv's pip compatibility layer). For ``uv add``
+    callers (project-root context only), pass ``python_cmd="uv add"`` explicitly
+    — that path skips the --user fallback since uv manages the env directly.
 
-    Each attempt is wrapped via :func:`_pip_install_attempt` so pip's real
+    Remote/SSH and platform-specific callers pass ``python_cmd="pip"`` etc.
+    explicitly; those paths use the traditional venv-check + --user fallback.
+
+    Each attempt is wrapped via :func:`_pip_install_attempt` so the real
     exit code is preserved (no ``| tail`` masking) and the last 5 lines of
-    pip output appear in the Cookbook log on failure.
+    output appear in the Cookbook log on failure.
     """
     from core.platform_compat import IS_WINDOWS
     upgrade_flag = " -U" if upgrade else ""
@@ -216,6 +219,21 @@ def _pip_install_fallback_chain(package: str, *, python_cmd: str = "python3 -m p
     if IS_WINDOWS and "llama-cpp-python" in package:
         pkg += " --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu"
 
+    # uv add: project-level management — caller must ensure cwd is project root.
+    # No --user fallback; uv manages the venv directly.
+    if python_cmd.strip() == "uv add":
+        # uv add doesn't support -U; re-adding a package resolves the latest version.
+        base = _pip_install_attempt(f"uv add {pkg}")
+        fallback = _pip_install_attempt(f"uv pip install -q{upgrade_flag} {pkg}")
+        return f"{base} || {fallback}"
+
+    # uv pip: uv's pip compatibility layer — works from any directory.
+    # Keep this path uv-only: in uv-managed runtimes (e.g. /app/.venv),
+    # `python -m pip` can be unavailable and causes misleading fallback errors.
+    if python_cmd.strip() == "uv pip":
+        return _pip_install_attempt(f"uv pip install -q{upgrade_flag} {pkg}")
+
+    # Traditional pip commands: try plain install, then --user outside a venv.
     base = _pip_install_attempt(f"{python_cmd} install -q{upgrade_flag} {pkg}")
     user = _pip_install_attempt(f"{python_cmd} install --user --break-system-packages -q{upgrade_flag} {pkg}")
     # Derive the python executable for the venv detection check.
@@ -233,9 +251,7 @@ def _pip_install_fallback_chain(package: str, *, python_cmd: str = "python3 -m p
     # Negated: `! venv_check` succeeds (exit 0) when NOT in a venv → `&&` tries
     # --user.  When IN a venv `! venv_check` fails → `&&` skips --user and the
     # group exits non-zero, propagating the base-install failure instead of
-    # masking it as success (the `|| { venv_check || … }` shape from #903
-    # swallowed the exit code because venv_check's exit-0 became the group's
-    # result).
+    # masking it as success.
     return f"{base} || {{ ! {venv_check} && {user}; }}"
 
 

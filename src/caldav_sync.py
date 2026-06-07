@@ -242,6 +242,131 @@ def _build_dav_client(url: str, username: str, password: str):
     return client
 
 
+def _parse_ics_datetime(value: str):
+    """Parse a basic iCalendar DATE or DATE-TIME value.
+
+    Supports the common forms emitted by major CalDAV servers:
+      - YYYYMMDD (all-day)
+      - YYYYMMDDTHHMMSS
+      - YYYYMMDDTHHMMSSZ
+    Returns ``date`` or ``datetime``; raises ``ValueError`` on unknown format.
+    """
+    text = (value or "").strip()
+    if not text:
+        raise ValueError("empty datetime")
+    if len(text) == 8 and text.isdigit():
+        return datetime.strptime(text, "%Y%m%d").date()
+    if text.endswith("Z"):
+        dt = datetime.strptime(text, "%Y%m%dT%H%M%SZ")
+        return dt.replace(tzinfo=timezone.utc)
+    return datetime.strptime(text, "%Y%m%dT%H%M%S")
+
+
+def _iter_vevents_from_ics(ics_data):
+    """Yield VEVENT dicts from iCalendar payload.
+
+    Prefer `icalendar` when installed; otherwise use a minimal fallback parser
+    that extracts common VEVENT fields. This keeps CalDAV sync functional in
+    environments where `icalendar` is optional.
+    """
+    try:
+        from icalendar import Calendar as iCal
+
+        ical = iCal.from_ical(ics_data)
+        for comp in ical.walk():
+            if comp.name != "VEVENT":
+                continue
+            dtstart_p = comp.get("dtstart")
+            if not dtstart_p:
+                continue
+            dtstart_v = dtstart_p.dt
+            dtend_p = comp.get("dtend")
+            dtend_v = dtend_p.dt if dtend_p else None
+            yield {
+                "uid": str(comp.get("uid", "")) or str(uuid.uuid4()),
+                "dtstart": dtstart_v,
+                "dtend": dtend_v,
+                "is_dtstart_tz_aware": isinstance(dtstart_v, datetime) and dtstart_v.tzinfo is not None,
+                "summary": str(comp.get("summary", "")),
+                "description": str(comp.get("description", "")),
+                "location": str(comp.get("location", "")),
+                "rrule": (comp.get("rrule").to_ical().decode() if comp.get("rrule") else ""),
+            }
+        return
+    except ModuleNotFoundError:
+        logger.info("icalendar is not installed; using fallback VEVENT parser")
+
+    if isinstance(ics_data, bytes):
+        text = ics_data.decode("utf-8", errors="replace")
+    else:
+        text = str(ics_data)
+
+    # RFC 5545 line folding: CRLF + (space|tab) continues previous line.
+    text = text.replace("\r\n ", "").replace("\r\n\t", "")
+    lines = [ln.strip() for ln in text.replace("\r\n", "\n").split("\n") if ln.strip()]
+
+    in_event = False
+    event_fields = {}
+
+    def _field_name(raw_name: str) -> str:
+        return raw_name.split(";", 1)[0].upper()
+
+    def _unescape(raw: str) -> str:
+        return (
+            raw.replace("\\n", "\n")
+            .replace("\\N", "\n")
+            .replace("\\,", ",")
+            .replace("\\;", ";")
+            .replace("\\\\", "\\")
+        )
+
+    for ln in lines:
+        upper = ln.upper()
+        if upper == "BEGIN:VEVENT":
+            in_event = True
+            event_fields = {}
+            continue
+        if upper == "END:VEVENT":
+            in_event = False
+            dtstart_raw = event_fields.get("DTSTART")
+            if not dtstart_raw:
+                event_fields = {}
+                continue
+            try:
+                dtstart_v = _parse_ics_datetime(dtstart_raw)
+            except Exception:
+                event_fields = {}
+                continue
+
+            dtend_raw = event_fields.get("DTEND")
+            dtend_v = None
+            if dtend_raw:
+                try:
+                    dtend_v = _parse_ics_datetime(dtend_raw)
+                except Exception:
+                    dtend_v = None
+
+            uid_val = event_fields.get("UID") or str(uuid.uuid4())
+            yield {
+                "uid": str(uid_val),
+                "dtstart": dtstart_v,
+                "dtend": dtend_v,
+                "is_dtstart_tz_aware": isinstance(dtstart_v, datetime) and dtstart_v.tzinfo is not None,
+                "summary": _unescape(event_fields.get("SUMMARY", "")),
+                "description": _unescape(event_fields.get("DESCRIPTION", "")),
+                "location": _unescape(event_fields.get("LOCATION", "")),
+                "rrule": event_fields.get("RRULE", ""),
+            }
+            event_fields = {}
+            continue
+        if not in_event:
+            continue
+        if ":" not in ln:
+            continue
+        left, right = ln.split(":", 1)
+        event_fields[_field_name(left)] = right.strip()
+
+
 def _sync_blocking(owner: str, url: str, username: str, password: str, account_id: str = "") -> dict:
     """The actual sync — synchronous, intended to run in a threadpool.
     Returns counts: {calendars, events, deleted, errors}."""
@@ -321,8 +446,6 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
                 # Fetch events in window. `date_search` returns CalendarObject
                 # resources; each may contain one VEVENT (most servers) or
                 # several (rare).
-                from icalendar import Calendar as iCal
-
                 seen_uids = set()
                 # Track events added to the session but not yet committed so
                 # duplicate UIDs within the same batch are updated, not re-inserted
@@ -336,25 +459,23 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
 
                 for obj in objs:
                     try:
-                        ical = iCal.from_ical(obj.data)
+                        parsed_events = list(_iter_vevents_from_ics(obj.data))
                     except Exception as e:
                         result["errors"].append(f"{display_name}: parse failed ({e})")
                         continue
 
-                    for comp in ical.walk():
-                        if comp.name != "VEVENT":
-                            continue
+                    for comp in parsed_events:
                         uid_val = str(comp.get("uid", "")) or str(uuid.uuid4())
                         seen_uids.add(uid_val)
 
-                        dtstart_p = comp.get("dtstart")
-                        if not dtstart_p:
+                        dtstart_v = comp.get("dtstart")
+                        if not dtstart_v:
                             continue
-                        start_dt, all_day = _to_utc_naive(dtstart_p.dt)
+                        start_dt, all_day = _to_utc_naive(dtstart_v)
 
-                        dtend_p = comp.get("dtend")
-                        if dtend_p:
-                            end_dt, _ = _to_utc_naive(dtend_p.dt)
+                        dtend_v = comp.get("dtend")
+                        if dtend_v:
+                            end_dt, _ = _to_utc_naive(dtend_v)
                         elif all_day:
                             end_dt = start_dt + timedelta(days=1)
                         else:
@@ -364,18 +485,13 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
                         # we converted from. All-day = no TZ semantics.
                         row_is_utc = (
                             not all_day
-                            and isinstance(dtstart_p.dt, datetime)
-                            and dtstart_p.dt.tzinfo is not None
+                            and bool(comp.get("is_dtstart_tz_aware", False))
                         )
 
                         summary = str(comp.get("summary", ""))
                         description = str(comp.get("description", ""))
                         location = str(comp.get("location", ""))
-                        rrule = (
-                            comp.get("rrule").to_ical().decode()
-                            if comp.get("rrule")
-                            else ""
-                        )
+                        rrule = str(comp.get("rrule", ""))
 
                         existing = _find_existing_event(db, pending, uid_val, local_cal.id)
                         if existing:

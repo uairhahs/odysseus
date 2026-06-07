@@ -163,12 +163,15 @@ function _getPort(hostOrTask) {
 export function _getPlatform(hostOrTask) {
   const isWinBrowser = (window.navigator.userAgent || window.navigator.platform || '').toLowerCase().includes('win');
   if (!hostOrTask || hostOrTask === 'local') {
-    return _envState.platform || (isWinBrowser ? 'windows' : '');
+    // For local connections, prioritize explicit platform setting over browser UA.
+    // Odysseus is Linux-based, so only return 'windows' if explicitly set in _envState.
+    return _envState.platform || '';
   }
   if (typeof hostOrTask === 'object') {
     const h = hostOrTask.remoteHost;
     if (!h || h === 'local') {
-      return hostOrTask.platform || _envState.platform || (isWinBrowser ? 'windows' : '');
+      // For tasks on local/no remoteHost: use explicit platform if set, otherwise default to empty (Linux-like).
+      return hostOrTask.platform || _envState.platform || '';
     }
     return hostOrTask.platform || _getPlatform(h);
   }
@@ -664,9 +667,28 @@ async function _fetchDependencies() {
     const pkgs = data.packages || [];
     if (!pkgs.length) { list.innerHTML = '<div class="hwfit-loading">No packages found</div>'; return; }
     const _winUnsupported = new Set(['vllm', 'rembg', 'gfpgan']);
+    // Preserve in-flight state across tab switches: if a matching dependency
+    // install task is still running, show "Installing..." instead of flipping
+    // back to the plain Install prompt after a re-render.
+    const _selectedHost = _depHost || '';
+    const _pendingDepPips = new Set();
+    try {
+      const _tasks = _loadTasks();
+      (_tasks || []).forEach(t => {
+        if (!t || !t.payload || !t.payload._dep) return;
+        if (t.status !== 'running' && t.status !== 'queued') return;
+        const _taskHost = t.remoteHost || '';
+        if (_taskHost !== _selectedHost) return;
+        const _pip = String(t.payload.repo_id || '').trim();
+        if (_pip) _pendingDepPips.add(_pip);
+      });
+    } catch {}
 
     const _statusTag = (pkg, isLocal, isSystemDep, winBlocked) => {
       if (winBlocked) return `<span class="cookbook-dep-tag cookbook-dep-na">N/A</span>`;
+      if (!pkg.installed && _pendingDepPips.has(pkg.pip || '')) {
+        return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Install task is running">Installing...</span>`;
+      }
       if (pkg.installed && isSystemDep) return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Found on selected server">Installed</span>`;
       if (pkg.installed && pkg.pip_update_available === false) {
         const tip = esc(pkg.update_note || pkg.status_note || 'Found externally; update outside Odysseus.');
@@ -731,14 +753,71 @@ async function _fetchDependencies() {
     // Shared install/update routine — used by the Install button and the
     // "Update" item in an installed package's ⋮ menu. `upgrade` adds pip -U;
     // `statusEl`, when given, shows "Installing…/Updating…" and is disabled.
-    async function _installDep(pipName, pkgName, isLocalOnly, upgrade, statusEl) {
-      if (isLocalOnly) {
-        _envState.remoteHost = '';
-        _envState.env = 'none';
-        _envState.envPath = '';
+    async function _installDep(pipName, pkgName, isLocalOnly, upgrade, statusEl, remove = false) {
+      // Use the uv pip endpoint whenever there is no remote SSH host — this covers
+      // both local-target packages (rembg, realesrgan, playwright) AND
+      // server-target packages (hf_transfer, vllm, …) when the selected server
+      // IS the local Odysseus instance.  Sending `python3 -m pip` to the serve
+      // pipeline fails in uv-managed venvs (No module named pip).
+      const _isLocalServer = isLocalOnly || !(_envState.remoteHost);
+      if (_isLocalServer) {
+        if (statusEl) {
+          statusEl.textContent = remove ? 'Removing...' : (upgrade ? 'Updating...' : 'Installing...');
+          statusEl.disabled = true;
+        }
+        uiModule.showToast(`${remove ? 'Removing' : (upgrade ? 'Updating' : 'Installing')} ${pkgName} (uv pip ${remove ? 'uninstall' : 'install'})...`);
+        try {
+          const res = await fetch('/api/cookbook/packages/install', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pip: pipName,
+              action: remove ? 'remove' : (upgrade ? 'update' : 'install'),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) {
+            const reason = data.detail || data.error || `HTTP ${res.status}`;
+            uiModule.showToast(`${remove ? 'Remove' : 'Install'} failed: ` + String(reason).slice(0, 200));
+            if (statusEl) {
+              statusEl.textContent = remove ? 'Remove' : (upgrade ? 'Update' : 'Install');
+              statusEl.disabled = false;
+            }
+            return;
+          }
+          if (data.session_id) {
+            const payload = {
+              repo_id: pipName,
+              _cmd: `uv pip install --no-cache-dir ${pipName}`,
+              remote_host: '',
+              _dep: true,
+              env_path: '',
+            };
+            _addTask(data.session_id, `pip ${pkgName}`, 'download', payload);
+          } else {
+            uiModule.showToast(`${remove ? 'Removed' : (upgrade ? 'Updated' : 'Installed')} ${pkgName} in project dependencies.`);
+            await _fetchDependencies();
+            if (statusEl) {
+              statusEl.textContent = remove ? 'Remove' : (upgrade ? 'Update' : 'Install');
+              statusEl.disabled = false;
+            }
+          }
+          return;
+        } catch (err) {
+          uiModule.showToast(`${remove ? 'Remove' : 'Install'} failed: ${err.message}`);
+          if (statusEl) {
+            statusEl.textContent = remove ? 'Remove' : (upgrade ? 'Update' : 'Install');
+            statusEl.disabled = false;
+          }
+          return;
+        }
       } else {
         const depsServerSel = document.getElementById('hwfit-deps-server');
         if (depsServerSel) _applyServerSelection(depsServerSel.value);
+      }
+      if (remove) {
+        uiModule.showToast('Remove is only supported for local project dependencies right now.');
+        return;
       }
       const targetHost = isLocalOnly ? 'this server' : (_envState.remoteHost || 'local');
       // Always go through `python -m pip` so the leading token is `python`
@@ -835,6 +914,7 @@ async function _fetchDependencies() {
       left = Math.max(8, left);
       dropdown.style.cssText = `position:fixed;display:block;z-index:10001;top:${rect.bottom + 6}px;left:${left}px;right:auto;min-width:${minW}px;max-width:calc(100vw - 16px);background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:6px;font-size:11px;`;
       const upIco = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>';
+      const rmIco = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
       const it = document.createElement('div');
       it.className = 'dropdown-item-compact';
       it.innerHTML = `<span class="dropdown-icon">${upIco}</span><span>Update</span>`;
@@ -845,6 +925,18 @@ async function _fetchDependencies() {
         await _installDep(pipName, pkgName, isLocalOnly, true, null);
       });
       dropdown.appendChild(it);
+      if (isLocalOnly) {
+        const rm = document.createElement('div');
+        rm.className = 'dropdown-item-compact';
+        rm.innerHTML = `<span class="dropdown-icon">${rmIco}</span><span>Remove</span>`;
+        rm.title = `Remove ${pkgName} from project dependencies (uv remove)`;
+        rm.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          dropdown.remove();
+          await _installDep(pipName, pkgName, true, false, null, true);
+        });
+        dropdown.appendChild(rm);
+      }
       document.body.appendChild(dropdown);
       const close = (ev) => {
         if (!dropdown.contains(ev.target) && ev.target !== anchor && !anchor.contains(ev.target)) {

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 _PYMUPDF_MISSING = (
     "PDF form features require PyMuPDF, an optional dependency. Install it with "
-    "`uv pip install -e '.[optional]'` (note: PyMuPDF is AGPL-3.0)."
+    "`uv sync --all-extras` (note: PyMuPDF is AGPL-3.0)."
 )
 
 

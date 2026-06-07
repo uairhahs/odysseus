@@ -119,7 +119,7 @@ if (-not (Test-Path $venvPy)) {
 
 # 3. Install / update dependencies using uv
 Write-Step "Installing dependencies (first run can take a few minutes)"
-uv pip sync pyproject.toml
+uv sync
 if ($LASTEXITCODE -ne 0) { Fail "Dependency install failed. Scroll up for the uv error." }
 
 # 4. First-time setup (creates data dirs, DB, .env, admin user)

@@ -13,34 +13,45 @@
 A self-hosted AI workspace -- meant to be the self-hosted version of the UI experience you get from ChatGPT and Claude. But with more jank and fun. Running on your own hardware, with your own data -- local-first, privacy-first, and no trojan.
 
 ## Features
-  - **Chat** -- chat with any local model or API; adding them is super simple.<br>　<sub>vLLM · llama.cpp · Ollama · OpenRouter · OpenAI · GitHub Copilot</sub>
-  - **Agent** -- hand it tools and let it run the whole task itself.<br>　<sub>built on [opencode](https://github.com/anomalyco/opencode) · MCP · web · files · shell · skills · memory</sub>
-  - **Cookbook** -- Scans your hardware, recommends models, click to download and serve.. easy!<br>　<sub>built on [llmfit](https://github.com/AlexsJones/llmfit) · VRAM-aware · GGUF / FP8 / AWQ · fit scoring · vLLM / llama.cpp serving</sub>
-  - **Deep Research** -- multi-step runs that gather, read, and synthesize sources into a nice visual report.<br>　<sub>adapted from [Tongyi DeepResearch](https://github.com/Alibaba-NLP/DeepResearch)</sub>
-  - **Compare** -- a fun tool to compare models side by side. Test completely blind, no bias!<br>　<sub>multi-model · blind test · synthesis</sub>
-  - **Documents** -- YOU write the text, AI is there to assist, not the opposite.<br>　<sub>multi-tab editor · markdown · HTML · CSV · syntax highlighting · AI edits · suggestions</sub>
-  - **Memory / Skills** -- Persistent memory and skills, your agent evolves over time as it better understands you and your tasks!<br>　<sub>ChromaDB · fastembed (ONNX) · vector + keyword retrieval · import/export</sub>
-  - **Email** -- IMAP/SMTP inbox with AI triage built in: urgency reminders, auto-tag, auto-summary, auto-reply drafts, auto-spam.<br>　<sub>IMAP · SMTP · per-account routing · CalDAV-aware</sub>
-  - **Notes & Tasks** -- Quick notes with reminders, a todo list, and scheduled tasks the agent can act on.<br>　<sub>note pings · checklist · cron-style tasks · ntfy / browser / email channels</sub>
-  - **Calendar** -- Local-first calendar with CalDAV sync to Radicale / Nextcloud / Apple / Fastmail.<br>　<sub>CalDAV pull · .ics import/export · per-calendar colors · agent-aware</sub>
-  - **Works on mobile** -- looks and runs great on your phone, not just desktop.<br>　<sub>responsive · installable (PWA) · touch gestures</sub>
-  - **Extras** -- more to explore, happy if you give it a go!<br>　<sub>image editor · theme editor · file uploads (vision + PDF) · web search · presets · sessions · 2FA</sub>
+
+- **Chat** -- chat with any local model or API; adding them is super simple.<br>　<sub>vLLM · llama.cpp · Ollama · OpenRouter · OpenAI · GitHub Copilot</sub>
+- **Agent** -- hand it tools and let it run the whole task itself.<br>　<sub>built on [opencode](https://github.com/anomalyco/opencode) · MCP · web · files · shell · skills · memory</sub>
+- **Cookbook** -- Scans your hardware, recommends models, click to download and serve.. easy!<br>　<sub>built on [llmfit](https://github.com/AlexsJones/llmfit) · VRAM-aware · GGUF / FP8 / AWQ · fit scoring · vLLM / llama.cpp serving</sub>
+- **Deep Research** -- multi-step runs that gather, read, and synthesize sources into a nice visual report.<br>　<sub>adapted from [Tongyi DeepResearch](https://github.com/Alibaba-NLP/DeepResearch)</sub>
+- **Compare** -- a fun tool to compare models side by side. Test completely blind, no bias!<br>　<sub>multi-model · blind test · synthesis</sub>
+- **Documents** -- YOU write the text, AI is there to assist, not the opposite.<br>　<sub>multi-tab editor · markdown · HTML · CSV · syntax highlighting · AI edits · suggestions</sub>
+- **Memory / Skills** -- Persistent memory and skills, your agent evolves over time as it better understands you and your tasks!<br>　<sub>ChromaDB · fastembed (ONNX) · vector + keyword retrieval · import/export</sub>
+- **Email** -- IMAP/SMTP inbox with AI triage built in: urgency reminders, auto-tag, auto-summary, auto-reply drafts, auto-spam.<br>　<sub>IMAP · SMTP · per-account routing · CalDAV-aware</sub>
+- **Notes & Tasks** -- Quick notes with reminders, a todo list, and scheduled tasks the agent can act on.<br>　<sub>note pings · checklist · cron-style tasks · ntfy / browser / email channels</sub>
+- **Calendar** -- Local-first calendar with CalDAV sync to Radicale / Nextcloud / Apple / Fastmail.<br>　<sub>CalDAV pull · .ics import/export · per-calendar colors · agent-aware</sub>
+- **Works on mobile** -- looks and runs great on your phone, not just desktop.<br>　<sub>responsive · installable (PWA) · touch gestures</sub>
+- **Extras** -- more to explore, happy if you give it a go!<br>　<sub>image editor · theme editor · file uploads (vision + PDF) · web search · presets · sessions · 2FA</sub>
 
 ## Demo
+
 A full, hover-to-play tour lives on the landing page (`docs/index.html`).
 
 <details>
 <summary>Screenshots / clips</summary>
 
 ### Chat & Agents
+
 ![Chat & Agents](docs/chat.gif)
+
 ### Deep Research
+
 ![Deep Research](docs/research.gif)
+
 ### Compare
+
 ![Compare](docs/compare.gif)
+
 ### Documents
+
 ![Documents](docs/document.gif)
+
 ### Notes & Tasks
+
 ![Notes & Tasks](docs/notes.gif)
 
 </details>
@@ -60,12 +71,14 @@ Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, and
 pull request guidelines.
 
 ### Docker (recommended)
+
 ```bash
 git clone https://github.com/pewdiepie-archdaemon/odysseus.git
 cd odysseus
 cp .env.example .env       # optional, but recommended for explicit defaults
 docker compose up -d --build
 ```
+
 To include optional extras in the image (PDF viewer, Office extraction; includes AGPL PyMuPDF), build with `docker compose build --build-arg INSTALL_OPTIONAL=true` before `up`.
 
 Open `http://localhost:7000` when the containers are healthy. Docker Compose
@@ -74,6 +87,7 @@ binds the web UI to `127.0.0.1` by default. If the port is taken, set
 only when you intentionally want LAN/reverse-proxy access.
 
 ### Native Linux / macOS
+
 ```bash
 git clone https://github.com/pewdiepie-archdaemon/odysseus.git
 cd odysseus
@@ -81,16 +95,18 @@ cd odysseus
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # Create environment and install deps from pyproject.toml
 uv venv venv
-uv pip install -e .
+uv sync
 python setup.py
-python -m uvicorn app:app --host 127.0.0.1 --port 7000
+uv run python -m uvicorn app:app --host 127.0.0.1 --port 7000
 ```
+
 Requirements: Python 3.11+. Cookbook also needs `tmux` for background model
 downloads and serves. The app itself is lightweight; local model serving is the
 heavy part and depends on the model, runtime, GPU, and VRAM, so small hosts can
 connect to API or remote model servers instead. Use `--host 0.0.0.0` only when you intentionally want LAN/reverse-proxy access.
 
 ### Apple Silicon
+
 Docker on macOS cannot use the Metal GPU. For GPU-accelerated Cookbook on an
 M-series Mac, run Odysseus natively:
 
@@ -164,6 +180,7 @@ scripts/check-docker-gpu.sh --install-nvidia-toolkit --enable-nvidia-overlay
 ```
 
 Safety notes:
+
 - The app never installs host GPU runtime automatically.
 - The app never edits `.env` automatically.
 - `.env` is only modified when `--enable-nvidia-overlay` is explicitly passed,
@@ -218,7 +235,7 @@ docker compose exec odysseus sh -lc 'test -e /dev/kfd && test -d /dev/dri && ls 
 > **GPU passthrough ≠ llama.cpp CUDA.** `nvidia-smi` passing inside the
 > container confirms Docker GPU access, but llama.cpp also needs `cudart` and
 > the CUDA Toolkit at runtime. If Cookbook logs show `Unable to find cudart
-> library`, `Could NOT find CUDAToolkit`, `CUDA Toolkit not found`, or
+library`, `Could NOT find CUDAToolkit`, `CUDA Toolkit not found`, or
 > tensors/layers assigned to CPU, that is a Cookbook/llama.cpp build issue —
 > not a Docker passthrough failure. Re-install the serve engine via
 > **Cookbook → Dependencies** to get a CUDA-enabled build.
@@ -283,9 +300,9 @@ cd odysseus
 Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing | Invoke-Expression
 # Create environment and install deps from pyproject.toml
 uv venv venv
-uv pip install -e .
+uv sync
 python setup.py
-python -m uvicorn app:app --host 127.0.0.1 --port 7000
+uv run python -m uvicorn app:app --host 127.0.0.1 --port 7000
 ```
 
 If `python` points at an older interpreter, uv will automatically detect and use a suitable version from `py -3.12` (or another installed 3.11+ version).
@@ -294,7 +311,7 @@ If `python` points at an older interpreter, uv will automatically detect and use
 email, calendar, deep research) runs fully native. For full **Cookbook** background
 model downloads and the agent shell tool, also install
 [Git for Windows](https://git-scm.com/download/win) (provides `bash.exe`).
-Local GPU *serving* of vLLM/SGLang needs Linux/WSL2; for a local model on Windows,
+Local GPU _serving_ of vLLM/SGLang needs Linux/WSL2; for a local model on Windows,
 [Ollama](https://ollama.com/download) is the easiest path — point Odysseus at
 `http://localhost:11434/v1` in Settings.
 
@@ -303,17 +320,21 @@ and configure everything else inside **Settings**.
 
 ## Troubleshooting & Advanced Setup
 
-### `chromadb-client` conflicts with embedded ChromaDB
+### chromadb-client conflicts with embedded ChromaDB
+
 If `chromadb-client` (the lightweight HTTP-only package) is installed alongside the full `chromadb` package, Odysseus starts but ChromaDB silently falls back to HTTP-only mode and fails.
 
-**Fix:** uninstall `chromadb-client` and force-reinstall the full package:
+**Fix:** remove and reinstall the full package:
+
 ```bash
-uv pip uninstall chromadb-client -y
-uv pip install --force-reinstall chromadb
+uv remove chromadb-client
+uv add chromadb
 ```
 
 ### HTTPS + LAN/Tailscale exposure
+
 To expose Odysseus on a local network or Tailscale with HTTPS:
+
 1. Change the bind address to `0.0.0.0` in `.env` (`APP_BIND=0.0.0.0` or `ODYSSEUS_HOST=0.0.0.0`).
 2. Generate a locally-trusted cert for your LAN/Tailscale IPs using [mkcert](https://github.com/FiloSottile/mkcert):
    ```bash
@@ -322,21 +343,23 @@ To expose Odysseus on a local network or Tailscale with HTTPS:
    ```
 3. Run `uvicorn` with the generated certs:
    ```bash
-   python -m uvicorn app:app --host 0.0.0.0 --port 7000 --ssl-certfile=cert.pem --ssl-keyfile=key.pem
+   uv run python -m uvicorn app:app --host 0.0.0.0 --port 7000 --ssl-certfile=cert.pem --ssl-keyfile=key.pem
    ```
 4. Install the `mkcert` CA on any other device you want to access Odysseus from (e.g., for iOS, email the `rootCA.pem` to yourself, install the profile, and trust it in Certificate Trust Settings).
 
 ### Optional Dependencies
-Optional features are managed in `pyproject.toml` under `[project.optional-dependencies]` and can be installed with `uv pip install -e '.[optional]'`.
 
-| Package | Feature unlocked |
-|---------|-----------------|
-| `faster-whisper` | Local speech-to-text (microphone -> text) via the "local" STT provider. |
-| `duckduckgo-search` | DuckDuckGo as a search provider option. |
-| `PyMuPDF` | PDF page rendering in the side viewer panel and form-filling. (Note: AGPL-3.0) |
-| `markitdown` | Office/EPUB document text extraction (converts .docx/.xlsx/.pptx/.xls/.epub to Markdown). |
+Optional features are managed in `pyproject.toml` under `[project.optional-dependencies]` and can be installed with `uv sync --all-extras`.
+
+| Package             | Feature unlocked                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `faster-whisper`    | Local speech-to-text (microphone -> text) via the "local" STT provider.                   |
+| `duckduckgo-search` | DuckDuckGo as a search provider option.                                                   |
+| `PyMuPDF`           | PDF page rendering in the side viewer panel and form-filling. (Note: AGPL-3.0)            |
+| `markitdown`        | Office/EPUB document text extraction (converts .docx/.xlsx/.pptx/.xls/.epub to Markdown). |
 
 ## Security Notes
+
 Odysseus is a self-hosted workspace with powerful local tools: shell access, file uploads, model downloads, web research, email/calendar integrations, and API tokens. Treat it like an admin console.
 
 - Keep `AUTH_ENABLED=true` for any network-accessible deployment.
@@ -353,6 +376,7 @@ Odysseus is a self-hosted workspace with powerful local tools: shell access, fil
 - Before publishing a fork, run `git status --short` and confirm no private files from `.env`, `data/`, `logs/`, uploads, backups, or local databases are staged.
 
 ### Private or proxied deployments
+
 Odysseus serves plain HTTP on its app port. Docker Compose binds Odysseus and the bundled services to `127.0.0.1` by default, so a typical production/private setup is:
 
 1. Keep Odysseus on localhost, for example `127.0.0.1:7000`.
@@ -364,41 +388,43 @@ Cloudflare Access, Tailscale, Caddy, nginx, and Traefik can all fit this pattern
 
 Common internal-only ports from the default docs/compose setup:
 
-| Port | Service |
-|---|---|
-| `7000` | Odysseus raw app port |
-| `8080` | SearXNG |
-| `8091` | ntfy |
-| `8100` | ChromaDB host port for manual/compose access |
-| `11434` | Ollama |
-| `8000-8020` | Common local model/provider APIs |
+| Port        | Service                                      |
+| ----------- | -------------------------------------------- |
+| `7000`      | Odysseus raw app port                        |
+| `8080`      | SearXNG                                      |
+| `8091`      | ntfy                                         |
+| `8100`      | ChromaDB host port for manual/compose access |
+| `11434`     | Ollama                                       |
+| `8000-8020` | Common local model/provider APIs             |
 
 ## Contributing
+
 Help is welcome. The best entry points are fresh-install testing, provider setup
 bugs, mobile/editor polish, docs, and small focused refactors. See
 [ROADMAP.md](ROADMAP.md) for the current help-wanted list.
 
 ## Configuration
+
 Most setup is done inside the app with `/setup` or **Settings**. Use `.env`
 for deployment-level defaults and secrets you want present before first boot.
 Key settings:
 
-| Variable | Default | Description |
-|---|---|---|
-| `LLM_HOST` | `localhost` | Your LLM server (e.g. `llm-host.local:8000`) |
-| `LLM_HOSTS` | -- | Comma-separated list for model discovery |
-| `OPENAI_API_KEY` | -- | Optional OpenAI key. Prefer adding providers in the app unless pre-seeding. |
-| `SEARXNG_INSTANCE` | `http://localhost:8080` | SearXNG URL. Docker overrides this to `http://searxng:8080`. |
-| `SEARXNG_SECRET` | generated on first Docker boot | Optional SearXNG cookie/CSRF secret. Leave blank unless you need to pin it. |
-| `APP_BIND` | `127.0.0.1` | Docker Compose host bind address for the web UI. Use `0.0.0.0` only for intentional LAN/reverse-proxy access. |
-| `APP_PORT` | `7000` | Docker Compose host port for the web UI. |
-| `AUTH_ENABLED` | `true` | Enable/disable login |
-| `LOCALHOST_BYPASS` | `false` | Development-only auth bypass for loopback requests. Keep false for shared/network deployments. |
-| `SECURE_COOKIES` | `false` | Set true when serving Odysseus through HTTPS at a trusted proxy or private access gateway. |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | Database connection string |
-| `CHROMADB_HOST` | `localhost` | ChromaDB host for vector memory. Docker overrides this to `chromadb`. |
-| `CHROMADB_PORT` | `8100` | ChromaDB port for manual host runs. Docker overrides this to `8000`. |
-| `EMBEDDING_URL` | -- | OpenAI-compatible embeddings endpoint |
+| Variable           | Default                        | Description                                                                                                   |
+| ------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `LLM_HOST`         | `localhost`                    | Your LLM server (e.g. `llm-host.local:8000`)                                                                  |
+| `LLM_HOSTS`        | --                             | Comma-separated list for model discovery                                                                      |
+| `OPENAI_API_KEY`   | --                             | Optional OpenAI key. Prefer adding providers in the app unless pre-seeding.                                   |
+| `SEARXNG_INSTANCE` | `http://localhost:8080`        | SearXNG URL. Docker overrides this to `http://searxng:8080`.                                                  |
+| `SEARXNG_SECRET`   | generated on first Docker boot | Optional SearXNG cookie/CSRF secret. Leave blank unless you need to pin it.                                   |
+| `APP_BIND`         | `127.0.0.1`                    | Docker Compose host bind address for the web UI. Use `0.0.0.0` only for intentional LAN/reverse-proxy access. |
+| `APP_PORT`         | `7000`                         | Docker Compose host port for the web UI.                                                                      |
+| `AUTH_ENABLED`     | `true`                         | Enable/disable login                                                                                          |
+| `LOCALHOST_BYPASS` | `false`                        | Development-only auth bypass for loopback requests. Keep false for shared/network deployments.                |
+| `SECURE_COOKIES`   | `false`                        | Set true when serving Odysseus through HTTPS at a trusted proxy or private access gateway.                    |
+| `DATABASE_URL`     | `sqlite:///./data/app.db`      | Database connection string                                                                                    |
+| `CHROMADB_HOST`    | `localhost`                    | ChromaDB host for vector memory. Docker overrides this to `chromadb`.                                         |
+| `CHROMADB_PORT`    | `8100`                         | ChromaDB port for manual host runs. Docker overrides this to `8000`.                                          |
+| `EMBEDDING_URL`    | --                             | OpenAI-compatible embeddings endpoint                                                                         |
 
 ### Built-in MCP servers (optional setup)
 
@@ -413,6 +439,7 @@ npx -y @playwright/mcp@latest --version
 That installs `@playwright/mcp` plus Playwright (~300MB total). Restart Odysseus and the server will register at startup.
 
 ## Architecture
+
 ```
 app.py                   # FastAPI entry point
 core/      auth, database, middleware, constants
@@ -424,6 +451,7 @@ docs/      landing page (index.html) + preview clips
 ```
 
 ## Data
+
 All user data lives in `data/` (gitignored): `app.db` (sessions, messages, documents),
 `memory.json`, `presets.json`, `uploads/`, `personal_docs/`, `chroma/`, `settings.json`.
 
@@ -438,6 +466,7 @@ All user data lives in `data/` (gitignored): `app.db` (sessions, messages, docum
 </a>
 
 ## License
+
 MIT -- see [LICENSE](LICENSE) and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
 
 ```

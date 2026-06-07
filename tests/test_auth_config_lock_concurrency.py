@@ -17,9 +17,15 @@ from tests.helpers.import_state import clear_module
 
 def _fresh_auth_manager(tmp_path):
     clear_module("core.auth")
-    from core.auth import AuthManager
+    import core.auth as auth_mod
 
-    return AuthManager(str(tmp_path / "auth.json"))
+    # Keep this test focused on auth.json locking/concurrency behavior.
+    # In environments where optional bcrypt is unavailable, tests/conftest may
+    # stub it with MagicMock, which makes _hash_password return non-serializable
+    # MagicMock values and masks the actual lock behavior under test.
+    auth_mod._hash_password = lambda password: f"hashed::{password}"
+
+    return auth_mod.AuthManager(str(tmp_path / "auth.json"))
 
 
 class TestConcurrentCreateUser:

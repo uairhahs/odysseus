@@ -1016,13 +1016,19 @@ def setup_shell_routes() -> APIRouter:
                     pkg["status_note"] = _package_status_note("vllm", probe)
             else:
                 try:
-                    importlib.import_module(pkg["name"])
-                    importlib_metadata.version(_pip_dist_name(pkg))
+                    pkg["local_version"] = importlib_metadata.version(_pip_dist_name(pkg))
                     pkg["installed"] = True
-                except ImportError:
-                    pkg["installed"] = False
                 except importlib_metadata.PackageNotFoundError:
                     pkg["installed"] = False
+                # Optional: surface a helpful note when the distribution exists
+                # but importing the top-level module fails (runtime/dependency
+                # issue). Still treat it as installed so the UI does not flip
+                # back to "Install" after a successful uv add.
+                if pkg.get("installed"):
+                    try:
+                        importlib.import_module(pkg["name"])
+                    except Exception as exc:
+                        pkg["status_note"] = f"Installed ({pkg.get('local_version', 'unknown')}), but import check failed: {type(exc).__name__}"
 
             if pkg.get("installed"):
                 update_status = _package_pip_update_status(pkg, probe)
@@ -1043,28 +1049,99 @@ def setup_shell_routes() -> APIRouter:
 
     @router.post("/api/cookbook/packages/install")
     async def install_package(request: Request):
-        """Install a package via pip. Admin only — pip install is effectively code exec."""
+        """Manage local project dependencies via uv add/uv remove.
+
+        This endpoint is for persistent Odysseus-local dependency management
+        (updates to pyproject.toml + lock). Remote bootstrap installs still run
+        through the cookbook task pipeline.
+        """
         _require_admin(request)
-        import sys as _sys
         body = await request.json()
         pip_name = body.get("pip")
         if not pip_name:
             return {"ok": False, "error": "No package specified"}
+        action = str(body.get("action") or "install").strip().lower()
+        if action not in {"install", "update", "remove"}:
+            return {"ok": False, "error": f"Unsupported action: {action}"}
         # Validate against known packages to prevent arbitrary pip install
         known = {
-            "rembg[gpu]", "hf_transfer", "llama-cpp-python[server]", "sglang[all]", "diffusers", "diffusers[torch]",
-            "TTS", "bark", "faster-whisper", "playwright", "realesrgan", "gfpgan",
-            "insightface", "onnxruntime-gpu", "onnxruntime", "hdbscan", "vllm",
+            # local-target (Odysseus app)
+            "rembg[gpu]", "playwright", "realesrgan", "gfpgan",
+            "insightface", "onnxruntime-gpu", "onnxruntime", "hdbscan",
+            # server-target (model serving / downloading) — also installed locally
+            # when Local server is selected (uv-managed venv has no pip)
+            "hf_transfer", "huggingface_hub",
+            "llama-cpp-python[server]", "sglang[all]", "vllm",
+            "diffusers", "diffusers[torch]",
+            "TTS", "bark", "faster-whisper",
         }
         if pip_name not in known:
             return {"ok": False, "error": f"Unknown package: {pip_name}"}
-        cmd = [_sys.executable, "-m", "pip", "install", pip_name]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+
+        project_root = Path(__file__).resolve().parents[1]
+
+        # Cookbook optional extras (rembg, realesrgan, playwright, vllm, …) are
+        # runtime-only features, not core project dependencies.  Using
+        # `uv add` would:
+        #   • Add torch/large transitive deps to pyproject.toml / uv.lock
+        #   • Slow down every future `uv sync` by GBs
+        #   • Break the `_depInstallSucceeded` check (uv prints "Installed N
+        #     packages" not pip's "Successfully installed …")
+        # `uv pip install` installs into the current venv directly without
+        # touching pyproject.toml, and produces pip-compatible output that the
+        # existing reconnect-loop success detection already handles.
+        if action == "remove":
+            # Remove is fast — run synchronously.
+            uv_name = re.split(r"[<>=!~]", pip_name, maxsplit=1)[0].strip()
+            uv_name = uv_name.split("[", 1)[0].strip()
+            proc = await asyncio.create_subprocess_exec(
+                "uv", "pip", "uninstall", "-y", uv_name,
+                cwd=str(project_root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                return {"ok": True, "output": stdout.decode(errors="replace")[-400:]}
+            return {"ok": False, "error": stderr.decode()[-300:]}
+
+        # install / update — spawn a tmux session so the user can watch
+        # progress in the Running tab (downloads like torch can be 1-2 GB).
+        session_id = f"dep-{uuid.uuid4().hex[:8]}"
+        pkg_q = shlex.quote(pip_name)
+        upgrade_flag = " -U" if action == "update" else ""
+        shell_cmd = (
+            f"uv pip install --no-cache-dir{upgrade_flag} {pkg_q}; "
+            "_dep_rc=$?; "
+            'printf "\\n=== Process exited with code %s ===\\n" "$_dep_rc"; '
+            "exit \"$_dep_rc\""
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            tmux_proc = await asyncio.create_subprocess_exec(
+                "tmux", "new-session", "-d", "-s", session_id, shell_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(tmux_proc.communicate(), timeout=10)
+            if tmux_proc.returncode == 0:
+                return {"ok": True, "session_id": session_id}
+        except Exception:
+            pass  # tmux unavailable — fall back to synchronous
+
+        # Synchronous fallback (no tmux).
+        cmd_args = ["uv", "pip", "install", "--no-cache-dir"]
+        if action == "update":
+            cmd_args.append("-U")
+        cmd_args.append(pip_name)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_args,
+            cwd=str(project_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         if proc.returncode == 0:
-            return {"ok": True, "output": stdout.decode()[-200:]}
+            return {"ok": True, "output": stdout.decode(errors="replace")[-400:]}
         return {"ok": False, "error": stderr.decode()[-300:]}
 
     @router.post("/api/cookbook/rebuild-engine")

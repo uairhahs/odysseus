@@ -92,7 +92,7 @@ cd $INSTALL_DIR
 Or manually:
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ~/.cargo/bin/uv venv venv
-  ~/.cargo/bin/uv pip install -e .
+  ~/.cargo/bin/uv sync
   ./venv/bin/python setup.py"
 
 # Open the UI in a chrome-less app window (Chromium browsers), else default browser.

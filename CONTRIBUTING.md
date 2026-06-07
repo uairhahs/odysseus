@@ -39,7 +39,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Create environment and install deps
 uv venv venv
 source venv/bin/activate
-uv pip install -e .
+uv sync
 python -m uvicorn app:app --host 0.0.0.0 --port 7000
 ```
 
@@ -121,4 +121,3 @@ Issues with only "help", "does not work", or a screenshot without context may be
 Do not post secrets, API keys, private logs, personal documents, or public IPs in issues or pull requests.
 
 For security reports, follow [SECURITY.md](SECURITY.md).
-

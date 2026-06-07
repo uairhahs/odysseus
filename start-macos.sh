@@ -144,8 +144,8 @@ PROJ_HASH="$(md5 -q pyproject.toml 2>/dev/null || md5sum pyproject.toml | cut -d
 PROJ_HASH_FILE="venv/.pyproject_hash"
 if [ ! -f "$PROJ_HASH_FILE" ] || [ "$PROJ_HASH" != "$(cat "$PROJ_HASH_FILE" 2>/dev/null)" ]; then
   echo "▶ Installing Python packages (first run downloads a few — can take a few minutes)…"
-  # Using uv pip sync for reproducible installs via uv.lock
-  uv pip sync pyproject.toml
+  # Using uv sync for reproducible installs via uv.lock
+  uv sync
   echo "$PROJ_HASH" > "$PROJ_HASH_FILE"
 else
   echo "▶ Python packages up to date — skipping install"

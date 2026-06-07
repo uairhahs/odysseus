@@ -119,7 +119,7 @@ def create_default_admin():
         return "created"
     except ImportError:
         print("  [warn] bcrypt not installed — skipping admin user creation")
-        print("         Run: uv pip install bcrypt")
+        print("         Run: uv add bcrypt")
         return "skipped"
 
 
@@ -149,7 +149,7 @@ def check_deps():
             missing.append(mod)
     if missing:
         print(f"\n  [warn] Missing packages: {', '.join(missing)}")
-        print(f"         Run: uv pip install -e .")
+        print(f"         Run: uv sync")
     else:
         print("  [ok] All core dependencies installed")
 
@@ -210,7 +210,7 @@ def main():
     elif admin_status == "exists":
         print("Login with your existing admin credentials.\n")
     elif admin_status == "skipped":
-        print("Admin creation did not happen: dependencies are missing.\nRun 'pip install bcrypt' and rerun setup.\n")
+        print("Admin creation did not happen: dependencies are missing.\nRun 'uv add bcrypt' and rerun setup.\n")
     elif admin_status == "failed":
         print("Admin creation did not happen: a system or file error occurred.\nCheck write permissions for the 'data' directory and rerun setup.\n")
     else:  # handling "failed" or any unhandled edge case

@@ -93,19 +93,17 @@ def test_local_tooling_path_export_preserves_spaces_and_expands_path():
 
 def test_pip_install_fallback_chain_prefers_venv_safe_install():
     chain = _pip_install_fallback_chain("huggingface_hub", upgrade=True)
-    # First attempt: plain install, wrapped in status-preserving subshell
+    # Default is now uv pip — first attempt uses uv's pip layer
     assert chain.startswith("bash -c '")
-    assert "python3 -m pip install -q -U huggingface_hub" in chain
-    # Second attempt: --user --break-system-packages, also wrapped
-    assert "--user --break-system-packages" in chain
-    assert "python3 -m pip install --user --break-system-packages -q -U huggingface_hub" in chain
+    assert "uv pip install -q -U huggingface_hub" in chain
+    # No python -m pip fallback in uv-managed runtimes
+    assert "python3 -m pip" not in chain
+    # No --user flag in the uv pip path
+    assert "--user --break-system-packages" not in chain
     # No bare `| tail` (which would mask pip's exit code)
     assert "| tail" not in chain
-    # Negated venv check with && — so failure in a venv propagates instead of
-    # being masked as success by the venv_check's exit-0.
-    assert "! python3 -c" in chain
-    # The group uses && (not ||) between venv check and user attempt
-    assert "&&" in chain
+    # Single wrapped uv attempt
+    assert chain.count("bash -c '") == 1
 
 
 def test_pip_install_fallback_chain_allows_custom_python_command():
