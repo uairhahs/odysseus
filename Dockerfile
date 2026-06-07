@@ -22,17 +22,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install uv for fast, reliable Python dependency management
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:$PATH"
+# Install uv for fast, reliable Python dependency management.
+# Symlink into /usr/local/bin so the path is stable regardless of which
+# directory the installer chooses (~/.local/bin vs ~/.cargo/bin).
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && (ln -sf /root/.local/bin/uv /usr/local/bin/uv 2>/dev/null || \
+        ln -sf /root/.cargo/bin/uv /usr/local/bin/uv 2>/dev/null)
+
+ENV PATH="/usr/local/bin:/root/.local/bin:/root/.cargo/bin:$PATH"
 
 # Install Python deps from pyproject.toml. Optional extras (PyMuPDF AGPL, etc.)
 # are opt-in so the default image stays MIT-core. Use --no-cache-dir to minimize
-# image size. Copy pyproject.toml first for layer caching.
+# image size. --system is required inside Docker (no virtualenv active).
+# Copy pyproject.toml first for layer caching.
 ARG INSTALL_OPTIONAL=false
 COPY pyproject.toml uv.lock ./
-RUN uv pip install --no-cache-dir -r pyproject.toml \
-    && if [ "$INSTALL_OPTIONAL" = "true" ]; then uv pip install --no-cache-dir -r pyproject.toml[optional]; fi
+RUN uv pip install --no-cache-dir --system -r pyproject.toml \
+    && if [ "$INSTALL_OPTIONAL" = "true" ]; then \
+         uv pip install --no-cache-dir --system "pyproject.toml[optional]"; \
+       fi
 
 # Copy app code
 COPY . .
@@ -52,4 +60,4 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 EXPOSE 7000
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7000"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7000", "--loop", "asyncio"]
