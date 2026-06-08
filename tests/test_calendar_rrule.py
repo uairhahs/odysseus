@@ -7,29 +7,19 @@ calling do_manage_calendar with an rrule stores a single event carrying that RRU
 
 import json
 import sys
-import tempfile
 import uuid
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
 
 from tests.helpers.import_state import clear_fake_database_modules
+from tests.helpers.sqlite_db import make_temp_sqlite
 
 clear_fake_database_modules()
 
 import core.database as cdb
 from core.database import CalendarEvent
 
-_TMPDB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-_ENGINE = create_engine(
-    f"sqlite:///{_TMPDB.name}",
-    connect_args={"check_same_thread": False},
-    poolclass=NullPool,
-)
-cdb.Base.metadata.create_all(_ENGINE)
-_TS = sessionmaker(bind=_ENGINE, autoflush=False, autocommit=False)
+_TS, _ENGINE, _TMPDB = make_temp_sqlite(cdb.Base.metadata)
 
 
 @pytest.fixture(autouse=True)
@@ -50,12 +40,17 @@ async def test_create_event_with_rrule_persists_recurrence():
 
     owner = "tester-" + uuid.uuid4().hex[:6]
     rrule = "FREQ=WEEKLY;BYDAY=MO"
-    res = await do_manage_calendar(json.dumps({
-        "action": "create_event",
-        "summary": "Standup",
-        "dtstart": "2026-06-08T09:00:00Z",
-        "rrule": rrule,
-    }), owner=owner)
+    res = await do_manage_calendar(
+        json.dumps(
+            {
+                "action": "create_event",
+                "summary": "Standup",
+                "dtstart": "2026-06-08T09:00:00Z",
+                "rrule": rrule,
+            }
+        ),
+        owner=owner,
+    )
     assert res.get("exit_code", 0) == 0, res
     uid = res.get("uid")
     assert uid, res
@@ -74,11 +69,16 @@ async def test_create_event_without_rrule_is_single():
     from src.tool_implementations import do_manage_calendar
 
     owner = "tester-" + uuid.uuid4().hex[:6]
-    res = await do_manage_calendar(json.dumps({
-        "action": "create_event",
-        "summary": "One-off",
-        "dtstart": "2026-06-09T10:00:00Z",
-    }), owner=owner)
+    res = await do_manage_calendar(
+        json.dumps(
+            {
+                "action": "create_event",
+                "summary": "One-off",
+                "dtstart": "2026-06-09T10:00:00Z",
+            }
+        ),
+        owner=owner,
+    )
     assert res.get("exit_code", 0) == 0, res
     db = _TS()
     try:

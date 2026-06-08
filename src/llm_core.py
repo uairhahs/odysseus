@@ -1,21 +1,25 @@
 # src/llm_core.py
-import httpx
 import asyncio
-import time
+import hashlib
 import json
 import logging
-import hashlib
-import threading
 import re
-from fastapi import HTTPException
-from typing import Optional, Dict, List, Tuple
-from src.model_context import get_context_length, DEFAULT_CONTEXT
+import threading
+import time
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+
+import httpx
+from fastapi import HTTPException
+
+from src.model_context import DEFAULT_CONTEXT, get_context_length
 
 logger = logging.getLogger(__name__)
 
+
 class LLMConfig:
     """Configuration constants for LLM operations."""
+
     DEFAULT_TIMEOUT = 30
     DEFAULT_TEMPERATURE = 1.0
     DEFAULT_MAX_TOKENS = 0
@@ -25,22 +29,27 @@ class LLMConfig:
 
 
 # Cache for LLM responses
-def _get_cache_key(url: str, model: str, messages: List[Dict], 
-                   temperature: float, max_tokens: int) -> str:
+def _get_cache_key(
+    url: str, model: str, messages: List[Dict], temperature: float, max_tokens: int
+) -> str:
     """Generate cache key for LLM requests."""
     hashable_messages = []
     for msg in messages:
         sorted_items = tuple(sorted(msg.items()))
         hashable_messages.append(sorted_items)
-    
-    content = json.dumps({
-        'url': url,
-        'model': model, 
-        'messages': hashable_messages,
-        'temp': temperature,
-        'max_tokens': max_tokens
-    }, sort_keys=True)
+
+    content = json.dumps(
+        {
+            "url": url,
+            "model": model,
+            "messages": hashable_messages,
+            "temp": temperature,
+            "max_tokens": max_tokens,
+        },
+        sort_keys=True,
+    )
     return hashlib.sha256(content.encode()).hexdigest()
+
 
 _response_cache = {}
 
@@ -147,9 +156,9 @@ class _HarmonyStreamRouter:
             match = _HARMONY_MARKER_RE.search(self._buf)
             if not match:
                 break
-            self._append_text(out, self._buf[:match.start()])
+            self._append_text(out, self._buf[: match.start()])
             self._handle_marker(match)
-            self._buf = self._buf[match.end():]
+            self._buf = self._buf[match.end() :]
 
         hold = 0 if final else _harmony_suffix_hold_len(self._buf)
         emit = self._buf if hold == 0 else self._buf[:-hold]
@@ -164,17 +173,21 @@ def _stream_delta_event(text: str, *, thinking: bool = False) -> str:
         payload["thinking"] = True
     return f"data: {json.dumps(payload)}\n\n"
 
+
 def _model_activity_key(url: str, model: str) -> str:
     return f"{(url or '').strip()}|{(model or '').strip()}"
 
+
 def _same_model_identity(left: str, right: str) -> bool:
     return (left or "").strip().lower() == (right or "").strip().lower()
+
 
 def note_model_activity(url: str, model: str):
     """Record that a real upstream request used this endpoint/model."""
     if not url or not model:
         return
     _model_activity[_model_activity_key(url, model)] = time.time()
+
 
 def seconds_since_model_activity(url: str, model: str) -> Optional[float]:
     """Seconds since the endpoint/model was last used in this process."""
@@ -183,10 +196,13 @@ def seconds_since_model_activity(url: str, model: str) -> Optional[float]:
         return None
     return max(0.0, time.time() - ts)
 
+
 def _host_key(url: str) -> str:
     from urllib.parse import urlsplit
+
     s = urlsplit(url)
     return f"{s.scheme}://{s.netloc}" if s.scheme and s.netloc else url
+
 
 def _is_host_dead(url: str) -> bool:
     key = _host_key(url)
@@ -198,6 +214,7 @@ def _is_host_dead(url: str) -> bool:
             _dead_hosts.pop(key, None)
             return False
         return True
+
 
 def _mark_host_dead(url: str) -> bool:
     """Record a connect failure. Only actually cools the host after
@@ -213,6 +230,7 @@ def _mark_host_dead(url: str) -> bool:
             return True
         return False
 
+
 def _clear_host_dead(url: str) -> None:
     key = _host_key(url)
     with _host_health_lock:
@@ -224,21 +242,29 @@ def _clear_host_dead(url: str) -> None:
 # repeat calls to api.anthropic.com / api.openai.com / openrouter skip the
 # 100-500ms TCP+TLS handshake. Lazy init so we bind to the running event loop.
 _http_client: Optional[httpx.AsyncClient] = None
-_http_limits = httpx.Limits(max_connections=100, max_keepalive_connections=30, keepalive_expiry=30.0)
+_http_limits = httpx.Limits(
+    max_connections=100, max_keepalive_connections=30, keepalive_expiry=30.0
+)
+
 
 def _get_http_client() -> httpx.AsyncClient:
     """Return process-wide AsyncClient. Per-request timeout is passed at call time."""
     global _http_client
     if _http_client is None or _http_client.is_closed:
         from src.tls_overrides import llm_verify
+
         _http_client = httpx.AsyncClient(
-            limits=_http_limits, http2=False, verify=llm_verify(),
+            limits=_http_limits,
+            http2=False,
+            verify=llm_verify(),
         )
     return _http_client
+
 
 def _get_cached_response(cache_key: str) -> Optional[str]:
     """Get cached response if it exists."""
     return _response_cache.get(cache_key)
+
 
 def _set_cached_response(cache_key: str, response: str) -> None:
     """Store response in cache."""
@@ -251,12 +277,20 @@ def _set_cached_response(cache_key: str, response: str) -> None:
             _response_cache.pop(key, None)
     _response_cache[cache_key] = response
 
+
 # ── Anthropic native API adapter ──
 
 ANTHROPIC_MODELS = [
-    "claude-opus-4-20250514", "claude-opus-4",
-    "claude-sonnet-4-20250514", "claude-sonnet-4", "claude-sonnet-4-5-20250929", "claude-sonnet-4-5",
-    "claude-haiku-4-20250514", "claude-haiku-4", "claude-haiku-3-5-20241022", "claude-haiku-3-5",
+    "claude-opus-4-20250514",
+    "claude-opus-4",
+    "claude-sonnet-4-20250514",
+    "claude-sonnet-4",
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-20250514",
+    "claude-haiku-4",
+    "claude-haiku-3-5-20241022",
+    "claude-haiku-3-5",
 ]
 
 
@@ -270,8 +304,14 @@ def _is_ollama_native_url(url: str) -> bool:
     path = (parsed.path or "").rstrip("/")
     if _host_match(url, "ollama.com"):
         return True
-    local_ollama_host = host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or parsed.port == 11434
-    return local_ollama_host and (path == "/api" or path.startswith("/api/"))
+    if path.startswith("/v1"):
+        return False
+    local_ollama_host = (
+        host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or parsed.port == 11434
+    )
+    return local_ollama_host and (
+        path == "" or path == "/api" or path.startswith("/api/")
+    )
 
 
 def _ollama_api_root(url: str) -> str:
@@ -287,8 +327,14 @@ def _ollama_api_root(url: str) -> str:
         return url[: -len("/generate")]
     if path.endswith("/api"):
         return url
+    if path == "":
+        return url + "/api"
     if _host_match(url, "ollama.com"):
-        root = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "https://ollama.com"
+        root = (
+            f"{parsed.scheme}://{parsed.netloc}"
+            if parsed.scheme and parsed.netloc
+            else "https://ollama.com"
+        )
         return root.rstrip("/") + "/api"
     return url
 
@@ -326,7 +372,9 @@ def _ollama_normalize_tool_messages(messages: List[Dict]) -> List[Dict]:
                     args = json.loads(args) if args.strip() else {}
                 except (json.JSONDecodeError, TypeError):
                     args = {}
-            call: Dict = {"function": {"name": fn.get("name", ""), "arguments": args or {}}}
+            call: Dict = {
+                "function": {"name": fn.get("name", ""), "arguments": args or {}}
+            }
             if tc.get("id"):
                 call["id"] = tc["id"]
             new_calls.append(call)
@@ -414,11 +462,16 @@ def _detect_provider(url: str) -> str:
         return "ollama"
     if _host_match(url, "anthropic.com"):
         return "anthropic"
+    if _host_match(url, "opencode.ai/zen/go"):
+        return "opencode-go"
+    if _host_match(url, "opencode.ai/zen"):
+        return "opencode-zen"
     if _host_match(url, "openrouter.ai"):
         return "openrouter"
     if _host_match(url, "groq.com"):
         return "groq"
     from src.copilot import is_copilot_base
+
     if is_copilot_base(url):
         return "copilot"
     return "openai"
@@ -437,6 +490,7 @@ def _provider_headers(provider: str, headers: Optional[Dict] = None) -> Dict[str
         # already injects these for the live chat path; setdefault keeps any
         # request-specific values (x-initiator/vision) the caller set.
         from src.copilot import copilot_headers
+
         for k, v in copilot_headers(None).items():
             h.setdefault(k, v)
     return h
@@ -446,20 +500,38 @@ def _provider_label(url: str) -> str:
     """Human-friendly provider name for error messages."""
     if not url:
         return "provider"
-    if _host_match(url, "anthropic.com"): return "Anthropic"
-    if _host_match(url, "ollama.com"): return "Ollama Cloud"
-    if _host_match(url, "x.ai"): return "xAI"
-    if _host_match(url, "openai.com"): return "OpenAI"
-    if _host_match(url, "openrouter.ai"): return "OpenRouter"
-    if _host_match(url, "groq.com"): return "Groq"
+    if _host_match(url, "anthropic.com"):
+        return "Anthropic"
+    if _host_match(url, "ollama.com"):
+        return "Ollama Cloud"
+    if _host_match(url, "x.ai"):
+        return "xAI"
+    if _host_match(url, "openai.com"):
+        return "OpenAI"
+    if _host_match(url, "openrouter.ai"):
+        return "OpenRouter"
+    if _host_match(url, "opencode.ai/zen/go"):
+        return "OpenCode Go"
+    if _host_match(url, "opencode.ai/zen"):
+        return "OpenCode Zen"
+    if _host_match(url, "groq.com"):
+        return "Groq"
     from src.copilot import is_copilot_base
-    if is_copilot_base(url): return "GitHub Copilot"
-    if _host_match(url, "mistral.ai"): return "Mistral"
-    if _host_match(url, "deepseek.com"): return "DeepSeek"
-    if _host_match(url, "googleapis.com"): return "Google"
-    if _host_match(url, "together.xyz", "together.ai"): return "Together"
-    if _host_match(url, "fireworks.ai"): return "Fireworks"
-    if _is_ollama_native_url(url): return "Ollama"
+
+    if is_copilot_base(url):
+        return "GitHub Copilot"
+    if _host_match(url, "mistral.ai"):
+        return "Mistral"
+    if _host_match(url, "deepseek.com"):
+        return "DeepSeek"
+    if _host_match(url, "googleapis.com"):
+        return "Google"
+    if _host_match(url, "together.xyz", "together.ai"):
+        return "Together"
+    if _host_match(url, "fireworks.ai"):
+        return "Fireworks"
+    if _is_ollama_native_url(url):
+        return "Ollama"
     try:
         host = (urlparse(url).hostname or "").lower()
     except Exception:
@@ -503,15 +575,23 @@ def _format_upstream_error(status: int, body: bytes | str, url: str) -> str:
         msg += ". Check Model Endpoints → {} and re-paste the key.".format(provider)
         return msg
     if status == 404:
-        return f"{provider} returned 404 — check the base URL and model name." + (f" ({detail})" if detail else "")
+        return f"{provider} returned 404 — check the base URL and model name." + (
+            f" ({detail})" if detail else ""
+        )
     if status == 429:
-        return f"{provider} rate-limited the request (429)." + (f" {detail}" if detail else "")
+        return f"{provider} rate-limited the request (429)." + (
+            f" {detail}" if detail else ""
+        )
     if status >= 500:
-        return f"{provider} is having an outage (HTTP {status})." + (f" {detail}" if detail else "")
+        return f"{provider} is having an outage (HTTP {status})." + (
+            f" {detail}" if detail else ""
+        )
     return f"{provider} returned HTTP {status}" + (f": {detail}" if detail else "")
+
 
 # Models that require max_completion_tokens instead of max_tokens
 _MAX_COMPLETION_TOKENS_MODELS = {"o1", "o3", "o4", "gpt-4.5", "gpt-5"}
+
 
 def _uses_max_completion_tokens(model: str) -> bool:
     """Check if a model requires max_completion_tokens instead of max_tokens."""
@@ -519,6 +599,7 @@ def _uses_max_completion_tokens(model: str) -> bool:
         return False
     m = model.lower()
     return any(m.startswith(p) or f"/{p}" in m for p in _MAX_COMPLETION_TOKENS_MODELS)
+
 
 # OpenAI reasoning models (o1, o3, o4, gpt-5 families) only accept the default
 # temperature. Sending any explicit value — even 0.0 — returns HTTP 400
@@ -529,6 +610,7 @@ def _uses_max_completion_tokens(model: str) -> bool:
 # not a reasoning model and accepts temperature normally.)
 _FIXED_TEMPERATURE_MODELS = ("o1", "o3", "o4", "gpt-5")
 
+
 def _restricts_temperature(model: str) -> bool:
     """Check if a model rejects any non-default temperature."""
     if not model:
@@ -536,8 +618,18 @@ def _restricts_temperature(model: str) -> bool:
     m = model.lower()
     return any(m.startswith(p) or f"/{p}" in m for p in _FIXED_TEMPERATURE_MODELS)
 
+
 # Models that support structured thinking — may output </think> without opening tag
-_THINKING_MODEL_PATTERNS = ("qwen3", "qwq", "deepseek-r1", "deepseek-reasoner", "minimax", "m2-reap", "gemma")
+_THINKING_MODEL_PATTERNS = (
+    "qwen3",
+    "qwq",
+    "deepseek-r1",
+    "deepseek-reasoner",
+    "minimax",
+    "m2-reap",
+    "gemma",
+)
+
 
 def _supports_thinking(model: str) -> bool:
     """Check if model supports structured thinking output."""
@@ -545,6 +637,7 @@ def _supports_thinking(model: str) -> bool:
         return False
     m = model.lower()
     return any(p in m for p in _THINKING_MODEL_PATTERNS)
+
 
 def _convert_openai_content_to_anthropic(content):
     """Convert OpenAI multimodal content blocks to Anthropic format.
@@ -568,20 +661,24 @@ def _convert_openai_content_to_anthropic(content):
                     media_type = header.split(";")[0].replace("data:", "")
                 except (ValueError, IndexError):
                     continue
-                converted.append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": media_type,
-                        "data": b64_data,
-                    },
-                })
+                converted.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": b64_data,
+                        },
+                    }
+                )
             else:
                 # External URL — use Anthropic's URL source
-                converted.append({
-                    "type": "image",
-                    "source": {"type": "url", "url": url},
-                })
+                converted.append(
+                    {
+                        "type": "image",
+                        "source": {"type": "url", "url": url},
+                    }
+                )
         elif block.get("type") == "text":
             converted.append(block)
         else:
@@ -589,7 +686,9 @@ def _convert_openai_content_to_anthropic(content):
     return converted
 
 
-def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None):
+def _build_anthropic_payload(
+    model, messages, temperature, max_tokens, stream=False, tools=None
+):
     """Convert OpenAI-style messages to Anthropic format."""
     system_parts = []
     chat_messages = []
@@ -598,14 +697,18 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             system_parts.append(m.get("content") or "")
         elif m.get("role") == "tool":
             # Convert OpenAI tool result to Anthropic format
-            chat_messages.append({
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": m.get("tool_call_id", ""),
-                    "content": m.get("content", ""),
-                }],
-            })
+            chat_messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": m.get("tool_call_id", ""),
+                            "content": m.get("content", ""),
+                        }
+                    ],
+                }
+            )
         elif m.get("role") == "assistant" and isinstance(m.get("tool_calls"), list):
             # Convert OpenAI assistant tool_calls to Anthropic format
             content = []
@@ -615,15 +718,19 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
                 fn = tc.get("function") or {}
                 args_str = fn.get("arguments") or "{}"
                 try:
-                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                    args = (
+                        json.loads(args_str) if isinstance(args_str, str) else args_str
+                    )
                 except (json.JSONDecodeError, TypeError):
                     args = {}
-                content.append({
-                    "type": "tool_use",
-                    "id": tc.get("id", ""),
-                    "name": fn.get("name", ""),
-                    "input": args,
-                })
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": fn.get("name", ""),
+                        "input": args,
+                    }
+                )
             chat_messages.append({"role": "assistant", "content": content})
         else:
             # Convert multimodal content (image_url → image) for Anthropic
@@ -661,11 +768,15 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
         for t in tools:
             if t.get("type") == "function":
                 fn = t["function"]
-                anthropic_tools.append({
-                    "name": fn["name"],
-                    "description": fn.get("description", ""),
-                    "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
-                })
+                anthropic_tools.append(
+                    {
+                        "name": fn["name"],
+                        "description": fn.get("description", ""),
+                        "input_schema": fn.get(
+                            "parameters", {"type": "object", "properties": {}}
+                        ),
+                    }
+                )
         if anthropic_tools:
             # Cache the tool schemas too — they're stable for the whole agent run.
             # The breakpoint caches all tool defs preceding it in the request.
@@ -673,16 +784,22 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             payload["tools"] = anthropic_tools
     return payload
 
+
 def _build_anthropic_headers(headers):
     """Convert Bearer auth to x-api-key for Anthropic."""
     h = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
     if headers:
         for k, v in headers.items():
-            if k.lower() == "authorization" and isinstance(v, str) and v.startswith("Bearer "):
+            if (
+                k.lower() == "authorization"
+                and isinstance(v, str)
+                and v.startswith("Bearer ")
+            ):
                 h["x-api-key"] = v[7:]
             else:
                 h[k] = v
     return h
+
 
 def _parse_anthropic_response(data: dict) -> str:
     """Extract text from an Anthropic response.
@@ -788,7 +905,9 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
                 answered_ids.append(tid)
                 tool_batch.append(cleaned[j])
             else:
-                logger.debug("Dropping unmatched/duplicate tool message before provider request")
+                logger.debug(
+                    "Dropping unmatched/duplicate tool message before provider request"
+                )
             j += 1
 
         if not tool_batch:
@@ -796,13 +915,16 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
             if (plain.get("content") or "").strip():
                 repaired.append(plain)
             else:
-                logger.debug("Dropping unanswered assistant tool_calls before provider request")
+                logger.debug(
+                    "Dropping unanswered assistant tool_calls before provider request"
+                )
             i = j
             continue
 
         answered = set(answered_ids)
         pruned_calls = [
-            tc for tc in tool_calls
+            tc
+            for tc in tool_calls
             if isinstance(tc, dict) and str(tc.get("id")) in answered
         ]
         fixed = dict(msg)
@@ -812,7 +934,9 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
         repaired.append(fixed)
         repaired.extend(tool_batch)
         if len(pruned_calls) != len(tool_calls):
-            logger.debug("Pruned unanswered assistant tool_calls before provider request")
+            logger.debug(
+                "Pruned unanswered assistant tool_calls before provider request"
+            )
         i = j
 
     # Merge consecutive user messages to satisfy strict role alternation
@@ -850,6 +974,7 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
             merged.append(item)
 
     return merged
+
 
 def _normalize_anthropic_url(url: str) -> str:
     """Ensure Anthropic URL points to /v1/messages."""
@@ -899,7 +1024,7 @@ def _configured_cached_model_ids(endpoint_url: str) -> List[str]:
     if not target:
         return []
     try:
-        from src.database import SessionLocal, ModelEndpoint
+        from src.database import ModelEndpoint, SessionLocal
     except Exception:
         return []
     db = SessionLocal()
@@ -908,7 +1033,9 @@ def _configured_cached_model_ids(endpoint_url: str) -> List[str]:
         for ep in rows:
             if _model_list_base(getattr(ep, "base_url", "")) != target:
                 continue
-            models = _parse_model_cache(getattr(ep, "cached_models", None) or getattr(ep, "models", None))
+            models = _parse_model_cache(
+                getattr(ep, "cached_models", None) or getattr(ep, "models", None)
+            )
             if not models:
                 continue
             hidden = set(_parse_model_cache(getattr(ep, "hidden_models", None)))
@@ -923,7 +1050,11 @@ def _configured_cached_model_ids(endpoint_url: str) -> List[str]:
     return []
 
 
-def list_model_ids(base_chat_url: str, timeout: int = LLMConfig.DEFAULT_TIMEOUT, headers: Optional[Dict] = None) -> List[str]:
+def list_model_ids(
+    base_chat_url: str,
+    timeout: int = LLMConfig.DEFAULT_TIMEOUT,
+    headers: Optional[Dict] = None,
+) -> List[str]:
     """List available model IDs from an endpoint."""
     cached = _configured_cached_model_ids(base_chat_url)
     if cached:
@@ -953,15 +1084,26 @@ def list_model_ids(base_chat_url: str, timeout: int = LLMConfig.DEFAULT_TIMEOUT,
     except Exception:
         try:
             if ":11434" in base_chat_url or "ollama" in base_chat_url.lower():
-                root = base_chat_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").rstrip("/")
+                root = (
+                    base_chat_url.replace("/v1/chat/completions", "")
+                    .replace("/chat/completions", "")
+                    .rstrip("/")
+                )
                 r = httpx.get(root + "/api/tags", timeout=timeout)
                 r.raise_for_status()
-                return [m.get("name") or m.get("model") for m in (r.json().get("models") or []) if m.get("name") or m.get("model")]
+                return [
+                    m.get("name") or m.get("model")
+                    for m in (r.json().get("models") or [])
+                    if m.get("name") or m.get("model")
+                ]
         except Exception:
             pass
         return []
 
-def normalize_model_id(endpoint_url: str, requested: str, timeout: int = LLMConfig.DEFAULT_TIMEOUT) -> Optional[str]:
+
+def normalize_model_id(
+    endpoint_url: str, requested: str, timeout: int = LLMConfig.DEFAULT_TIMEOUT
+) -> Optional[str]:
     """Normalize a model ID to match available models."""
     avail = list_model_ids(endpoint_url, timeout)
     if not avail:
@@ -969,15 +1111,24 @@ def normalize_model_id(endpoint_url: str, requested: str, timeout: int = LLMConf
     if requested in avail:
         return requested
     import os as _os
+
     req_base = _os.path.basename(requested.rstrip("/"))
     for a in avail:
         if _os.path.basename(a.rstrip("/")) == req_base:
             return a
     return None
 
-def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
-             max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None, 
-             timeout: int = LLMConfig.DEFAULT_TIMEOUT, prompt_type: Optional[str] = None) -> str:
+
+def llm_call(
+    url: str,
+    model: str,
+    messages: List[Dict],
+    temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
+    max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS,
+    headers: Optional[Dict] = None,
+    timeout: int = LLMConfig.DEFAULT_TIMEOUT,
+    prompt_type: Optional[str] = None,
+) -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
     h = _provider_headers(_detect_provider(url))
     # Tolerate headers that arrive as a JSON string (some sessions stored them
@@ -998,11 +1149,13 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     non_sys = []
     for m in messages_copy:
         if m.get("role") == "system":
-            sys_parts.append(m.get('content') or '')
+            sys_parts.append(m.get("content") or "")
         else:
             non_sys.append(m)
     if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
+        messages_copy = [
+            {"role": "system", "content": "\n\n".join(sys_parts)}
+        ] + non_sys
     else:
         messages_copy = non_sys
 
@@ -1016,17 +1169,24 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         payload = _build_ollama_payload(
-            model, messages_copy, temperature, max_tokens,
-            stream=False, num_ctx=get_context_length(url, model),
+            model,
+            messages_copy,
+            temperature,
+            max_tokens,
+            stream=False,
+            num_ctx=get_context_length(url, model),
         )
     else:
         target_url = url
         if provider == "copilot":
             from src.copilot import apply_request_headers
+
             apply_request_headers(h, messages_copy)
         payload = {
             "model": model,
@@ -1036,7 +1196,11 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
         if _restricts_temperature(model):
             payload.pop("temperature", None)
         if max_tokens and max_tokens > 0:
-            tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
+            tok_key = (
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model)
+                else "max_tokens"
+            )
             payload[tok_key] = max_tokens
     try:
         note_model_activity(target_url, model)
@@ -1057,7 +1221,9 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
         _set_cached_response(cache_key, response)
         return response
     except Exception:
-        raise HTTPException(502, f"Unexpected schema from {target_url}: {str(data)[:400]}")
+        raise HTTPException(
+            502, f"Unexpected schema from {target_url}: {str(data)[:400]}"
+        )
 
 
 def _dedupe_candidates(candidates):
@@ -1103,7 +1269,9 @@ def llm_call_with_fallback(candidates, messages, **kwargs) -> str:
         except Exception as e:
             last_err = e
             tag = "primary" if i == 0 else "candidate"
-            logger.warning(f"[fallback] {tag} {model} failed ({type(e).__name__}); trying next")
+            logger.warning(
+                f"[fallback] {tag} {model} failed ({type(e).__name__}); trying next"
+            )
             continue
     raise last_err if last_err else HTTPException(503, "All fallback candidates failed")
 
@@ -1120,7 +1288,9 @@ async def llm_call_async_with_fallback(candidates, messages, **kwargs) -> str:
         except Exception as e:
             last_err = e
             tag = "primary" if i == 0 else "candidate"
-            logger.warning(f"[fallback] {tag} {model} failed ({type(e).__name__}); trying next")
+            logger.warning(
+                f"[fallback] {tag} {model} failed ({type(e).__name__}); trying next"
+            )
             continue
     raise last_err if last_err else HTTPException(503, "All fallback candidates failed")
 
@@ -1134,7 +1304,7 @@ async def llm_call_async(
     headers: Optional[Dict] = None,
     timeout: int = LLMConfig.STREAM_TIMEOUT,
     max_retries: int = LLMConfig.MAX_RETRIES,
-    prompt_type: Optional[str] = None
+    prompt_type: Optional[str] = None,
 ) -> str:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
@@ -1145,11 +1315,13 @@ async def llm_call_async(
     non_sys = []
     for m in messages_copy:
         if m.get("role") == "system":
-            sys_parts.append(m.get('content') or '')
+            sys_parts.append(m.get("content") or "")
         else:
             non_sys.append(m)
     if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
+        messages_copy = [
+            {"role": "system", "content": "\n\n".join(sys_parts)}
+        ] + non_sys
     else:
         messages_copy = non_sys
 
@@ -1162,21 +1334,28 @@ async def llm_call_async(
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}
         if headers:
             h.update(headers)
         payload = _build_ollama_payload(
-            model, messages_copy, temperature, max_tokens,
-            stream=False, num_ctx=get_context_length(url, model),
+            model,
+            messages_copy,
+            temperature,
+            max_tokens,
+            stream=False,
+            num_ctx=get_context_length(url, model),
         )
     else:
         target_url = url
         h = _provider_headers(provider, headers)
         if provider == "copilot":
             from src.copilot import apply_request_headers
+
             apply_request_headers(h, messages_copy)
         payload = {
             "model": model,
@@ -1186,11 +1365,18 @@ async def llm_call_async(
         if _restricts_temperature(model):
             payload.pop("temperature", None)
         if max_tokens and max_tokens > 0:
-            tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
+            tok_key = (
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model)
+                else "max_tokens"
+            )
             payload[tok_key] = max_tokens
 
     if _is_host_dead(target_url):
-        raise HTTPException(503, f"Upstream {_host_key(target_url)} marked unreachable (cooldown active)")
+        raise HTTPException(
+            503,
+            f"Upstream {_host_key(target_url)} marked unreachable (cooldown active)",
+        )
 
     call_timeout = httpx.Timeout(connect=3.0, read=float(timeout), write=10.0, pool=5.0)
     attempt = 0
@@ -1200,7 +1386,9 @@ async def llm_call_async(
         try:
             note_model_activity(target_url, model)
             client = _get_http_client()
-            r = await client.post(target_url, headers=h, json=payload, timeout=call_timeout)
+            r = await client.post(
+                target_url, headers=h, json=payload, timeout=call_timeout
+            )
             duration = time.time() - start
             if not r.is_success:
                 friendly = _format_upstream_error(r.status_code, r.text, target_url)
@@ -1212,7 +1400,9 @@ async def llm_call_async(
                     await asyncio.sleep(LLMConfig.RETRY_DELAY)
                     continue
                 raise HTTPException(r.status_code, friendly)
-            logger.info(f"LLM async call to {target_url} succeeded in {duration:.2f}s (attempt {attempt})")
+            logger.info(
+                f"LLM async call to {target_url} succeeded in {duration:.2f}s (attempt {attempt})"
+            )
             _clear_host_dead(target_url)
             data = r.json()
             try:
@@ -1226,26 +1416,46 @@ async def llm_call_async(
                 _set_cached_response(cache_key, response)
                 return response
             except Exception:
-                raise HTTPException(502, f"Unexpected schema from {target_url}: {str(data)[:400]}")
+                raise HTTPException(
+                    502, f"Unexpected schema from {target_url}: {str(data)[:400]}"
+                )
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             _cooled = _mark_host_dead(target_url)
             duration = time.time() - start
-            _tail = f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s" if _cooled else " — transient, will retry"
-            logger.warning(f"LLM async connect to {target_url} failed after {duration:.2f}s: {e}{_tail}")
+            _tail = (
+                f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s"
+                if _cooled
+                else " — transient, will retry"
+            )
+            logger.warning(
+                f"LLM async connect to {target_url} failed after {duration:.2f}s: {e}{_tail}"
+            )
             if _cooled or attempt >= max_retries:
                 raise HTTPException(503, f"Cannot reach {_host_key(target_url)}: {e}")
             await asyncio.sleep(LLMConfig.RETRY_DELAY)
         except (httpx.RequestError, httpx.HTTPStatusError) as e:
             duration = time.time() - start
-            logger.warning(f"LLM async call attempt {attempt} failed after {duration:.2f}s: {e}")
+            logger.warning(
+                f"LLM async call attempt {attempt} failed after {duration:.2f}s: {e}"
+            )
             if attempt >= max_retries:
-                raise HTTPException(502, f"POST {target_url} failed after {max_retries} attempts: {e}")
+                raise HTTPException(
+                    502, f"POST {target_url} failed after {max_retries} attempts: {e}"
+                )
             await asyncio.sleep(LLMConfig.RETRY_DELAY)
 
-async def stream_llm(url: str, model: str, messages: List[Dict], temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
-                     max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None,
-                     timeout: int = LLMConfig.STREAM_TIMEOUT, prompt_type: Optional[str] = None,
-                     tools: Optional[List[Dict]] = None):
+
+async def stream_llm(
+    url: str,
+    model: str,
+    messages: List[Dict],
+    temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
+    max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS,
+    headers: Optional[Dict] = None,
+    timeout: int = LLMConfig.STREAM_TIMEOUT,
+    prompt_type: Optional[str] = None,
+    tools: Optional[List[Dict]] = None,
+):
     """Stream LLM responses with improved error handling.
 
     Yields SSE chunks:
@@ -1263,26 +1473,35 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
     non_sys = []
     for m in messages_copy:
         if m.get("role") == "system":
-            sys_parts.append(m.get('content') or '')
+            sys_parts.append(m.get("content") or "")
         else:
             non_sys.append(m)
     if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
+        messages_copy = [
+            {"role": "system", "content": "\n\n".join(sys_parts)}
+        ] + non_sys
     else:
         messages_copy = non_sys
 
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens, stream=True, tools=tools)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens, stream=True, tools=tools
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}
         if headers:
             h.update(headers)
         payload = _build_ollama_payload(
-            model, messages_copy, temperature, max_tokens,
-            stream=True, tools=tools, num_ctx=get_context_length(url, model),
+            model,
+            messages_copy,
+            temperature,
+            max_tokens,
+            stream=True,
+            tools=tools,
+            num_ctx=get_context_length(url, model),
         )
     else:
         target_url = url
@@ -1297,18 +1516,25 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         if provider not in {"openrouter", "groq"}:
             payload["stream_options"] = {"include_usage": True}
         if max_tokens and max_tokens > 0:
-            tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
+            tok_key = (
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model)
+                else "max_tokens"
+            )
             payload[tok_key] = max_tokens
         if tools:
             payload["tools"] = tools
         h = _provider_headers(provider, headers)
         if provider == "copilot":
             from src.copilot import apply_request_headers
+
             apply_request_headers(h, messages_copy)
 
     # Short connect timeout: a reachable peer answers SYN in <100ms even on
     # Tailscale. 3s is plenty; 30s let one dead upstream wedge the UI.
-    stream_timeout = httpx.Timeout(connect=3.0, read=float(timeout), write=30.0, pool=5.0)
+    stream_timeout = httpx.Timeout(
+        connect=3.0, read=float(timeout), write=30.0, pool=5.0
+    )
 
     if _is_host_dead(target_url):
         yield f'event: error\ndata: {json.dumps({"error": f"Upstream {_host_key(target_url)} unreachable (cooldown active)", "status": 503})}\n\n'
@@ -1321,7 +1547,9 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         _harmony_router = _HarmonyStreamRouter()
         try:
             client = _get_http_client()
-            async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
+            async with client.stream(
+                "POST", target_url, json=payload, headers=h, timeout=stream_timeout
+            ) as r:
                 _clear_host_dead(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
@@ -1346,17 +1574,23 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                     for tc in message.get("tool_calls") or []:
                         fn = tc.get("function") or {}
                         if fn.get("name"):
-                            _ollama_tool_calls.append({
-                                "id": tc.get("id") or f"call_{len(_ollama_tool_calls)}",
-                                "name": fn.get("name") or "",
-                                "arguments": json.dumps(fn.get("arguments") or {}),
-                            })
+                            _ollama_tool_calls.append(
+                                {
+                                    "id": tc.get("id")
+                                    or f"call_{len(_ollama_tool_calls)}",
+                                    "name": fn.get("name") or "",
+                                    "arguments": json.dumps(fn.get("arguments") or {}),
+                                }
+                            )
                     if j.get("done"):
                         for part, is_thinking in _harmony_router.flush():
                             yield _stream_delta_event(part, thinking=is_thinking)
                         if _ollama_tool_calls:
                             yield f'data: {json.dumps({"type": "tool_calls", "calls": _ollama_tool_calls})}\n\n'
-                        if j.get("prompt_eval_count") is not None or j.get("eval_count") is not None:
+                        if (
+                            j.get("prompt_eval_count") is not None
+                            or j.get("eval_count") is not None
+                        ):
                             yield f'data: {json.dumps({"type": "usage", "data": {"input_tokens": j.get("prompt_eval_count", 0), "output_tokens": j.get("eval_count", 0)}})}\n\n'
                         yield "data: [DONE]\n\n"
                         return
@@ -1365,7 +1599,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 yield "data: [DONE]\n\n"
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             _cooled = _mark_host_dead(target_url)
-            _tail = f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s" if _cooled else " — transient, will retry"
+            _tail = (
+                f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s"
+                if _cooled
+                else " — transient, will retry"
+            )
             logger.warning(f"Ollama stream connect to {target_url} failed: {e}{_tail}")
             yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503})}\n\n'
         except httpx.ReadTimeout:
@@ -1387,7 +1625,9 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         _anth_block_type = ""
         try:
             client = _get_http_client()
-            async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
+            async with client.stream(
+                "POST", target_url, json=payload, headers=h, timeout=stream_timeout
+            ) as r:
                 _clear_host_dead(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
@@ -1431,7 +1671,13 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                     partial = delta.get("partial_json") or ""
                                     _anth_tool_blocks[idx]["arguments"] += partial
                                     # Stream tool arg deltas for doc tools
-                                    if partial and _anth_tool_blocks[idx].get("name") in ("create_document", "update_document", "edit_document"):
+                                    if partial and _anth_tool_blocks[idx].get(
+                                        "name"
+                                    ) in (
+                                        "create_document",
+                                        "update_document",
+                                        "edit_document",
+                                    ):
                                         yield f'data: {json.dumps({"type": "tool_call_delta", "index": idx, "name": _anth_tool_blocks[idx]["name"], "arg_delta": partial})}\n\n'
                         elif evt == "message_start":
                             _u = j.get("message", {}).get("usage", {})
@@ -1443,21 +1689,27 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                             if _c_read or _c_write:
                                 logger.info(
                                     "[anthropic-cache] read=%s write=%s fresh_input=%s",
-                                    _c_read, _c_write, _anth_input_tokens,
+                                    _c_read,
+                                    _c_write,
+                                    _anth_input_tokens,
                                 )
                         elif evt == "message_delta":
-                            _anth_output_tokens = j.get("usage", {}).get("output_tokens", 0)
+                            _anth_output_tokens = j.get("usage", {}).get(
+                                "output_tokens", 0
+                            )
                         elif evt == "message_stop":
                             # Emit accumulated tool calls in OpenAI-compatible format
                             if _anth_tool_blocks:
                                 calls = []
                                 for idx in sorted(_anth_tool_blocks):
                                     tb = _anth_tool_blocks[idx]
-                                    calls.append({
-                                        "id": tb["id"],
-                                        "name": tb["name"],
-                                        "arguments": tb["arguments"],
-                                    })
+                                    calls.append(
+                                        {
+                                            "id": tb["id"],
+                                            "name": tb["name"],
+                                            "arguments": tb["arguments"],
+                                        }
+                                    )
                                 yield f'data: {json.dumps({"type": "tool_calls", "calls": calls})}\n\n'
                             if _anth_input_tokens or _anth_output_tokens:
                                 yield f'data: {json.dumps({"type": "usage", "data": {"input_tokens": _anth_input_tokens, "output_tokens": _anth_output_tokens}})}\n\n'
@@ -1472,8 +1724,14 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 yield "data: [DONE]\n\n"
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             _cooled = _mark_host_dead(target_url)
-            _tail = f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s" if _cooled else " — transient, will retry"
-            logger.warning(f"Anthropic stream connect to {target_url} failed: {e}{_tail}")
+            _tail = (
+                f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s"
+                if _cooled
+                else " — transient, will retry"
+            )
+            logger.warning(
+                f"Anthropic stream connect to {target_url} failed: {e}{_tail}"
+            )
             yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503})}\n\n'
         except httpx.ReadTimeout:
             yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
@@ -1492,10 +1750,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
     # can detect thinking-in-progress (some models output </think> but no <think>)
     _thinking_model = _supports_thinking(model)
     _first_content_sent = False
-    _in_think_tag = False        # True while consuming <think>…</think> content
+    _in_think_tag = False  # True while consuming <think>…</think> content
     _think_open_stripped = False  # opening <think> tag already removed
     _harmony_router = _HarmonyStreamRouter()
-    _harmony_active = False       # sticky: gpt-oss harmony <|channel|> stream detected
+    _harmony_active = False  # sticky: gpt-oss harmony <|channel|> stream detected
     _actual_model = ""
     _actual_model_announced = False
 
@@ -1516,7 +1774,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             # Some thinking backends start normal content with a stray closing
             # tag. Repair only that shape; do not wrap every first token for
             # model families like MiniMax, which often stream ordinary answers.
-            if _thinking_model and not _first_content_sent and part.lstrip().lower().startswith("</think"):
+            if (
+                _thinking_model
+                and not _first_content_sent
+                and part.lstrip().lower().startswith("</think")
+            ):
                 part = "<think>" + part
             _first_content_sent = True
             events.append(_stream_delta_event(part))
@@ -1524,7 +1786,9 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
 
     try:
         client = _get_http_client()
-        async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
+        async with client.stream(
+            "POST", target_url, json=payload, headers=h, timeout=stream_timeout
+        ) as r:
             _clear_host_dead(target_url)
             if r.status_code != 200:
                 raw = (await r.aread()).decode(errors="replace")
@@ -1559,13 +1823,19 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                     _actual_model = chunk_model.strip()
                                     if (
                                         not _actual_model_announced
-                                        and not _same_model_identity(_actual_model, model)
+                                        and not _same_model_identity(
+                                            _actual_model, model
+                                        )
                                     ):
                                         _actual_model_announced = True
                                         yield f'data: {json.dumps({"type": "model_actual", "requested_model": model, "model": _actual_model})}\n\n'
                                 # Usage chunk (from stream_options)
                                 _choices = j.get("choices") or []
-                                _delta0 = _choices[0].get("delta") if (_choices and _choices[0] is not None) else None
+                                _delta0 = (
+                                    _choices[0].get("delta")
+                                    if (_choices and _choices[0] is not None)
+                                    else None
+                                )
                                 # Capture usage whenever the chunk carries it and
                                 # the delta has no actual output. Some gateways /
                                 # local servers attach usage to the FINAL delta,
@@ -1581,7 +1851,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                 )
                                 if "usage" in j and not _delta_has_output:
                                     u = j["usage"] or {}
-                                    _usage_data = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
+                                    _usage_data = {
+                                        "input_tokens": u.get("prompt_tokens", 0),
+                                        "output_tokens": u.get("completion_tokens", 0),
+                                    }
                                     # llama.cpp puts a `timings` block alongside `usage` with the
                                     # TRUE generation speed (predicted_per_second) — pure decode,
                                     # excluding prefill/network. Pass it through so the UI shows the
@@ -1590,12 +1863,18 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                     _tm = j.get("timings")
                                     if isinstance(_tm, dict):
                                         if _tm.get("predicted_per_second"):
-                                            _usage_data["gen_tps"] = round(_tm["predicted_per_second"], 2)
+                                            _usage_data["gen_tps"] = round(
+                                                _tm["predicted_per_second"], 2
+                                            )
                                         if _tm.get("prompt_per_second"):
-                                            _usage_data["prefill_tps"] = round(_tm["prompt_per_second"], 2)
+                                            _usage_data["prefill_tps"] = round(
+                                                _tm["prompt_per_second"], 2
+                                            )
                                     if _actual_model:
                                         _usage_data["model"] = _actual_model
-                                        if not _same_model_identity(_actual_model, model):
+                                        if not _same_model_identity(
+                                            _actual_model, model
+                                        ):
                                             _usage_data["requested_model"] = model
                                     yield f'data: {json.dumps({"type": "usage", "data": _usage_data})}\n\n'
                                 elif "choices" in j:
@@ -1606,9 +1885,16 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                     if isinstance(delta, dict):
                                         # Text content
                                         # Reasoning tokens (VLLM --reasoning-parser, e.g. Qwen3/DeepSeek-R1, Nemotron). vLLM 0.20.2 / NIM emit the field as `reasoning`; older builds use `reasoning_content`. Some OpenAI-compatible Ollama builds use `thinking`.
-                                        reasoning = delta.get("reasoning_content") or delta.get("reasoning") or delta.get("thinking") or ""
+                                        reasoning = (
+                                            delta.get("reasoning_content")
+                                            or delta.get("reasoning")
+                                            or delta.get("thinking")
+                                            or ""
+                                        )
                                         if reasoning:
-                                            yield _stream_delta_event(reasoning, thinking=True)
+                                            yield _stream_delta_event(
+                                                reasoning, thinking=True
+                                            )
                                         content = delta.get("content") or ""
                                         if content:
                                             stripped = content.lstrip()
@@ -1617,18 +1903,29 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                             # <think> path below (handled in the else, preserving #2588 behaviour).
                                             if _harmony_active or "<|" in content:
                                                 _harmony_active = True
-                                                for event in _format_routed_content(_harmony_router.feed(content)):
+                                                for event in _format_routed_content(
+                                                    _harmony_router.feed(content)
+                                                ):
                                                     yield event
                                             else:
                                                 # Auto-detect <think>…</think> in content stream.
                                                 # Covers Qwen3-derived models (Qwopus, QwQ forks) whose
                                                 # names don't match _THINKING_MODEL_PATTERNS but still
                                                 # emit literal <think> markup via llama.cpp --jinja.
-                                                if not _first_content_sent and not _thinking_model and not _in_think_tag and stripped.lower().startswith("<think"):
+                                                if (
+                                                    not _first_content_sent
+                                                    and not _thinking_model
+                                                    and not _in_think_tag
+                                                    and stripped.lower().startswith(
+                                                        "<think"
+                                                    )
+                                                ):
                                                     _thinking_model = True
                                                     _in_think_tag = True
                                                 if _in_think_tag:
-                                                    close_idx = content.lower().find("</think>")
+                                                    close_idx = content.lower().find(
+                                                        "</think>"
+                                                    )
                                                     if close_idx != -1:
                                                         # Split: up-to-</think> → thinking, remainder → content
                                                         think_part = content[:close_idx]
@@ -1636,11 +1933,20 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                                             # Strip the opening <think[...] > from the first chunk.
                                                             # Use a dedicated flag — _first_content_sent stays False
                                                             # throughout the think block, so it must not be reused.
-                                                            tag_end = think_part.lower().find(">")
+                                                            tag_end = (
+                                                                think_part.lower().find(
+                                                                    ">"
+                                                                )
+                                                            )
                                                             if tag_end != -1:
-                                                                think_part = think_part[tag_end + 1:]
+                                                                think_part = think_part[
+                                                                    tag_end + 1 :
+                                                                ]
                                                             _think_open_stripped = True
-                                                        regular_part = content[close_idx + len("</think>"):]
+                                                        regular_part = content[
+                                                            close_idx
+                                                            + len("</think>") :
+                                                        ]
                                                         _in_think_tag = False
                                                         if think_part:
                                                             yield f'data: {json.dumps({"delta": think_part, "thinking": True})}\n\n'
@@ -1651,9 +1957,15 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                                         # Still inside <think>: route to thinking channel
                                                         if not _think_open_stripped:
                                                             # Strip the opening <think[...] > tag (first chunk only)
-                                                            tag_end = stripped.lower().find(">")
+                                                            tag_end = (
+                                                                stripped.lower().find(
+                                                                    ">"
+                                                                )
+                                                            )
                                                             if tag_end != -1:
-                                                                content = stripped[tag_end + 1:]
+                                                                content = stripped[
+                                                                    tag_end + 1 :
+                                                                ]
                                                             _think_open_stripped = True
                                                         if content:
                                                             yield f'data: {json.dumps({"delta": content, "thinking": True})}\n\n'
@@ -1662,7 +1974,13 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                                     # stray closing tag. Repair only that shape; do not
                                                     # wrap every first token for model families like
                                                     # MiniMax, which often stream ordinary answers.
-                                                    if _thinking_model and not _first_content_sent and stripped.lower().startswith("</think"):
+                                                    if (
+                                                        _thinking_model
+                                                        and not _first_content_sent
+                                                        and stripped.lower().startswith(
+                                                            "</think"
+                                                        )
+                                                    ):
                                                         content = "<think>" + content
                                                     _first_content_sent = True
                                                     yield f'data: {json.dumps({"delta": content})}\n\n'
@@ -1683,7 +2001,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                                 # follow-up round 400s. A function name marks the
                                                 # start of a new call → allocate a fresh slot;
                                                 # an arg-only continuation attaches to the last.
-                                                if func.get("name") or _tc_last_idx[0] < 0:
+                                                if (
+                                                    func.get("name")
+                                                    or _tc_last_idx[0] < 0
+                                                ):
                                                     # Next free slot ABOVE any existing key (not
                                                     # len()), so a provider mixing integer indices
                                                     # with index=None can never collide.
@@ -1694,7 +2015,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                                 idx = raw_idx
                                             _tc_last_idx[0] = idx
                                             if idx not in _tc_acc:
-                                                _tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                                                _tc_acc[idx] = {
+                                                    "id": "",
+                                                    "name": "",
+                                                    "arguments": "",
+                                                }
                                             if tc.get("id"):
                                                 _tc_acc[idx]["id"] = tc["id"]
                                             # Gemini 3 returns an opaque thought_signature in
@@ -1704,7 +2029,9 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                             # thought_signature"). Preserve it verbatim; other
                                             # providers never send it, so this is a no-op for them.
                                             if tc.get("extra_content"):
-                                                _tc_acc[idx]["extra_content"] = tc["extra_content"]
+                                                _tc_acc[idx]["extra_content"] = tc[
+                                                    "extra_content"
+                                                ]
                                             if func.get("name"):
                                                 _tc_acc[idx]["name"] = func["name"]
                                             if "arguments" in func:
@@ -1713,17 +2040,29 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                                 # raises TypeError that the broad except swallows,
                                                 # silently dropping the rest of the chunk. Matches the
                                                 # Anthropic accumulator (`partial = ... or ""`) above.
-                                                _tc_acc[idx]["arguments"] += func["arguments"] or ""
+                                                _tc_acc[idx]["arguments"] += (
+                                                    func["arguments"] or ""
+                                                )
                                                 # Stream tool arg deltas for doc tools
-                                                if func["arguments"] and _tc_acc[idx].get("name") in ("create_document", "update_document", "edit_document"):
+                                                if func["arguments"] and _tc_acc[
+                                                    idx
+                                                ].get("name") in (
+                                                    "create_document",
+                                                    "update_document",
+                                                    "edit_document",
+                                                ):
                                                     yield f'data: {json.dumps({"type": "tool_call_delta", "index": idx, "name": _tc_acc[idx]["name"], "arg_delta": func["arguments"]})}\n\n'
                                 elif "text" in j:
                                     if j["text"]:
-                                        for event in _format_routed_content(_harmony_router.feed(j["text"])):
+                                        for event in _format_routed_content(
+                                            _harmony_router.feed(j["text"])
+                                        ):
                                             yield event
                             else:
                                 if data.strip():
-                                    for event in _format_routed_content(_harmony_router.feed(data)):
+                                    for event in _format_routed_content(
+                                        _harmony_router.feed(data)
+                                    ):
                                         yield event
                     except Exception as e:
                         logger.error(f"Error parsing stream data: {e}")
@@ -1739,7 +2078,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
 
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
         _cooled = _mark_host_dead(target_url)
-        _tail = f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s" if _cooled else " — transient, will retry"
+        _tail = (
+            f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s"
+            if _cooled
+            else " — transient, will retry"
+        )
         logger.warning(f"Stream connect to {target_url} failed: {e}{_tail}")
         yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503})}\n\n'
     except httpx.ReadTimeout:
@@ -1790,7 +2133,7 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
     primary_model = cands[0][1]
     last_error = None
     for i, (url, model, headers) in enumerate(cands):
-        is_last = (i == len(cands) - 1)
+        is_last = i == len(cands) - 1
         emitted = False
         retried = False
         async for chunk in stream_llm(url, model, messages, headers=headers, **kwargs):
@@ -1801,9 +2144,13 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
                     last_error = chunk
                     retried = True
                     if i == 0:
-                        logger.warning(f"[fallback] primary {model} failed before output; trying fallback")
+                        logger.warning(
+                            f"[fallback] primary {model} failed before output; trying fallback"
+                        )
                     else:
-                        logger.warning(f"[fallback] candidate {model} failed; trying next")
+                        logger.warning(
+                            f"[fallback] candidate {model} failed; trying next"
+                        )
                     break
                 yield chunk
                 continue
@@ -1823,12 +2170,18 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
                 # model's name (e.g. a Bedrock/Claude endpoint that 400s every
                 # request but appears fine because another model silently answered).
                 if not emitted and i > 0:
-                    yield ('data: ' + json.dumps({
-                        "type": "fallback",
-                        "selected_model": primary_model,
-                        "answered_by": model,
-                        "reason": _summarize_stream_error(last_error),
-                    }) + '\n\n')
+                    yield (
+                        "data: "
+                        + json.dumps(
+                            {
+                                "type": "fallback",
+                                "selected_model": primary_model,
+                                "answered_by": model,
+                                "reason": _summarize_stream_error(last_error),
+                            }
+                        )
+                        + "\n\n"
+                    )
                 emitted = True
             yield chunk
         if not retried:

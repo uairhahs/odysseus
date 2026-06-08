@@ -3,9 +3,9 @@ from types import SimpleNamespace
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from core.models import ChatMessage
 import routes.history_routes as history_routes
 import routes.session_routes as session_routes
+from core.models import ChatMessage
 
 
 class _FakeQuery:
@@ -79,6 +79,7 @@ class _FakeSession:
     endpoint_url = "http://example.test/v1"
     model = "test-model"
     headers = {}
+    owner = "session-owner"
 
     def __init__(self, history):
         self.history = history
@@ -98,7 +99,9 @@ def _compact_prompt_for(monkeypatch, history):
         captured["messages"] = messages
         return "Summary text"
 
-    monkeypatch.setattr(history_routes, "_verify_session_owner", lambda request, session_id: None)
+    monkeypatch.setattr(
+        history_routes, "_verify_session_owner", lambda request, session_id: None
+    )
     monkeypatch.setattr(history_routes, "SessionLocal", lambda: _FakeDb())
 
     import src.agent_runs as agent_runs
@@ -107,10 +110,17 @@ def _compact_prompt_for(monkeypatch, history):
     import src.model_context as model_context
 
     monkeypatch.setattr(agent_runs, "is_active", lambda session_id: False)
-    monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", lambda kind, owner=None: (None, None, {}))
+
+    def fake_resolve_endpoint(kind, owner=None):
+        captured.setdefault("resolve_calls", []).append((kind, owner))
+        return None, None, {}
+
+    monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", fake_resolve_endpoint)
     monkeypatch.setattr(llm_core, "llm_call_async", fake_llm_call_async)
     monkeypatch.setattr(model_context, "estimate_tokens", lambda messages: 100)
-    monkeypatch.setattr(model_context, "get_context_length", lambda endpoint_url, model: 1000)
+    monkeypatch.setattr(
+        model_context, "get_context_length", lambda endpoint_url, model: 1000
+    )
 
     session = _FakeSession(history)
     manager = _FakeSessionManager(session)
@@ -137,8 +147,12 @@ def _registered_compact_response(monkeypatch, history, active_run=False):
         "router",
         APIRouter(prefix="/api", tags=["sessions"]),
     )
-    monkeypatch.setattr(session_routes, "_verify_session_owner", lambda request, session_id: None)
-    monkeypatch.setattr(history_routes, "_verify_session_owner", lambda request, session_id: None)
+    monkeypatch.setattr(
+        session_routes, "_verify_session_owner", lambda request, session_id: None
+    )
+    monkeypatch.setattr(
+        history_routes, "_verify_session_owner", lambda request, session_id: None
+    )
     monkeypatch.setattr(history_routes, "SessionLocal", lambda: _FakeDb())
 
     import src.agent_runs as agent_runs
@@ -146,7 +160,12 @@ def _registered_compact_response(monkeypatch, history, active_run=False):
     import src.llm_core as llm_core
 
     monkeypatch.setattr(agent_runs, "is_active", lambda session_id: active_run)
-    monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", lambda kind, owner=None: (None, None, {}))
+
+    def fake_resolve_endpoint(kind, owner=None):
+        captured.setdefault("resolve_calls", []).append((kind, owner))
+        return None, None, {}
+
+    monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", fake_resolve_endpoint)
     monkeypatch.setattr(llm_core, "llm_call_async", fake_llm_call_async)
 
     session = _FakeSession(history)
@@ -210,6 +229,24 @@ def test_registered_manual_compact_route_tolerates_none_content(monkeypatch):
     assert "ASSISTANT: None" not in compact_prompt
     assert "ASSISTANT: " in compact_prompt
     assert manager.replaced_messages is not None
+
+
+def test_registered_manual_compact_route_uses_session_owner(monkeypatch):
+    response, captured, manager = _registered_compact_response(
+        monkeypatch,
+        [
+            ChatMessage(role="user", content="start"),
+            ChatMessage(role="assistant", content="tool call"),
+            ChatMessage(role="tool", content="tool result"),
+            ChatMessage(role="assistant", content="done"),
+            ChatMessage(role="user", content="next"),
+            ChatMessage(role="assistant", content="final"),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert manager.replaced_messages is not None
+    assert ("utility", "session-owner") in captured["resolve_calls"]
 
 
 def test_registered_manual_compact_route_rejects_active_agent_run(monkeypatch):

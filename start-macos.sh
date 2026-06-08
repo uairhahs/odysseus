@@ -34,6 +34,11 @@ fi
 # values (APP_PORT / APP_BIND), then built-in defaults.
 PORT="${ODYSSEUS_PORT:-${APP_PORT:-7860}}"      # 7860, not 7000 — macOS AirPlay Receiver holds 7000.
 HOST="${ODYSSEUS_HOST:-${APP_BIND:-127.0.0.1}}" # Set APP_BIND=0.0.0.0 in .env for LAN/Tailscale access.
+PROBE_HOST="$HOST"
+if [ "$PROBE_HOST" = "0.0.0.0" ] || [ "$PROBE_HOST" = "::" ]; then
+	PROBE_HOST="127.0.0.1"
+fi
+
 # Friendly message on any failure — re-running is safe (every step is idempotent).
 trap 'echo; echo "✗ Setup failed above. It is safe to re-run ./start-macos.sh."; exit 1' ERR
 
@@ -161,6 +166,7 @@ else
 fi
 brew_ensure tmux tmux
 brew_ensure llama-server llama.cpp
+brew_ensure apfel apfel
 
 if [[ -z ${PY} ]] || [[ ! -x ${PY} ]]; then
 	echo "✗ Couldn't find a Python 3.11+ to build the environment with."
@@ -209,6 +215,26 @@ fi
 echo "▶ Preparing Odysseus…"
 ODYSSEUS_SKIP_RUN_HINT=1 ./venv/bin/python setup.py
 
+# Local provider bootstrap.
+#     On Apple Silicon macOS, Apfel is treated as a sibling local model server
+#     to Ollama: if Homebrew has it installed, we start its OpenAI-compatible
+#     server on the port next to Ollama, since the default port is 11434 and that's busy (because of ollama).
+MACHINE_ARCH="$(uname -m)"
+APFEL_PID=""
+if [[ ${MACHINE_ARCH} == "arm64" ]]; then
+	if command -v apfel >/dev/null 2>&1; then
+		APFEL_LOG="${TMPDIR:-/tmp}/odysseus-apfel.log"
+		echo "▶ Starting Apfel server in the background on port 11435…"
+		echo "  logging to ${APFEL_LOG}"
+		nohup apfel --serve --port 11435 >"${APFEL_LOG}" 2>&1 &
+		APFEL_PID=$!
+	else
+		echo "▶ Apfel is not installed (brew formula missing); skipping Apfel server bootstrap."
+	fi
+else
+	echo "▶ Non-ARM macOS detected; skipping Apfel server bootstrap."
+fi
+
 # 5. Launch. Bind to loopback by default; opt into LAN/Tailscale with
 #    ODYSSEUS_HOST=0.0.0.0.
 URL_HOST="$(
@@ -237,7 +263,7 @@ fi
 # Setup is done — drop the setup-failure handler, and clean up the background
 # opener when the server exits or the user presses Ctrl+C.
 trap - ERR
-trap '[ -n "$POLLER_PID" ] && kill "$POLLER_PID" 2>/dev/null' EXIT INT TERM
+trap '[ -n "$POLLER_PID" ] && kill "$POLLER_PID" 2>/dev/null; [ -n "$APFEL_PID" ] && kill "$APFEL_PID" 2>/dev/null' EXIT INT TERM
 
 echo
 echo "▶ Starting Odysseus — it will open in your browser at ${URL}"

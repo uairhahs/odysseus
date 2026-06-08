@@ -12,11 +12,13 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
+from core.constants import internal_api_base
 from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS
 
 
 def get_mcp_manager():
     from src import agent_tools
+
     return agent_tools.get_mcp_manager()
 
 
@@ -25,11 +27,13 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
         return text[:limit] + f"\n... (truncated, {len(text)} chars total)"
     return text
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+
 
 def _parse_tool_args(content):
     """Parse a tool-call argument blob.
@@ -58,7 +62,10 @@ def _parse_tool_args(content):
         and len(args) == 1
         and "body" in args
         and isinstance(args["body"], dict)
-        and "action" in args["body"]  # extra safety: only unwrap if the inner dict looks like a tool call
+        and "action"
+        in args[
+            "body"
+        ]  # extra safety: only unwrap if the inner dict looks like a tool call
     ):
         args = args["body"]
     return args
@@ -112,11 +119,14 @@ def _owned_document_query(query, Document, owner: Optional[str]):
         # deprecates it and 2.0 raises ArgumentError. Use the SQL `false()`
         # literal to return zero rows for an unscoped (owner-less) query.
         from sqlalchemy import false
+
         return query.filter(false())
     return query.filter(Document.owner == owner)
 
 
-def _get_owned_document(db, Document, doc_id: str, owner: Optional[str], active_only: bool = False):
+def _get_owned_document(
+    db, Document, doc_id: str, owner: Optional[str], active_only: bool = False
+):
     q = db.query(Document).filter(Document.id == doc_id)
     if active_only:
         q = q.filter(Document.is_active == True)
@@ -124,7 +134,9 @@ def _get_owned_document(db, Document, doc_id: str, owner: Optional[str], active_
     return q.first()
 
 
-def _most_recent_owned_document(db, Document, owner: Optional[str], active_only: bool = False):
+def _most_recent_owned_document(
+    db, Document, owner: Optional[str], active_only: bool = False
+):
     q = db.query(Document)
     if active_only:
         q = q.filter(Document.is_active == True)
@@ -136,11 +148,14 @@ def _most_recent_owned_document(db, Document, owner: Optional[str], active_only:
 # Document tools — create/update/edit/suggest living documents
 # ---------------------------------------------------------------------------
 
+
 def _sniff_doc_language(text: str) -> str:
     """Best-effort detect a document's language from its content when the model
     didn't specify one. Defaults to 'markdown' (prose). Recognizes the common
     markup/code types the editor supports so e.g. an SVG isn't saved as markdown."""
-    import json as _json, re as _re2
+    import json as _json
+    import re as _re2
+
     s = (text or "").strip()
     if not s:
         return "markdown"
@@ -153,8 +168,13 @@ def _sniff_doc_language(text: str) -> str:
         return "svg"
     if hl.startswith("<?xml"):
         return "xml"
-    if (hl.startswith("<!doctype html") or hl.startswith("<html")
-            or _re2.search(r"<(div|body|head|p|span|table|button|h[1-6]|ul|ol|li|img)\b", hl)):
+    if (
+        hl.startswith("<!doctype html")
+        or hl.startswith("<html")
+        or _re2.search(
+            r"<(div|body|head|p|span|table|button|h[1-6]|ul|ol|li|img)\b", hl
+        )
+    ):
         return "html"
     # JSON
     if s[0] in "{[":
@@ -172,7 +192,9 @@ def _sniff_doc_language(text: str) -> str:
         return "python"
     if _re2.search(r"(?m)^\s*(function \w|const \w|let \w|export |import .* from )", s):
         return "javascript"
-    if _re2.search(r"(?mi)^\s*(select .* from |create table |insert into |update \w)", s):
+    if _re2.search(
+        r"(?mi)^\s*(select .* from |create table |insert into |update \w)", s
+    ):
         return "sql"
     if _re2.search(r"(?m)^[.#]?[\w-]+\s*\{[^{}]*:[^{}]*;", s):
         return "css"
@@ -181,11 +203,16 @@ def _sniff_doc_language(text: str) -> str:
 
 def _looks_like_email_document(text: str = "", title: str = "") -> bool:
     import re as _re
+
     title_l = (title or "").strip().lower()
     if title_l in {"new email", "new mail", "new message"}:
         return True
     s = (text or "").lstrip()
-    if "\n---\n" in s and _re.search(r"(?im)^To:\s*", s) and _re.search(r"(?im)^Subject:\s*", s):
+    if (
+        "\n---\n" in s
+        and _re.search(r"(?im)^To:\s*", s)
+        and _re.search(r"(?im)^Subject:\s*", s)
+    ):
         return True
     return bool(_re.search(r"(?im)^To:\s*", s) and _re.search(r"(?im)^Subject:\s*", s))
 
@@ -194,6 +221,7 @@ def _coerce_email_document_content(existing: str, incoming: str) -> str:
     """Keep email docs in the To/Subject/---/body shape even if a model writes
     only the body or dumps header labels without the separator."""
     import re as _re
+
     old = existing or ""
     new = (incoming or "").strip()
     if "\n---\n" in new:
@@ -202,11 +230,14 @@ def _coerce_email_document_content(existing: str, incoming: str) -> str:
     if _looks_like_email_document(new):
         lines = new.splitlines()
         last_header_idx = -1
-        header_re = _re.compile(r"^(To|Cc|Bcc|Subject|In-Reply-To|References|X-Source-UID|X-Source-Folder|X-Attachments):", _re.I)
+        header_re = _re.compile(
+            r"^(To|Cc|Bcc|Subject|In-Reply-To|References|X-Source-UID|X-Source-Folder|X-Attachments):",
+            _re.I,
+        )
         for i, line in enumerate(lines):
             if header_re.match(line.strip()):
                 last_header_idx = i
-        body_lines = lines[last_header_idx + 1:] if last_header_idx >= 0 else lines
+        body_lines = lines[last_header_idx + 1 :] if last_header_idx >= 0 else lines
         while body_lines and not body_lines[0].strip():
             body_lines.pop(0)
         body = "\n".join(body_lines).strip()
@@ -215,21 +246,54 @@ def _coerce_email_document_content(existing: str, incoming: str) -> str:
     return header.rstrip() + "\n---\n" + body
 
 
-async def do_create_document(content_block: str, session_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
+async def do_create_document(
+    content_block: str, session_id: Optional[str] = None, owner: Optional[str] = None
+) -> Dict:
     """Create a new document. Supports two formats:
       1) Line-based: line 1 = title, line 2 (optional) = language, rest = content
       2) XML-like tags: <title>...</title><language>...</language><content>...</content>
     Some models mix them — strip any XML-style tags and fall back to line parsing."""
-    import uuid, re as _re
-    from src.database import SessionLocal, Document, DocumentVersion, Session as DbSession
+    import re as _re
+    import uuid
+
+    from src.database import (
+        Document,
+        DocumentVersion,
+    )
+    from src.database import Session as DbSession
+    from src.database import (
+        SessionLocal,
+    )
 
     raw = content_block or ""
 
     # Known languages the editor understands (match the <select> in HTML)
     _KNOWN_LANGS = {
-        "python", "javascript", "typescript", "html", "css", "markdown", "json",
-        "yaml", "bash", "sql", "rust", "go", "java", "c", "cpp", "xml", "toml",
-        "ini", "ruby", "php", "csv", "email", "text", "plain", "svg",
+        "python",
+        "javascript",
+        "typescript",
+        "html",
+        "css",
+        "markdown",
+        "json",
+        "yaml",
+        "bash",
+        "sql",
+        "rust",
+        "go",
+        "java",
+        "c",
+        "cpp",
+        "xml",
+        "toml",
+        "ini",
+        "ruby",
+        "php",
+        "csv",
+        "email",
+        "text",
+        "plain",
+        "svg",
     }
 
     # Try XML tag extraction first
@@ -237,7 +301,9 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
     language = None
     content = None
     mt = _re.search(r"<title>\s*(.*?)\s*</title>", raw, _re.DOTALL | _re.IGNORECASE)
-    ml = _re.search(r"<language>\s*(.*?)\s*</language>", raw, _re.DOTALL | _re.IGNORECASE)
+    ml = _re.search(
+        r"<language>\s*(.*?)\s*</language>", raw, _re.DOTALL | _re.IGNORECASE
+    )
     mc = _re.search(r"<content>\s*(.*?)\s*</content>", raw, _re.DOTALL | _re.IGNORECASE)
     if mt or mc:
         title = mt.group(1).strip() if mt else None
@@ -254,7 +320,12 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
         # Only consume second line as language if it looks like a valid short lang token
         if language is None and lines:
             candidate = lines[0].strip().lower()
-            if candidate and len(candidate) < 20 and " " not in candidate and candidate in _KNOWN_LANGS:
+            if (
+                candidate
+                and len(candidate) < 20
+                and " " not in candidate
+                and candidate in _KNOWN_LANGS
+            ):
                 language = candidate
                 lines = lines[1:]
         if content is None:
@@ -313,6 +384,7 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
         set_active_document(doc_id)
         try:
             from src.event_bus import fire_event
+
             fire_event("document_created", _owner)
         except Exception:
             logger.debug("document_created event dispatch failed", exc_info=True)
@@ -332,10 +404,13 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
         db.close()
 
 
-async def do_update_document(content: str, doc_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
+async def do_update_document(
+    content: str, doc_id: Optional[str] = None, owner: Optional[str] = None
+) -> Dict:
     """Update an existing document. Content = full new document text."""
     import uuid
-    from src.database import SessionLocal, Document, DocumentVersion
+
+    from src.database import Document, DocumentVersion, SessionLocal
 
     target_id = doc_id or _active_document_id
 
@@ -349,12 +424,20 @@ async def do_update_document(content: str, doc_id: Optional[str] = None, owner: 
             if doc:
                 target_id = doc.id
                 set_active_document(target_id)
-                logger.info(f"update_document: fell back to most recent doc id={target_id}")
+                logger.info(
+                    f"update_document: fell back to most recent doc id={target_id}"
+                )
         if not doc:
             return {"error": "No documents exist to update"}
 
-        is_email_doc = doc.language == "email" or _looks_like_email_document(doc.current_content or "", doc.title or "")
-        new_content = _coerce_email_document_content(doc.current_content or "", content) if is_email_doc else content.strip()
+        is_email_doc = doc.language == "email" or _looks_like_email_document(
+            doc.current_content or "", doc.title or ""
+        )
+        new_content = (
+            _coerce_email_document_content(doc.current_content or "", content)
+            if is_email_doc
+            else content.strip()
+        )
         if is_email_doc:
             doc.language = "email"
 
@@ -390,16 +473,19 @@ async def do_update_document(content: str, doc_id: Optional[str] = None, owner: 
 def parse_edit_blocks(content: str) -> list:
     """Parse <<<FIND>>>...<<<REPLACE>>>...<<<END>>> blocks."""
     edits = []
-    pattern = r'<<<FIND>>>\n(.*?)\n<<<REPLACE>>>\n(.*?)\n<<<END>>>'
+    pattern = r"<<<FIND>>>\n(.*?)\n<<<REPLACE>>>\n(.*?)\n<<<END>>>"
     for m in re.finditer(pattern, content, re.DOTALL):
         edits.append({"find": m.group(1), "replace": m.group(2)})
     return edits
 
 
-async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
+async def do_edit_document(
+    content: str, doc_id: Optional[str] = None, owner: Optional[str] = None
+) -> Dict:
     """Apply targeted FIND/REPLACE edits to an existing document."""
     import uuid
-    from src.database import SessionLocal, Document, DocumentVersion
+
+    from src.database import Document, DocumentVersion, SessionLocal
 
     target_id = doc_id or _active_document_id
 
@@ -419,7 +505,9 @@ async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Op
             if doc:
                 target_id = doc.id
                 set_active_document(target_id)
-                logger.info(f"edit_document: fell back to most recent doc id={target_id} title={doc.title!r}")
+                logger.info(
+                    f"edit_document: fell back to most recent doc id={target_id} title={doc.title!r}"
+                )
         if not doc:
             return {"error": "No documents exist to edit"}
 
@@ -438,17 +526,27 @@ async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Op
                 # "<digits><tab>" stripped from each FIND line — but only use it
                 # when that stripped form actually matches, so we never corrupt a
                 # legitimately tab-prefixed document.
-                _stripped = "\n".join(re.sub(r"^\d+\t", "", _l) for _l in _find.split("\n"))
+                _stripped = "\n".join(
+                    re.sub(r"^\d+\t", "", _l) for _l in _find.split("\n")
+                )
                 if _stripped != _find and _stripped in updated_content:
-                    updated_content = updated_content.replace(_stripped, edit["replace"], 1)
+                    updated_content = updated_content.replace(
+                        _stripped, edit["replace"], 1
+                    )
                     applied += 1
-                    logger.info("edit_document: matched after stripping line-number gutter from FIND")
+                    logger.info(
+                        "edit_document: matched after stripping line-number gutter from FIND"
+                    )
                 else:
-                    logger.warning(f"edit_document: FIND text not found, skipping: {_find[:80]!r}")
+                    logger.warning(
+                        f"edit_document: FIND text not found, skipping: {_find[:80]!r}"
+                    )
                     skipped += 1
 
         if applied == 0:
-            return {"error": f"No edits applied — none of the FIND blocks matched the document content (skipped {skipped})"}
+            return {
+                "error": f"No edits applied — none of the FIND blocks matched the document content (skipped {skipped})"
+            }
 
         new_ver = doc.version_count + 1
         ver = DocumentVersion(
@@ -484,8 +582,15 @@ async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Op
 def parse_suggest_blocks(content: str) -> list:
     """Parse <<<FIND>>>...<<<SUGGEST>>>...<<<REASON>>>...<<<END>>> blocks."""
     suggestions = []
-    _skip_phrases = ["no change", "clear", "fine as", "looks good", "no improvement", "keep as"]
-    pattern = r'<<<FIND>>>\n(.*?)\n<<<SUGGEST>>>\n(.*?)\n<<<REASON>>>\n(.*?)\n<<<END>>>'
+    _skip_phrases = [
+        "no change",
+        "clear",
+        "fine as",
+        "looks good",
+        "no improvement",
+        "keep as",
+    ]
+    pattern = r"<<<FIND>>>\n(.*?)\n<<<SUGGEST>>>\n(.*?)\n<<<REASON>>>\n(.*?)\n<<<END>>>"
     for m in re.finditer(pattern, content, re.DOTALL):
         find_text = m.group(1)
         replace_text = m.group(2)
@@ -495,18 +600,22 @@ def parse_suggest_blocks(content: str) -> list:
             continue
         if any(phrase in reason.lower() for phrase in _skip_phrases):
             continue
-        suggestions.append({
-            "id": f"sugg-{len(suggestions)+1}",
-            "find": find_text,
-            "replace": replace_text,
-            "reason": reason,
-        })
+        suggestions.append(
+            {
+                "id": f"sugg-{len(suggestions)+1}",
+                "find": find_text,
+                "replace": replace_text,
+                "reason": reason,
+            }
+        )
     return suggestions
 
 
-async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[str] = None) -> Dict:
+async def do_suggest_document(
+    content: str, doc_id: str = None, owner: Optional[str] = None
+) -> Dict:
     """Create inline suggestions for the active document WITHOUT modifying it."""
-    from src.database import SessionLocal, Document
+    from src.database import Document, SessionLocal
 
     target_id = doc_id or _active_document_id
     if not target_id:
@@ -514,7 +623,9 @@ async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[
 
     suggestions = parse_suggest_blocks(content)
     if not suggestions:
-        return {"error": "No valid <<<FIND>>>...<<<SUGGEST>>>...<<<REASON>>>...<<<END>>> blocks found"}
+        return {
+            "error": "No valid <<<FIND>>>...<<<SUGGEST>>>...<<<REASON>>>...<<<END>>> blocks found"
+        }
 
     db = SessionLocal()
     try:
@@ -528,7 +639,9 @@ async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[
             if s["find"] in doc.current_content:
                 valid.append(s)
             else:
-                logger.warning(f"suggest_document: FIND text not found, skipping: {s['find'][:80]!r}")
+                logger.warning(
+                    f"suggest_document: FIND text not found, skipping: {s['find'][:80]!r}"
+                )
 
         if not valid:
             return {"error": "No suggestions matched the document content"}
@@ -547,7 +660,10 @@ async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[
 # Search chats
 # ---------------------------------------------------------------------------
 
-async def do_search_chats(query: str, limit: int = 20, owner: str | None = None) -> Dict:
+
+async def do_search_chats(
+    query: str, limit: int = 20, owner: str | None = None
+) -> Dict:
     """Search past session transcripts for the calling user's sessions only.
 
     Without an owner filter this used to leak EVERY user's chat history
@@ -561,7 +677,7 @@ async def do_search_chats(query: str, limit: int = 20, owner: str | None = None)
 
         results = search_session_messages(query, limit=limit, owner=owner)
         if not results:
-            return {"results": f"No chats found matching \"{query}\"."}
+            return {"results": f'No chats found matching "{query}".'}
 
         # Group by session to avoid duplicate links
         seen_sessions = {}
@@ -569,7 +685,7 @@ async def do_search_chats(query: str, limit: int = 20, owner: str | None = None)
             if result.session_id not in seen_sessions:
                 seen_sessions[result.session_id] = result
 
-        lines = [f"Found {len(seen_sessions)} session(s) matching \"{query}\":\n"]
+        lines = [f'Found {len(seen_sessions)} session(s) matching "{query}":\n']
         for sid, result in seen_sessions.items():
             lines.append(f"- **{result.session_name}** (#{sid})")
             lines.append(f"  Link: [Open chat](#{sid})")
@@ -591,6 +707,7 @@ async def do_search_chats(query: str, limit: int = 20, owner: str | None = None)
 # ---------------------------------------------------------------------------
 # Skills management tool
 # ---------------------------------------------------------------------------
+
 
 async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
     """Handle manage_skills tool calls.
@@ -618,9 +735,10 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
 
     action = (args.get("action") or "").lower()
-    from services.memory.skills import SkillsManager
     from services.memory.skill_format import Skill, slugify
+    from services.memory.skills import SkillsManager
     from src.constants import DATA_DIR
+
     sm = SkillsManager(DATA_DIR)
 
     # Accept legacy `skill_id` as an alias for `name`.
@@ -636,7 +754,9 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         if published:
             lines.append("## Published")
             for s in sorted(published, key=lambda x: x["name"]):
-                lines.append(f"- **{s['name']}** ({s.get('category','general')}): {s.get('description','')}")
+                lines.append(
+                    f"- **{s['name']}** ({s.get('category','general')}): {s.get('description','')}"
+                )
         if drafts:
             lines.append("\n## Drafts")
             for s in sorted(drafts, key=lambda x: x["name"]):
@@ -659,7 +779,10 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
             return {"error": "path is required for view_ref", "exit_code": 1}
         text = sm.read_skill_reference(name, ref, owner=owner)
         if text is None:
-            return {"error": f"Reference {ref!r} not found under {name!r}", "exit_code": 1}
+            return {
+                "error": f"Reference {ref!r} not found under {name!r}",
+                "exit_code": 1,
+            }
         return {"results": text}
 
     if action == "add":
@@ -681,8 +804,11 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
             platforms=args.get("platforms") or [],
             requires_toolsets=args.get("requires_toolsets") or [],
             fallback_for_toolsets=args.get("fallback_for_toolsets") or [],
-            when_to_use=(args.get("when_to_use") if args.get("when_to_use") is not None
-                         else args.get("problem", "")),
+            when_to_use=(
+                args.get("when_to_use")
+                if args.get("when_to_use") is not None
+                else args.get("problem", "")
+            ),
             procedure=proc,
             pitfalls=args.get("pitfalls") or [],
             verification=args.get("verification") or [],
@@ -698,12 +824,15 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
             steps=args.get("steps") or [],
         )
         if entry.get("_deduped"):
-            return {"results": (
-                f"A near-identical skill already exists: `{entry['name']}` — not creating "
-                f"a duplicate. View or edit it with action='view', name='{entry['name']}'."
-            )}
+            return {
+                "results": (
+                    f"A near-identical skill already exists: `{entry['name']}` — not creating "
+                    f"a duplicate. View or edit it with action='view', name='{entry['name']}'."
+                )
+            }
         try:
             from src.event_bus import fire_event
+
             fire_event("skill_added", owner)
         except Exception:
             logger.debug("skill_added event dispatch failed", exc_info=True)
@@ -713,18 +842,26 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
                 "\n\nThis skill is a DRAFT. Run through the procedure once to verify, "
                 f"then publish with action='publish', name='{entry['name']}'."
             )
-        return {"results": f"Created skill `{entry['name']}` — {entry.get('description','')}{verify_hint}"}
+        return {
+            "results": f"Created skill `{entry['name']}` — {entry.get('description','')}{verify_hint}"
+        }
 
     if action == "edit":
         if not name:
             return {"error": "name is required for edit", "exit_code": 1}
         new_content = args.get("content")
         if not isinstance(new_content, str) or not new_content.strip():
-            return {"error": "content (full SKILL.md) is required for edit", "exit_code": 1}
+            return {
+                "error": "content (full SKILL.md) is required for edit",
+                "exit_code": 1,
+            }
         try:
             sk_new = Skill.from_markdown(new_content)
         except Exception as e:
-            return {"error": f"Could not parse content as SKILL.md: {e}", "exit_code": 1}
+            return {
+                "error": f"Could not parse content as SKILL.md: {e}",
+                "exit_code": 1,
+            }
         sk_new.name = slugify(sk_new.name or name)
         existing = sm.load(owner=owner)
         match = next((s for s in existing if s.get("name") == name), None)
@@ -733,7 +870,11 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         if not sk_new.owner:
             sk_new.owner = match.get("owner") or owner
         ok = sm.update_skill(name, _skill_dump(sk_new), owner=owner)
-        return {"results": f"Edited skill `{sk_new.name}`."} if ok else {"error": "Update failed", "exit_code": 1}
+        return (
+            {"results": f"Edited skill `{sk_new.name}`."}
+            if ok
+            else {"error": "Update failed", "exit_code": 1}
+        )
 
     if action == "patch":
         if not name:
@@ -741,7 +882,10 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         old = args.get("old_string")
         new_str = args.get("new_string", "")
         if not isinstance(old, str) or not old:
-            return {"error": "old_string is required and must be non-empty", "exit_code": 1}
+            return {
+                "error": "old_string is required and must be non-empty",
+                "exit_code": 1,
+            }
         md = sm.read_skill_md(name, owner=owner)
         if md is None:
             return {"error": f"Skill {name!r} not found", "exit_code": 1}
@@ -749,15 +893,25 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         if count == 0:
             return {"error": "old_string not found in SKILL.md", "exit_code": 1}
         if count > 1:
-            return {"error": f"old_string is ambiguous (appears {count} times). Make it more specific.", "exit_code": 1}
+            return {
+                "error": f"old_string is ambiguous (appears {count} times). Make it more specific.",
+                "exit_code": 1,
+            }
         new_md = md.replace(old, new_str, 1)
         try:
             sk_new = Skill.from_markdown(new_md)
         except Exception as e:
-            return {"error": f"Patched content is not valid SKILL.md: {e}", "exit_code": 1}
+            return {
+                "error": f"Patched content is not valid SKILL.md: {e}",
+                "exit_code": 1,
+            }
         sk_new.name = slugify(sk_new.name or name)
         ok = sm.update_skill(name, _skill_dump(sk_new), owner=owner)
-        return {"results": f"Patched skill `{sk_new.name}`."} if ok else {"error": "Patch update failed", "exit_code": 1}
+        return (
+            {"results": f"Patched skill `{sk_new.name}`."}
+            if ok
+            else {"error": "Patch update failed", "exit_code": 1}
+        )
 
     if action == "publish":
         if not name:
@@ -770,13 +924,19 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         if args.get("confidence") is not None:
             updates["confidence"] = max(0.0, min(1.0, float(args["confidence"])))
         sm.update_skill(name, updates, owner=owner)
-        return {"results": f"✅ Published `{name}`. It now appears in the skills index for future turns."}
+        return {
+            "results": f"✅ Published `{name}`. It now appears in the skills index for future turns."
+        }
 
     if action == "delete":
         if not name:
             return {"error": "name is required for delete", "exit_code": 1}
         ok = sm.delete_skill(name, owner=owner)
-        return {"results": f"Deleted skill `{name}`."} if ok else {"error": f"Skill {name!r} not found", "exit_code": 1}
+        return (
+            {"results": f"Deleted skill `{name}`."}
+            if ok
+            else {"error": f"Skill {name!r} not found", "exit_code": 1}
+        )
 
     if action == "search":
         query = (args.get("query") or "").strip()
@@ -789,7 +949,9 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         for sk in results:
             proc = sk.get("procedure") or sk.get("steps") or []
             steps_str = " → ".join(proc[:5])
-            lines.append(f"**{sk['name']}**: {sk.get('description','')}\n  When: {sk.get('when_to_use','')}\n  Steps: {steps_str}")
+            lines.append(
+                f"**{sk['name']}**: {sk.get('description','')}\n  When: {sk.get('when_to_use','')}\n  Steps: {steps_str}"
+            )
         return {"results": "\n\n".join(lines)}
 
     return {
@@ -829,10 +991,12 @@ def _skill_dump(sk) -> Dict:
 # Task management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
     """Handle manage_tasks tool calls: CRUD on scheduled tasks."""
     import uuid as _uuid
-    from core.database import SessionLocal, ScheduledTask
+
+    from core.database import ScheduledTask, SessionLocal
     from src.task_scheduler import compute_next_run
 
     try:
@@ -850,42 +1014,64 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
             tasks = q.order_by(ScheduledTask.created_at.desc()).all()
             task_list = []
             for t in tasks:
-                task_list.append({
-                    "id": t.id, "name": t.name, "status": t.status,
-                    "task_type": t.task_type or "llm",
-                    "action": t.action,
-                    "trigger_type": t.trigger_type or "schedule",
-                    "schedule": t.schedule,
-                    "trigger_event": t.trigger_event,
-                    "trigger_count": t.trigger_count,
-                    "next_run": t.next_run.isoformat() + "Z" if t.next_run else None,
-                    "last_run": t.last_run.isoformat() + "Z" if t.last_run else None,
-                    "run_count": t.run_count or 0,
-                })
-            return {"response": f"Found {len(task_list)} tasks", "tasks": task_list, "exit_code": 0}
+                task_list.append(
+                    {
+                        "id": t.id,
+                        "name": t.name,
+                        "status": t.status,
+                        "task_type": t.task_type or "llm",
+                        "action": t.action,
+                        "trigger_type": t.trigger_type or "schedule",
+                        "schedule": t.schedule,
+                        "trigger_event": t.trigger_event,
+                        "trigger_count": t.trigger_count,
+                        "next_run": (
+                            t.next_run.isoformat() + "Z" if t.next_run else None
+                        ),
+                        "last_run": (
+                            t.last_run.isoformat() + "Z" if t.last_run else None
+                        ),
+                        "run_count": t.run_count or 0,
+                    }
+                )
+            return {
+                "response": f"Found {len(task_list)} tasks",
+                "tasks": task_list,
+                "exit_code": 0,
+            }
 
         elif action == "create":
             task_type = args.get("task_type", "llm")
             trigger_type = args.get("trigger_type", "schedule")
 
             if task_type in ("llm", "research") and not args.get("prompt"):
-                return {"error": "Prompt is required for llm/research tasks", "exit_code": 1}
+                return {
+                    "error": "Prompt is required for llm/research tasks",
+                    "exit_code": 1,
+                }
             if task_type == "action" and not args.get("action_name"):
-                return {"error": "action_name is required for action tasks", "exit_code": 1}
+                return {
+                    "error": "action_name is required for action tasks",
+                    "exit_code": 1,
+                }
 
             # Compute next_run for schedule triggers
             next_run = None
             if trigger_type == "schedule":
                 schedule = args.get("schedule", "daily")
                 next_run = compute_next_run(
-                    schedule, args.get("scheduled_time", "09:00"),
+                    schedule,
+                    args.get("scheduled_time", "09:00"),
                     args.get("scheduled_day"),
                 )
 
             task_id = str(_uuid.uuid4())
             # Guard each fallback with `or`: args.get("prompt", default) returns
             # None when the key is present but null, and None[:50] raises.
-            name = args.get("name") or (args.get("prompt") or args.get("action_name") or "Task")[:50]
+            name = (
+                args.get("name")
+                or (args.get("prompt") or args.get("action_name") or "Task")[:50]
+            )
 
             task = ScheduledTask(
                 id=task_id,
@@ -895,7 +1081,11 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
                 task_type=task_type,
                 action=args.get("action_name"),
                 schedule=args.get("schedule") if trigger_type == "schedule" else None,
-                scheduled_time=args.get("scheduled_time", "09:00") if trigger_type == "schedule" else None,
+                scheduled_time=(
+                    args.get("scheduled_time", "09:00")
+                    if trigger_type == "schedule"
+                    else None
+                ),
                 scheduled_day=args.get("scheduled_day"),
                 trigger_type=trigger_type,
                 trigger_event=args.get("trigger_event"),
@@ -907,7 +1097,11 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
             )
             db.add(task)
             db.commit()
-            return {"response": f"Created task '{name}' (id: {task_id})", "task_id": task_id, "exit_code": 0}
+            return {
+                "response": f"Created task '{name}' (id: {task_id})",
+                "task_id": task_id,
+                "exit_code": 0,
+            }
 
         elif action == "edit":
             task_id = args.get("task_id")
@@ -949,11 +1143,16 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
 
             if schedule_changed and (task.trigger_type or "schedule") == "schedule":
                 task.next_run = compute_next_run(
-                    task.schedule, task.scheduled_time, task.scheduled_day,
+                    task.schedule,
+                    task.scheduled_time,
+                    task.scheduled_day,
                 )
 
             db.commit()
-            return {"response": f"Updated task '{task.name}': {', '.join(changed)}", "exit_code": 0}
+            return {
+                "response": f"Updated task '{task.name}': {', '.join(changed)}",
+                "exit_code": 0,
+            }
 
         elif action == "delete":
             task_id = args.get("task_id")
@@ -985,7 +1184,9 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
                 task.status = "active"
                 if (task.trigger_type or "schedule") == "schedule":
                     task.next_run = compute_next_run(
-                        task.schedule, task.scheduled_time, task.scheduled_day,
+                        task.schedule,
+                        task.scheduled_time,
+                        task.scheduled_day,
                     )
             db.commit()
             return {"response": f"Task '{task.name}' {action}d", "exit_code": 0}
@@ -1001,6 +1202,7 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
                 return {"error": "Access denied", "exit_code": 1}
 
             from src.event_bus import get_task_scheduler
+
             scheduler = get_task_scheduler()
             if scheduler:
                 started = await scheduler.run_task_now(task_id)
@@ -1024,9 +1226,11 @@ async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
 # Endpoint management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_endpoints(content: str, owner: Optional[str] = None) -> Dict:
     """Manage model endpoints: list, add, delete, enable, disable."""
-    from core.database import SessionLocal, ModelEndpoint
+    from core.database import ModelEndpoint, SessionLocal
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -1037,12 +1241,24 @@ async def do_manage_endpoints(content: str, owner: Optional[str] = None) -> Dict
     try:
         if action == "list":
             eps = db.query(ModelEndpoint).all()
-            items = [{"id": e.id, "name": e.name, "base_url": e.base_url,
-                       "is_enabled": e.is_enabled} for e in eps]
-            return {"response": f"{len(items)} endpoints", "endpoints": items, "exit_code": 0}
+            items = [
+                {
+                    "id": e.id,
+                    "name": e.name,
+                    "base_url": e.base_url,
+                    "is_enabled": e.is_enabled,
+                }
+                for e in eps
+            ]
+            return {
+                "response": f"{len(items)} endpoints",
+                "endpoints": items,
+                "exit_code": 0,
+            }
 
         elif action == "add":
             import uuid as _uuid
+
             name = args.get("name", "")
             base_url = args.get("base_url", "")
             api_key = args.get("api_key", "")
@@ -1050,12 +1266,22 @@ async def do_manage_endpoints(content: str, owner: Optional[str] = None) -> Dict
                 return {"error": "base_url is required", "exit_code": 1}
             eid = str(_uuid.uuid4())[:8]
             from datetime import datetime
-            ep = ModelEndpoint(id=eid, name=name or base_url, base_url=base_url,
-                               api_key=api_key, is_enabled=True,
-                               created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+
+            ep = ModelEndpoint(
+                id=eid,
+                name=name or base_url,
+                base_url=base_url,
+                api_key=api_key,
+                is_enabled=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
             db.add(ep)
             db.commit()
-            return {"response": f"Added endpoint '{name or base_url}' (id: {eid})", "exit_code": 0}
+            return {
+                "response": f"Added endpoint '{name or base_url}' (id: {eid})",
+                "exit_code": 0,
+            }
 
         elif action == "delete":
             eid = args.get("endpoint_id", "")
@@ -1072,7 +1298,7 @@ async def do_manage_endpoints(content: str, owner: Optional[str] = None) -> Dict
             ep = db.query(ModelEndpoint).filter(ModelEndpoint.id == eid).first()
             if not ep:
                 return {"error": f"Endpoint {eid} not found", "exit_code": 1}
-            ep.is_enabled = (action == "enable")
+            ep.is_enabled = action == "enable"
             db.commit()
             return {"response": f"Endpoint '{ep.name}' {action}d", "exit_code": 0}
 
@@ -1089,6 +1315,7 @@ async def do_manage_endpoints(content: str, owner: Optional[str] = None) -> Dict
 # MCP server management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
     """Manage MCP servers: list, add, delete, enable, disable, reconnect."""
     try:
@@ -1101,8 +1328,13 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
     if action == "list":
         mcp = get_mcp_manager()
         if not mcp:
-            return {"response": "No MCP manager available", "servers": [], "exit_code": 0}
-        from core.database import SessionLocal, McpServer
+            return {
+                "response": "No MCP manager available",
+                "servers": [],
+                "exit_code": 0,
+            }
+        from core.database import McpServer, SessionLocal
+
         db = SessionLocal()
         try:
             servers = db.query(McpServer).all()
@@ -1111,17 +1343,30 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
                 st = mcp.get_server_status(s.id)
                 status = st.get("status", "disconnected")
                 tool_count = st.get("tool_count", 0)
-                items.append({"id": s.id, "name": s.name, "transport": s.transport,
-                              "is_enabled": s.is_enabled, "status": status,
-                              "tool_count": tool_count})
-            return {"response": f"{len(items)} MCP servers", "servers": items, "exit_code": 0}
+                items.append(
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "transport": s.transport,
+                        "is_enabled": s.is_enabled,
+                        "status": status,
+                        "tool_count": tool_count,
+                    }
+                )
+            return {
+                "response": f"{len(items)} MCP servers",
+                "servers": items,
+                "exit_code": 0,
+            }
         finally:
             db.close()
 
     elif action == "add":
-        from core.database import SessionLocal, McpServer
         import uuid as _uuid
         from datetime import datetime
+
+        from core.database import McpServer, SessionLocal
+
         name = args.get("name", "")
         command = args.get("command", "")
         cmd_args = args.get("args", [])
@@ -1131,10 +1376,17 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
         sid = str(_uuid.uuid4())[:8]
         db = SessionLocal()
         try:
-            srv = McpServer(id=sid, name=name, transport="stdio", command=command,
-                            args=json.dumps(cmd_args) if isinstance(cmd_args, list) else cmd_args,
-                            env=json.dumps(env) if isinstance(env, dict) else env,
-                            is_enabled=True, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+            srv = McpServer(
+                id=sid,
+                name=name,
+                transport="stdio",
+                command=command,
+                args=json.dumps(cmd_args) if isinstance(cmd_args, list) else cmd_args,
+                env=json.dumps(env) if isinstance(env, dict) else env,
+                is_enabled=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
             db.add(srv)
             db.commit()
         finally:
@@ -1145,19 +1397,28 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
         if mcp:
             try:
                 await mcp.connect_server(
-                    sid, name, "stdio", command=command,
-                    args=cmd_args if isinstance(cmd_args, list) else json.loads(cmd_args),
+                    sid,
+                    name,
+                    "stdio",
+                    command=command,
+                    args=(
+                        cmd_args if isinstance(cmd_args, list) else json.loads(cmd_args)
+                    ),
                     env=env if isinstance(env, dict) else json.loads(env),
                 )
                 st = mcp.get_server_status(sid)
                 tool_count = st.get("tool_count", 0)
             except Exception as e:
                 logger.warning(f"MCP connect failed for {name}: {e}")
-        return {"response": f"Added MCP server '{name}' ({tool_count} tools)", "exit_code": 0}
+        return {
+            "response": f"Added MCP server '{name}' ({tool_count} tools)",
+            "exit_code": 0,
+        }
 
     elif action == "delete":
         sid = args.get("server_id", "")
-        from core.database import SessionLocal, McpServer
+        from core.database import McpServer, SessionLocal
+
         db = SessionLocal()
         try:
             srv = db.query(McpServer).filter(McpServer.id == sid).first()
@@ -1183,7 +1444,8 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
             return {"error": "MCP manager not available", "exit_code": 1}
         try:
             await mcp.disconnect_server(sid)
-            from core.database import SessionLocal, McpServer
+            from core.database import McpServer, SessionLocal
+
             db2 = SessionLocal()
             try:
                 srv = db2.query(McpServer).filter(McpServer.id == sid).first()
@@ -1200,7 +1462,10 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
                         url=srv.url,
                     )
                     st = mcp.get_server_status(sid)
-                    return {"response": f"Reconnected '{srv.name}' ({st.get('tool_count', 0)} tools)", "exit_code": 0}
+                    return {
+                        "response": f"Reconnected '{srv.name}' ({st.get('tool_count', 0)} tools)",
+                        "exit_code": 0,
+                    }
                 return {"error": f"Server {sid} not found", "exit_code": 1}
             finally:
                 db2.close()
@@ -1209,13 +1474,14 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
 
     elif action in ("enable", "disable"):
         sid = args.get("server_id", "")
-        from core.database import SessionLocal, McpServer
+        from core.database import McpServer, SessionLocal
+
         db = SessionLocal()
         try:
             srv = db.query(McpServer).filter(McpServer.id == sid).first()
             if not srv:
                 return {"error": f"Server {sid} not found", "exit_code": 1}
-            srv.is_enabled = (action == "enable")
+            srv.is_enabled = action == "enable"
             db.commit()
             return {"response": f"MCP server '{srv.name}' {action}d", "exit_code": 0}
         finally:
@@ -1226,9 +1492,19 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
         if not mcp:
             return {"response": "No MCP manager", "tools": [], "exit_code": 0}
         tools = mcp.get_all_tools()
-        items = [{"name": t["name"], "server": t["server_name"],
-                  "description": t.get("description", "")[:100]} for t in tools]
-        return {"response": f"{len(items)} MCP tools available", "tools": items, "exit_code": 0}
+        items = [
+            {
+                "name": t["name"],
+                "server": t["server_name"],
+                "description": t.get("description", "")[:100],
+            }
+            for t in tools
+        ]
+        return {
+            "response": f"{len(items)} MCP tools available",
+            "tools": items,
+            "exit_code": 0,
+        }
 
     else:
         return {"error": f"Unknown action: {action}", "exit_code": 1}
@@ -1238,9 +1514,11 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
 # Webhook management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_webhooks(content: str, owner: Optional[str] = None) -> Dict:
     """Manage webhooks: list, add, delete, enable, disable, test."""
     from core.database import SessionLocal
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -1250,16 +1528,31 @@ async def do_manage_webhooks(content: str, owner: Optional[str] = None) -> Dict:
     db = SessionLocal()
     try:
         from core.database import Webhook
+
         if action == "list":
             hooks = db.query(Webhook).all()
-            items = [{"id": h.id, "name": h.name, "url": h.url,
-                       "events": h.events, "is_active": h.is_active} for h in hooks]
-            return {"response": f"{len(items)} webhooks", "webhooks": items, "exit_code": 0}
+            items = [
+                {
+                    "id": h.id,
+                    "name": h.name,
+                    "url": h.url,
+                    "events": h.events,
+                    "is_active": h.is_active,
+                }
+                for h in hooks
+            ]
+            return {
+                "response": f"{len(items)} webhooks",
+                "webhooks": items,
+                "exit_code": 0,
+            }
 
         elif action == "add":
             import uuid as _uuid
             from datetime import datetime
+
             from src.webhook_manager import validate_events, validate_webhook_url
+
             name = args.get("name", "")
             url = args.get("url", "")
             events = args.get("events", "chat.completed")
@@ -1271,9 +1564,15 @@ async def do_manage_webhooks(content: str, owner: Optional[str] = None) -> Dict:
             except ValueError as e:
                 return {"error": str(e), "exit_code": 1}
             wid = str(_uuid.uuid4())[:8]
-            hook = Webhook(id=wid, name=name or url, url=url,
-                           events=events, is_active=True,
-                           created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+            hook = Webhook(
+                id=wid,
+                name=name or url,
+                url=url,
+                events=events,
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
             db.add(hook)
             db.commit()
             return {"response": f"Added webhook '{name or url}'", "exit_code": 0}
@@ -1293,7 +1592,7 @@ async def do_manage_webhooks(content: str, owner: Optional[str] = None) -> Dict:
             hook = db.query(Webhook).filter(Webhook.id == wid).first()
             if not hook:
                 return {"error": f"Webhook {wid} not found", "exit_code": 1}
-            hook.is_active = (action == "enable")
+            hook.is_active = action == "enable"
             db.commit()
             return {"response": f"Webhook '{hook.name}' {action}d", "exit_code": 0}
 
@@ -1310,9 +1609,11 @@ async def do_manage_webhooks(content: str, owner: Optional[str] = None) -> Dict:
 # API token management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_tokens(content: str, owner: Optional[str] = None) -> Dict:
     """Manage API tokens: list, create, delete."""
-    from core.database import SessionLocal, ApiToken
+    from core.database import ApiToken, SessionLocal
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -1323,23 +1624,48 @@ async def do_manage_tokens(content: str, owner: Optional[str] = None) -> Dict:
     try:
         if action == "list":
             tokens = db.query(ApiToken).all()
-            items = [{"id": t.id, "name": t.name, "token_prefix": t.token_prefix + "...",
-                       "is_active": t.is_active} for t in tokens]
-            return {"response": f"{len(items)} API tokens", "tokens": items, "exit_code": 0}
+            items = [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "token_prefix": t.token_prefix + "...",
+                    "is_active": t.is_active,
+                }
+                for t in tokens
+            ]
+            return {
+                "response": f"{len(items)} API tokens",
+                "tokens": items,
+                "exit_code": 0,
+            }
 
         elif action == "create":
-            import uuid as _uuid, secrets, bcrypt
+            import secrets
+            import uuid as _uuid
             from datetime import datetime
+
+            import bcrypt
+
             name = args.get("name", "API Token")
             raw_token = secrets.token_urlsafe(32)
             token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
             tid = str(_uuid.uuid4())[:8]
-            t = ApiToken(id=tid, name=name, token_hash=token_hash,
-                         token_prefix=raw_token[:8], is_active=True,
-                         created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+            t = ApiToken(
+                id=tid,
+                name=name,
+                token_hash=token_hash,
+                token_prefix=raw_token[:8],
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
             db.add(t)
             db.commit()
-            return {"response": f"Created token '{name}'", "token": raw_token, "exit_code": 0}
+            return {
+                "response": f"Created token '{name}'",
+                "token": raw_token,
+                "exit_code": 0,
+            }
 
         elif action == "delete":
             tid = args.get("token_id", "")
@@ -1364,6 +1690,7 @@ async def do_manage_tokens(content: str, owner: Optional[str] = None) -> Dict:
 # Document management tool (delete, list, organize)
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict:
     """Manage documents: list, read/view/open, delete, tidy.
 
@@ -1371,8 +1698,9 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
     clickable `[Title](#document-<id>)` anchor + relative timestamps
     so the user can click straight from chat to open the editor.
     """
-    from core.database import SessionLocal, Document
     from datetime import datetime, timezone
+
+    from core.database import Document, SessionLocal
 
     try:
         args = _parse_tool_args(content)
@@ -1384,17 +1712,25 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
 
     def _rel(ts):
         if not ts:
-            return 'never'
+            return "never"
         try:
-            now = datetime.now(timezone.utc) if ts.tzinfo is not None else datetime.utcnow()
+            now = (
+                datetime.now(timezone.utc)
+                if ts.tzinfo is not None
+                else datetime.utcnow()
+            )
             diff = (now - ts).total_seconds()
         except Exception:
-            return 'unknown'
-        if diff < 60: return 'just now'
-        if diff < 3600: return f'{int(diff / 60)}m ago'
-        if diff < 86400: return f'{int(diff / 3600)}h ago'
-        if diff < 86400 * 7: return f'{int(diff / 86400)}d ago'
-        return ts.strftime('%Y-%m-%d')
+            return "unknown"
+        if diff < 60:
+            return "just now"
+        if diff < 3600:
+            return f"{int(diff / 60)}m ago"
+        if diff < 86400:
+            return f"{int(diff / 3600)}h ago"
+        if diff < 86400 * 7:
+            return f"{int(diff / 86400)}d ago"
+        return ts.strftime("%Y-%m-%d")
 
     try:
         if action == "list":
@@ -1404,21 +1740,31 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
                 q = q.filter(Document.title.ilike(f"%{args['search']}%"))
             if args.get("language"):
                 q = q.filter(Document.language == args["language"])
-            docs = q.order_by(Document.updated_at.desc()).limit(args.get("limit", 50)).all()
+            docs = (
+                q.order_by(Document.updated_at.desc())
+                .limit(args.get("limit", 50))
+                .all()
+            )
             if not docs:
-                msg = "No documents found" + (f" matching '{args['search']}'" if args.get("search") else "") + "."
+                msg = (
+                    "No documents found"
+                    + (f" matching '{args['search']}'" if args.get("search") else "")
+                    + "."
+                )
                 return {"response": msg, "documents": [], "exit_code": 0}
             lines = []
             items = []
             for i, d in enumerate(docs):
                 size = len(d.current_content or "")
                 lang = d.language or "text"
-                ts = getattr(d, 'updated_at', None) or getattr(d, 'created_at', None)
+                ts = getattr(d, "updated_at", None) or getattr(d, "created_at", None)
                 marker = " ← most recent" if i == 0 else ""
                 lines.append(
                     f"- [{d.title}](#document-{d.id}) — {lang}, {size} chars, updated {_rel(ts)}{marker}"
                 )
-                items.append({"id": d.id, "title": d.title, "language": lang, "size": size})
+                items.append(
+                    {"id": d.id, "title": d.title, "language": lang, "size": size}
+                )
             header = f"Found {len(docs)} document(s), sorted most-recent first. Click a title to open:"
             return {
                 "response": header + "\n" + "\n".join(lines),
@@ -1429,14 +1775,19 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
         elif action in ("read", "view", "open", "get"):
             doc_id = args.get("document_id") or args.get("id") or args.get("uid")
             if not doc_id:
-                return {"error": "Need document_id (use action=list to find one)", "exit_code": 1}
+                return {
+                    "error": "Need document_id (use action=list to find one)",
+                    "exit_code": 1,
+                }
             doc = _get_owned_document(db, Document, doc_id, owner, active_only=True)
             if not doc:
                 return {"error": f"Document '{doc_id}' not found", "exit_code": 1}
             body = doc.current_content or ""
             preview_limit = int(args.get("limit", MAX_READ_CHARS))
             truncated = len(body) > preview_limit
-            preview = body[:preview_limit] + (f"\n... (truncated, {len(body)} chars total)" if truncated else "")
+            preview = body[:preview_limit] + (
+                f"\n... (truncated, {len(body)} chars total)" if truncated else ""
+            )
             anchor = f"[{doc.title}](#document-{doc.id})"
             return {
                 "response": f"{anchor} — click to open in editor.\n\n```{doc.language or ''}\n{preview}\n```",
@@ -1452,7 +1803,12 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
             }
 
         elif action == "delete":
-            doc_id = args.get("document_id") or args.get("id") or args.get("uid") or _active_document_id
+            doc_id = (
+                args.get("document_id")
+                or args.get("id")
+                or args.get("uid")
+                or _active_document_id
+            )
             doc = None
             if doc_id:
                 doc = _get_owned_document(db, Document, doc_id, owner)
@@ -1470,6 +1826,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
 
         elif action == "tidy":
             from src.document_actions import run_document_tidy
+
             result = await run_document_tidy(owner or "")
             return {"response": result, "exit_code": 0}
 
@@ -1486,6 +1843,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
 # Settings/preferences management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
     """Manage user settings and preferences."""
     try:
@@ -1496,19 +1854,25 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
     action = args.get("action", "list")
 
     from core.database import SessionLocal
+
     db = SessionLocal()
     try:
         # set/get/list/delete operate on the REAL app settings (the same store
         # the Settings panel writes), so changing a model / voice / search
         # engine / reminder channel from chat actually takes effect.
-        from src.settings import load_settings, save_settings, DEFAULT_SETTINGS
+        from src.settings import DEFAULT_SETTINGS, load_settings, save_settings
 
         # Secrets/credentials the agent must NOT write — kept read-only (masked)
         # so API keys never flow through chat. User sets these in the panel.
         _SECRET_KEYS = {
-            "brave_api_key", "google_pse_key", "google_pse_cx",
-            "tavily_api_key", "serper_api_key", "app_public_url",
+            "brave_api_key",
+            "google_pse_key",
+            "google_pse_cx",
+            "tavily_api_key",
+            "serper_api_key",
+            "app_public_url",
         }
+
         def _is_secret(k):
             # `token` must be a suffix, not a substring: otherwise the int
             # setting `agent_input_token_budget` (which even has a "token budget"
@@ -1521,32 +1885,53 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
 
         # Friendly aliases → real keys, so natural phrasing resolves.
         _ALIASES_SET = {
-            "voice": "tts_voice", "tts voice": "tts_voice", "tts": "tts_enabled",
-            "text to speech": "tts_enabled", "tts provider": "tts_provider",
-            "speech speed": "tts_speed", "voice speed": "tts_speed",
-            "stt": "stt_enabled", "speech to text": "stt_enabled", "transcription": "stt_enabled",
-            "search engine": "search_provider", "search provider": "search_provider",
-            "search results": "search_result_count", "result count": "search_result_count",
-            "default model": "default_model", "chat model": "default_model",
+            "voice": "tts_voice",
+            "tts voice": "tts_voice",
+            "tts": "tts_enabled",
+            "text to speech": "tts_enabled",
+            "tts provider": "tts_provider",
+            "speech speed": "tts_speed",
+            "voice speed": "tts_speed",
+            "stt": "stt_enabled",
+            "speech to text": "stt_enabled",
+            "transcription": "stt_enabled",
+            "search engine": "search_provider",
+            "search provider": "search_provider",
+            "search results": "search_result_count",
+            "result count": "search_result_count",
+            "default model": "default_model",
+            "chat model": "default_model",
             "default endpoint": "default_endpoint_id",
-            "task model": "task_model", "background model": "task_model",
-            "teacher model": "teacher_model", "teacher": "teacher_enabled",
-            "utility model": "utility_model", "research model": "research_model",
+            "task model": "task_model",
+            "background model": "task_model",
+            "teacher model": "teacher_model",
+            "teacher": "teacher_enabled",
+            "utility model": "utility_model",
+            "research model": "research_model",
             "research max tokens": "research_max_tokens",
-            "vision model": "vision_model", "vision": "vision_enabled",
-            "image model": "image_model", "image quality": "image_quality",
-            "image gen": "image_gen_enabled", "image generation": "image_gen_enabled",
-            "reminder channel": "reminder_channel", "reminders": "reminder_channel",
+            "vision model": "vision_model",
+            "vision": "vision_enabled",
+            "image model": "image_model",
+            "image quality": "image_quality",
+            "image gen": "image_gen_enabled",
+            "image generation": "image_gen_enabled",
+            "reminder channel": "reminder_channel",
+            "reminders": "reminder_channel",
             "ntfy topic": "reminder_ntfy_topic",
             "webhook integration": "reminder_webhook_integration_id",
-            "webhook template": "reminder_webhook_payload_template", "webhook payload": "reminder_webhook_payload_template",
-            "agent tool calls": "agent_max_tool_calls", "max tool calls": "agent_max_tool_calls",
-            "agent timeout": "agent_stream_timeout_seconds", "stream timeout": "agent_stream_timeout_seconds",
-            "token budget": "agent_input_token_budget", "input budget": "agent_input_token_budget",
+            "webhook template": "reminder_webhook_payload_template",
+            "webhook payload": "reminder_webhook_payload_template",
+            "agent tool calls": "agent_max_tool_calls",
+            "max tool calls": "agent_max_tool_calls",
+            "agent timeout": "agent_stream_timeout_seconds",
+            "stream timeout": "agent_stream_timeout_seconds",
+            "token budget": "agent_input_token_budget",
+            "input budget": "agent_input_token_budget",
             "hard max": "agent_input_token_hard_max",
             "token budget cap": "agent_input_token_hard_max",
             "input budget cap": "agent_input_token_hard_max",
         }
+
         def _resolve(k):
             k2 = (k or "").strip().lower()
             if k2 in DEFAULT_SETTINGS:
@@ -1557,15 +1942,22 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             "image_quality": ["low", "medium", "high"],
             "reminder_channel": ["browser", "email", "ntfy", "webhook"],
         }
+
         def _coerce(value, default):
             if isinstance(default, bool):
-                return value if isinstance(value, bool) else str(value).strip().lower() in ("true", "on", "yes", "1", "enable", "enabled")
+                return (
+                    value
+                    if isinstance(value, bool)
+                    else str(value).strip().lower()
+                    in ("true", "on", "yes", "1", "enable", "enabled")
+                )
             if isinstance(default, int):
                 return int(value)
             return value
 
         def _model_slug(value: str) -> str:
             import re as _re
+
             return _re.sub(r"[^a-z0-9]+", "", (value or "").lower())
 
         def _endpoint_model_from_cache(model_query: str):
@@ -1577,16 +1969,21 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             """
             import json as _json
             import re as _re
+
             from core.database import ModelEndpoint
 
             wanted = (model_query or "").strip()
             wanted_slug = _model_slug(wanted)
-            wanted_tokens = [_model_slug(t) for t in _re.findall(r"[A-Za-z0-9]+", wanted)]
+            wanted_tokens = [
+                _model_slug(t) for t in _re.findall(r"[A-Za-z0-9]+", wanted)
+            ]
             wanted_tokens = [t for t in wanted_tokens if t]
             if not wanted_slug:
                 return None
             best = None
-            for ep in db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all():
+            for ep in (
+                db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
+            ):
                 raw_models = []
                 try:
                     raw_models = _json.loads(ep.cached_models or "[]") or []
@@ -1601,7 +1998,9 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                         continue
                     exact = mid.lower() == wanted.lower()
                     compact_match = wanted_slug in mid_slug or mid_slug in wanted_slug
-                    token_match = bool(wanted_tokens) and all(tok in mid_slug for tok in wanted_tokens)
+                    token_match = bool(wanted_tokens) and all(
+                        tok in mid_slug for tok in wanted_tokens
+                    )
                     if exact or compact_match or token_match:
                         score = 3 if exact else (2 if compact_match else 1)
                         if not best or score > best[0]:
@@ -1615,17 +2014,32 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
 
         if action == "list":
             s = load_settings()
-            shown = {k: _mask(k, v) for k, v in s.items() if k in DEFAULT_SETTINGS and not isinstance(v, dict)}
-            return {"response": f"{len(shown)} settings (use get/set with a key)", "settings": shown, "exit_code": 0}
+            shown = {
+                k: _mask(k, v)
+                for k, v in s.items()
+                if k in DEFAULT_SETTINGS and not isinstance(v, dict)
+            }
+            return {
+                "response": f"{len(shown)} settings (use get/set with a key)",
+                "settings": shown,
+                "exit_code": 0,
+            }
 
         elif action == "get":
             key = _resolve(args.get("key", ""))
             if not key:
                 return {"error": "key is required", "exit_code": 1}
             if key not in DEFAULT_SETTINGS:
-                return {"error": f"Unknown setting '{args.get('key')}'. Use action='list' to see them.", "exit_code": 1}
+                return {
+                    "error": f"Unknown setting '{args.get('key')}'. Use action='list' to see them.",
+                    "exit_code": 1,
+                }
             val = load_settings().get(key, DEFAULT_SETTINGS.get(key))
-            return {"response": f"{key} = {_mask(key, val)}", "value": _mask(key, val), "exit_code": 0}
+            return {
+                "response": f"{key} = {_mask(key, val)}",
+                "value": _mask(key, val),
+                "exit_code": 0,
+            }
 
         elif action == "set":
             raw = args.get("key", "")
@@ -1634,25 +2048,47 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                 return {"error": "key is required", "exit_code": 1}
             key = _resolve(raw)
             if key not in DEFAULT_SETTINGS:
-                return {"error": f"Unknown setting '{raw}'. Use action='list' to see available settings.", "exit_code": 1}
+                return {
+                    "error": f"Unknown setting '{raw}'. Use action='list' to see available settings.",
+                    "exit_code": 1,
+                }
             if _is_secret(key):
-                return {"response": f"'{key}' is a credential/secret — for security I can't set it from chat. Open Settings and set it there.", "exit_code": 0}
+                return {
+                    "response": f"'{key}' is a credential/secret — for security I can't set it from chat. Open Settings and set it there.",
+                    "exit_code": 0,
+                }
             # Structured settings (dicts/lists like keybinds, default_model_fallbacks)
             # have no safe scalar coercion — _coerce would pass a bare string
             # straight through and clobber the structure. Refuse them here; they're
             # edited in their dedicated panels. (reset/delete still restore the
             # default structure, which is safe.)
             if isinstance(DEFAULT_SETTINGS[key], (dict, list)):
-                return {"response": f"'{key}' is a structured setting — edit it in its panel, not from chat. (You can reset it to default here.)", "exit_code": 0}
+                return {
+                    "response": f"'{key}' is a structured setting — edit it in its panel, not from chat. (You can reset it to default here.)",
+                    "exit_code": 0,
+                }
             try:
                 value = _coerce(value, DEFAULT_SETTINGS[key])
             except (ValueError, TypeError):
-                return {"error": f"'{value}' isn't a valid value for {key} (expected {type(DEFAULT_SETTINGS[key]).__name__}).", "exit_code": 1}
+                return {
+                    "error": f"'{value}' isn't a valid value for {key} (expected {type(DEFAULT_SETTINGS[key]).__name__}).",
+                    "exit_code": 1,
+                }
             if key in _ENUMS and str(value).lower() not in _ENUMS[key]:
-                return {"error": f"{key} must be one of: {', '.join(_ENUMS[key])}.", "exit_code": 1}
+                return {
+                    "error": f"{key} must be one of: {', '.join(_ENUMS[key])}.",
+                    "exit_code": 1,
+                }
             s = load_settings()
             s[key] = value
-            if key in {"default_model", "research_model", "utility_model", "task_model", "vision_model", "image_model"}:
+            if key in {
+                "default_model",
+                "research_model",
+                "utility_model",
+                "task_model",
+                "vision_model",
+                "image_model",
+            }:
                 resolved = _endpoint_model_from_cache(str(value))
                 if resolved:
                     prefix = key[:-6]
@@ -1661,19 +2097,31 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                     value = resolved["model"]
             save_settings(s)
             if key.endswith("_model") and s.get(f"{key[:-6]}_endpoint_id"):
-                return {"response": f"Set {key} = {value} (endpoint {s.get(f'{key[:-6]}_endpoint_id')}).", "exit_code": 0}
+                return {
+                    "response": f"Set {key} = {value} (endpoint {s.get(f'{key[:-6]}_endpoint_id')}).",
+                    "exit_code": 0,
+                }
             return {"response": f"Set {key} = {value}.", "exit_code": 0}
 
         elif action == "delete" or action == "reset":
             key = _resolve(args.get("key", ""))
             if key not in DEFAULT_SETTINGS:
-                return {"error": f"Unknown setting '{args.get('key')}'.", "exit_code": 1}
+                return {
+                    "error": f"Unknown setting '{args.get('key')}'.",
+                    "exit_code": 1,
+                }
             if _is_secret(key):
-                return {"response": f"'{key}' is a credential — reset it in the panel.", "exit_code": 0}
+                return {
+                    "response": f"'{key}' is a credential — reset it in the panel.",
+                    "exit_code": 0,
+                }
             s = load_settings()
             s[key] = DEFAULT_SETTINGS[key]
             save_settings(s)
-            return {"response": f"Reset {key} to default ({DEFAULT_SETTINGS[key]}).", "exit_code": 0}
+            return {
+                "response": f"Reset {key} to default ({DEFAULT_SETTINGS[key]}).",
+                "exit_code": 0,
+            }
 
         elif action in ("disable_tool", "enable_tool", "list_tools"):
             # Tool-toggle actions. These edit settings.json:disabled_tools
@@ -1682,15 +2130,26 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             # "search" -> "web_search", "browser" -> "builtin_browser",
             # "documents" -> the document tool set, "memory" ->
             # manage_memory, etc.
-            from src.settings import get_setting, save_settings, load_settings
+            from src.settings import get_setting, load_settings, save_settings
+
             _ALIASES = {
                 "shell": ["bash"],
                 "terminal": ["bash"],
                 "search": ["web_search"],
                 "web": ["web_search"],
                 "browser": ["builtin_browser"],
-                "documents": ["create_document", "edit_document", "update_document", "suggest_document"],
-                "doc": ["create_document", "edit_document", "update_document", "suggest_document"],
+                "documents": [
+                    "create_document",
+                    "edit_document",
+                    "update_document",
+                    "suggest_document",
+                ],
+                "doc": [
+                    "create_document",
+                    "edit_document",
+                    "update_document",
+                    "suggest_document",
+                ],
                 "memory": ["manage_memory"],
                 "skills": ["manage_skills"],
                 "images": ["generate_image"],
@@ -1698,8 +2157,14 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                 "tasks": ["manage_tasks"],
                 "notes": ["manage_notes"],
                 "calendar": ["manage_calendar"],
-                "email": ["mcp__email__list_emails", "mcp__email__read_email", "mcp__email__send_email"],
-                "research": ["web_search"],  # research is a per-request flag, not a tool — closest analog
+                "email": [
+                    "mcp__email__list_emails",
+                    "mcp__email__read_email",
+                    "mcp__email__send_email",
+                ],
+                "research": [
+                    "web_search"
+                ],  # research is a per-request flag, not a tool — closest analog
             }
 
             if action == "list_tools":
@@ -1716,7 +2181,10 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
 
             tool_name = (args.get("tool") or args.get("name") or "").strip().lower()
             if not tool_name:
-                return {"error": "tool name required (e.g. 'shell', 'search', 'bash')", "exit_code": 1}
+                return {
+                    "error": "tool name required (e.g. 'shell', 'search', 'bash')",
+                    "exit_code": 1,
+                }
             targets = _ALIASES.get(tool_name, [tool_name])
 
             settings = load_settings()
@@ -1757,9 +2225,11 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
 # API call tool
 # ---------------------------------------------------------------------------
 
+
 async def do_api_call(content: str) -> Dict:
     """Execute an API call to a registered integration."""
     from src.integrations import execute_api_call, load_integrations
+
     try:
         args = json.loads(content)
     except json.JSONDecodeError:
@@ -1778,11 +2248,21 @@ async def do_api_call(content: str) -> Dict:
 
     integration_name = args.get("integration", "")
     integrations = load_integrations()
-    intg = next((i for i in integrations if i["id"] == integration_name
-                 or i["name"].lower() == integration_name.lower()), None)
+    intg = next(
+        (
+            i
+            for i in integrations
+            if i["id"] == integration_name
+            or i["name"].lower() == integration_name.lower()
+        ),
+        None,
+    )
     if not intg:
         available = ", ".join(i["name"] for i in integrations if i.get("enabled", True))
-        return {"error": f"No integration matching '{integration_name}'. Available: {available or 'none configured'}", "exit_code": 1}
+        return {
+            "error": f"No integration matching '{integration_name}'. Available: {available or 'none configured'}",
+            "exit_code": 1,
+        }
 
     return await execute_api_call(
         intg["id"],
@@ -1798,11 +2278,14 @@ async def do_api_call(content: str) -> Dict:
 # Notes / checklists management tool
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
     """Handle manage_notes tool calls: CRUD on notes and checklists."""
     import uuid as _uuid
-    from core.database import SessionLocal, Note
+
     from sqlalchemy.orm.attributes import flag_modified
+
+    from core.database import Note, SessionLocal
 
     try:
         args = _parse_tool_args(content)
@@ -1908,6 +2391,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
             if due_raw:
                 try:
                     from routes.calendar_routes import parse_due_for_user as _pdt_user
+
                     due_iso = _pdt_user(due_raw)
                 except Exception:
                     due_iso = due_raw  # fall through; trust the model
@@ -1926,7 +2410,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
                 for existing in existing_q.limit(25).all():
                     if _norm_note_title(existing.title or "") == target_title:
                         return {
-                            "response": f"Reminder already exists: \"{existing.title or title}\" (id: {existing.id[:8]})",
+                            "response": f'Reminder already exists: "{existing.title or title}" (id: {existing.id[:8]})',
                             "note_id": existing.id,
                             "duplicate": True,
                             "exit_code": 0,
@@ -1981,6 +2465,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
                 due_raw = args["due_date"]
                 try:
                     from routes.calendar_routes import parse_due_for_user as _pdt_user
+
                     note.due_date = _pdt_user(due_raw)
                 except Exception:
                     note.due_date = due_raw  # fall through; trust the model
@@ -1995,7 +2480,10 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
             if "archived" in args:
                 note.archived = args["archived"]
             db.commit()
-            return {"response": f"Note updated: \"{note.title or '(untitled)'}\"", "exit_code": 0}
+            return {
+                "response": f"Note updated: \"{note.title or '(untitled)'}\"",
+                "exit_code": 0,
+            }
 
         elif action == "delete":
             note_id = args.get("id", "")
@@ -2007,7 +2495,10 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
             title = note.title
             db.delete(note)
             db.commit()
-            return {"response": f"Deleted note: \"{title or '(untitled)'}\"", "exit_code": 0}
+            return {
+                "response": f"Deleted note: \"{title or '(untitled)'}\"",
+                "exit_code": 0,
+            }
 
         elif action == "toggle_item":
             note_id = args.get("id", "")
@@ -2021,16 +2512,25 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
                 return {"error": "Note has no checklist items", "exit_code": 1}
             items = json.loads(note.items)
             if index < 0 or index >= len(items):
-                return {"error": f"Item index {index} out of range (0-{len(items)-1})", "exit_code": 1}
+                return {
+                    "error": f"Item index {index} out of range (0-{len(items)-1})",
+                    "exit_code": 1,
+                }
             items[index]["done"] = not items[index].get("done", False)
             note.items = json.dumps(items)
             flag_modified(note, "items")
             db.commit()
             mark = "done" if items[index]["done"] else "undone"
-            return {"response": f"Item '{items[index].get('text', '')}' marked {mark}", "exit_code": 0}
+            return {
+                "response": f"Item '{items[index].get('text', '')}' marked {mark}",
+                "exit_code": 0,
+            }
 
         else:
-            return {"error": f"Unknown action: {action}. Use list/add/update/delete/toggle_item", "exit_code": 1}
+            return {
+                "error": f"Unknown action: {action}. Use list/add/update/delete/toggle_item",
+                "exit_code": 1,
+            }
     except Exception as e:
         logger.error(f"manage_notes error: {e}")
         return {"error": str(e), "exit_code": 1}
@@ -2042,12 +2542,20 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
 # Calendar tool — CalDAV-backed event CRUD
 # ---------------------------------------------------------------------------
 
+
 async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
     """Handle manage_calendar tool calls: list/create/update/delete calendar events (local SQLite)."""
-    from datetime import datetime, timedelta
-    from core.database import SessionLocal, CalendarCal, CalendarEvent, Note
-    from routes.calendar_routes import _ensure_default_calendar, _parse_dt, _parse_dt_pair, parse_due_for_user, _resolve_base_uid
     import uuid as _uuid
+    from datetime import datetime, timedelta
+
+    from core.database import CalendarCal, CalendarEvent, Note, SessionLocal
+    from routes.calendar_routes import (
+        _ensure_default_calendar,
+        _parse_dt,
+        _parse_dt_pair,
+        _resolve_base_uid,
+        parse_due_for_user,
+    )
 
     try:
         args = _parse_tool_args(content)
@@ -2134,9 +2642,14 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
                 return value
         return None
 
-    def _create_calendar_reminder(summary: str, location: str, dtstart: datetime,
-                                  all_day: bool, minutes_before: int,
-                                  is_utc: bool = False) -> tuple[Optional[str], Optional[str]]:
+    def _create_calendar_reminder(
+        summary: str,
+        location: str,
+        dtstart: datetime,
+        all_day: bool,
+        minutes_before: int,
+        is_utc: bool = False,
+    ) -> tuple[Optional[str], Optional[str]]:
         remind_at = dtstart - timedelta(minutes=minutes_before)
         now = datetime.utcnow() if is_utc else datetime.now()
         if dtstart <= now:
@@ -2146,7 +2659,11 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             # still upcoming, create an immediate Note reminder instead of
             # silently dropping it.
             remind_at = now
-        start_fmt = dtstart.strftime("%a %b %d") if all_day else dtstart.strftime("%a %b %d %H:%M")
+        start_fmt = (
+            dtstart.strftime("%a %b %d")
+            if all_day
+            else dtstart.strftime("%a %b %d %H:%M")
+        )
         loc = f" @ {location}" if location else ""
         text = f"{summary}{loc} — {start_fmt}"
         due_date = remind_at.isoformat() + ("Z" if is_utc else "")
@@ -2157,9 +2674,13 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
         )
         if owner is not None:
             existing_q = existing_q.filter(Note.owner == owner)
-        target_title = re.sub(r"^\s*reminder\s*:\s*", "", expected_title.strip().lower())
+        target_title = re.sub(
+            r"^\s*reminder\s*:\s*", "", expected_title.strip().lower()
+        )
         for existing in existing_q.limit(25).all():
-            existing_title = re.sub(r"^\s*reminder\s*:\s*", "", (existing.title or "").strip().lower())
+            existing_title = re.sub(
+                r"^\s*reminder\s*:\s*", "", (existing.title or "").strip().lower()
+            )
             if existing_title == target_title:
                 return existing.id, "duplicate reminder already exists"
         note = Note(
@@ -2200,7 +2721,9 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
                 if start_raw:
                     start_dt = _parse_dt(start_raw)
                 else:
-                    start_dt = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                    start_dt = datetime.utcnow().replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
                 if end_raw:
                     end_dt = _parse_dt(end_raw)
                 else:
@@ -2216,33 +2739,50 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             calendar_filter = args.get("calendar")
             if calendar_filter:
                 q = q.filter(
-                    (CalendarEvent.calendar_id == calendar_filter) |
-                    (CalendarCal.name == calendar_filter)
+                    (CalendarEvent.calendar_id == calendar_filter)
+                    | (CalendarCal.name == calendar_filter)
                 )
             rows = q.order_by(CalendarEvent.dtstart).all()
             events = []
             for ev in rows:
                 if ev.all_day:
-                    s, e = ev.dtstart.strftime("%Y-%m-%d"), ev.dtend.strftime("%Y-%m-%d")
+                    s, e = ev.dtstart.strftime("%Y-%m-%d"), ev.dtend.strftime(
+                        "%Y-%m-%d"
+                    )
                 else:
                     suffix = "Z" if getattr(ev, "is_utc", False) else ""
-                    s, e = ev.dtstart.isoformat() + suffix, ev.dtend.isoformat() + suffix
-                events.append({
-                    "uid": ev.uid, "summary": ev.summary or "", "dtstart": s, "dtend": e,
-                    "all_day": ev.all_day, "description": ev.description or "",
-                    "location": ev.location or "",
-                    "calendar": ev.calendar.name if ev.calendar else "",
-                    "calendar_href": ev.calendar_id,
-                    "event_type": ev.event_type or "",
-                    "importance": ev.importance or "normal",
-                })
+                    s, e = (
+                        ev.dtstart.isoformat() + suffix,
+                        ev.dtend.isoformat() + suffix,
+                    )
+                events.append(
+                    {
+                        "uid": ev.uid,
+                        "summary": ev.summary or "",
+                        "dtstart": s,
+                        "dtend": e,
+                        "all_day": ev.all_day,
+                        "description": ev.description or "",
+                        "location": ev.location or "",
+                        "calendar": ev.calendar.name if ev.calendar else "",
+                        "calendar_href": ev.calendar_id,
+                        "event_type": ev.event_type or "",
+                        "importance": ev.importance or "normal",
+                    }
+                )
             if not events:
                 response_text = f"No events between {start_dt.date().isoformat()} and {end_dt.date().isoformat()}."
             else:
-                lines = [f"Found {len(events)} event(s) between {start_dt.date().isoformat()} and {end_dt.date().isoformat()}:"]
+                lines = [
+                    f"Found {len(events)} event(s) between {start_dt.date().isoformat()} and {end_dt.date().isoformat()}:"
+                ]
                 for ev in events:
                     when = ev["dtstart"]
-                    when_str = f"{when} (all day)" if ev.get("all_day") else f"{when} -> {ev.get('dtend', '')}"
+                    when_str = (
+                        f"{when} (all day)"
+                        if ev.get("all_day")
+                        else f"{when} -> {ev.get('dtend', '')}"
+                    )
                     # Clickable anchor — opens the calendar on the event's day.
                     line = f"- {when_str}: [{ev['summary']}](#event-{ev['uid']})"
                     if ev.get("event_type"):
@@ -2266,8 +2806,12 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             summary = args.get("summary")
             # Accept the various names models like to use for the start
             # field: dtstart (canonical), start, start_time, when.
-            dtstart_str = (args.get("dtstart") or args.get("start")
-                           or args.get("start_time") or args.get("when"))
+            dtstart_str = (
+                args.get("dtstart")
+                or args.get("start")
+                or args.get("start_time")
+                or args.get("when")
+            )
             if not summary or not dtstart_str:
                 return {"error": "summary and dtstart are required", "exit_code": 1}
 
@@ -2277,18 +2821,20 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             cal_href = args.get("calendar_href") or args.get("calendar")
             cal = None
             if cal_href:
-                cal = (_calendar_query()
-                       .filter(CalendarCal.id == cal_href)
-                       .first())
+                cal = _calendar_query().filter(CalendarCal.id == cal_href).first()
                 if not cal:
                     # Try by name (case-insensitive) or by short-id prefix
-                    cal = (_calendar_query()
-                           .filter(CalendarCal.name.ilike(cal_href))
-                           .first())
+                    cal = (
+                        _calendar_query()
+                        .filter(CalendarCal.name.ilike(cal_href))
+                        .first()
+                    )
                 if not cal:
-                    cal = (_calendar_query()
-                           .filter(CalendarCal.id.like(f"{cal_href}%"))
-                           .first())
+                    cal = (
+                        _calendar_query()
+                        .filter(CalendarCal.id.like(f"{cal_href}%"))
+                        .first()
+                    )
             if not cal:
                 cal = _ensure_default_calendar(db, owner)
 
@@ -2296,23 +2842,32 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             try:
                 dtstart, dtstart_is_utc = _parse_event_dt(dtstart_str)
             except ValueError as e:
-                return {"error": f"Could not parse dtstart {dtstart_str!r}: {e}", "exit_code": 1}
+                return {
+                    "error": f"Could not parse dtstart {dtstart_str!r}: {e}",
+                    "exit_code": 1,
+                }
             dtend_raw = args.get("dtend") or args.get("end") or args.get("end_time")
             if dtend_raw:
                 try:
                     dtend, dtend_is_utc = _parse_event_dt(dtend_raw)
                     dtstart_is_utc = dtstart_is_utc or dtend_is_utc
                 except ValueError as e:
-                    return {"error": f"Could not parse dtend {dtend_raw!r}: {e}", "exit_code": 1}
+                    return {
+                        "error": f"Could not parse dtend {dtend_raw!r}: {e}",
+                        "exit_code": 1,
+                    }
             else:
                 # Support duration: "1h", "30m", "90min", "1hr30m"
                 dur = (args.get("duration") or "").strip().lower()
                 delta = None
                 if dur:
                     import re as _re_d
-                    h = _re_d.search(r'(\d+)\s*(?:h|hr|hours?)', dur)
-                    m = _re_d.search(r'(\d+)\s*(?:m|min|minutes?)', dur)
-                    secs = (int(h.group(1)) * 3600 if h else 0) + (int(m.group(1)) * 60 if m else 0)
+
+                    h = _re_d.search(r"(\d+)\s*(?:h|hr|hours?)", dur)
+                    m = _re_d.search(r"(\d+)\s*(?:m|min|minutes?)", dur)
+                    secs = (int(h.group(1)) * 3600 if h else 0) + (
+                        int(m.group(1)) * 60 if m else 0
+                    )
                     if secs > 0:
                         delta = timedelta(seconds=secs)
                 if delta is not None:
@@ -2328,6 +2883,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             # same meeting. Compare case-insensitively since LLM-extracted titles
             # can vary in capitalisation.
             from sqlalchemy import func as _func
+
             existing = (
                 _event_query()
                 .filter(
@@ -2342,13 +2898,15 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
                 reminder_skipped_reason = None
                 minutes_before = _reminder_minutes(args)
                 if minutes_before is not None:
-                    reminder_note_id, reminder_skipped_reason = _create_calendar_reminder(
-                        existing.summary or summary,
-                        existing.location or "",
-                        existing.dtstart,
-                        existing.all_day,
-                        minutes_before,
-                        bool(existing.is_utc),
+                    reminder_note_id, reminder_skipped_reason = (
+                        _create_calendar_reminder(
+                            existing.summary or summary,
+                            existing.location or "",
+                            existing.dtstart,
+                            existing.all_day,
+                            minutes_before,
+                            bool(existing.is_utc),
+                        )
                     )
                     if reminder_note_id:
                         db.commit()
@@ -2372,17 +2930,26 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
                 }
 
             # Optional tag/category and importance — friendly aliases.
-            event_type = (args.get("event_type") or args.get("tag")
-                          or args.get("category") or args.get("type") or "") or None
+            event_type = (
+                args.get("event_type")
+                or args.get("tag")
+                or args.get("category")
+                or args.get("type")
+                or ""
+            ) or None
             importance = args.get("importance") or "normal"
             minutes_before = _reminder_minutes(args)
 
             uid = str(_uuid.uuid4())
             ev = CalendarEvent(
-                uid=uid, calendar_id=cal.id, summary=summary,
+                uid=uid,
+                calendar_id=cal.id,
+                summary=summary,
                 description=_event_description(args, minutes_before),
                 location=args.get("location", "") or "",
-                dtstart=dtstart, dtend=dtend, all_day=all_day,
+                dtstart=dtstart,
+                dtend=dtend,
+                all_day=all_day,
                 is_utc=dtstart_is_utc and not all_day,
                 rrule=args.get("rrule", "") or "",
                 event_type=event_type,
@@ -2452,8 +3019,12 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
             if args.get("all_day") is not None:
                 ev.all_day = args["all_day"]
             # Tag/category + importance updates (any of these aliases).
-            _tag = (args.get("event_type") or args.get("tag")
-                    or args.get("category") or args.get("type"))
+            _tag = (
+                args.get("event_type")
+                or args.get("tag")
+                or args.get("category")
+                or args.get("type")
+            )
             if _tag is not None:
                 ev.event_type = _tag or None
             if args.get("importance") is not None:
@@ -2492,14 +3063,17 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
 
 # ── Cookbook tools ──
 
-# Cookbook routes loopback. The agent's tool calls run in-process but
-# need to reach admin-gated cookbook routes; we ride the per-process
-# internal token so require_admin lets us through. See core/middleware.py.
-_COOKBOOK_BASE = "http://localhost:7000"
+# In-process loopback base for agent tools that call Odysseus's own API
+# (cookbook state, model serve, gallery, email, calendar). We ride the
+# per-process internal token so require_admin lets us through. See
+# core/middleware.py. Resolution (override / APP_PORT / 7000) lives in
+# core.constants.internal_api_base().
+_INTERNAL_BASE = internal_api_base()
 
 
 def _internal_headers(owner: Optional[str] = None) -> Dict[str, str]:
     from core.middleware import INTERNAL_TOOL_HEADER, INTERNAL_TOOL_TOKEN
+
     headers = {INTERNAL_TOOL_HEADER: INTERNAL_TOOL_TOKEN}
     if owner:
         headers["X-Odysseus-Owner"] = owner
@@ -2512,26 +3086,35 @@ async def _cookbook_servers() -> Dict[str, Any]:
     The agent uses this to route downloads/serves to the right machine
     instead of silently defaulting to localhost."""
     import httpx
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=_internal_headers())
-            state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            r = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=_internal_headers()
+            )
+            state = (
+                r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
     except Exception:
         return {"default_host": "", "hosts": []}
     env = (state or {}).get("env") or {}
     if not isinstance(env, dict):
         return {"default_host": "", "hosts": []}
     hosts = []
-    for s in (env.get("servers") or []):
+    for s in env.get("servers") or []:
         if isinstance(s, dict):
-            hosts.append({
-                "name": s.get("name") or "",
-                "host": s.get("host") or "",   # "" = Local
-                "platform": s.get("platform") or "",
-                "env": s.get("env") or "",
-                "envPath": s.get("envPath") or "",
-                "port": s.get("port") or "",
-            })
+            hosts.append(
+                {
+                    "name": s.get("name") or "",
+                    "host": s.get("host") or "",  # "" = Local
+                    "platform": s.get("platform") or "",
+                    "env": s.get("env") or "",
+                    "envPath": s.get("envPath") or "",
+                    "port": s.get("port") or "",
+                }
+            )
     return {"default_host": env.get("remoteHost") or "", "hosts": hosts}
 
 
@@ -2554,7 +3137,7 @@ async def _resolve_cookbook_host(name_or_host: str) -> str:
     # Name match (case-insensitive)
     for h in servers.get("hosts") or []:
         if (h.get("name") or "").lower() == low:
-            return h.get("host") or ""   # "" for the Local entry
+            return h.get("host") or ""  # "" for the Local entry
     # Substring name match as a fallback
     for h in servers.get("hosts") or []:
         if low and low in (h.get("name") or "").lower():
@@ -2576,12 +3159,19 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
     Falls back to the top-level env settings if no per-host entry exists.
     """
     import httpx
+
     headers = _internal_headers()
     state: Dict[str, Any] = {}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
-            state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            r = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+            )
+            state = (
+                r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
     except Exception as e:
         logger.debug(f"cookbook env lookup failed for host={host!r}: {e}")
         return {}
@@ -2593,7 +3183,7 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
 
     # Per-host entry takes precedence over top-level.
     per_host: Dict[str, Any] = {}
-    for s in (env_root.get("servers") or []):
+    for s in env_root.get("servers") or []:
         if isinstance(s, dict) and (s.get("host") or "") == (host or ""):
             per_host = s
             break
@@ -2606,10 +3196,18 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
     env_prefix = ""
     if env_kind == "venv" and env_path:
         if platform == "windows":
-            activate = env_path if env_path.endswith("\\Scripts\\Activate.ps1") else env_path.rstrip("\\") + "\\Scripts\\Activate.ps1"
+            activate = (
+                env_path
+                if env_path.endswith("\\Scripts\\Activate.ps1")
+                else env_path.rstrip("\\") + "\\Scripts\\Activate.ps1"
+            )
             env_prefix = f"& {activate}"
         else:
-            activate = env_path if env_path.endswith("/bin/activate") else env_path.rstrip("/") + "/bin/activate"
+            activate = (
+                env_path
+                if env_path.endswith("/bin/activate")
+                else env_path.rstrip("/") + "/bin/activate"
+            )
             env_prefix = f"source {activate}"
     elif env_kind == "conda" and env_path:
         if platform == "windows":
@@ -2628,20 +3226,29 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
     }
 
 
-async def _cookbook_register_task(session_id: str, model: str, host: str,
-                                  cmd: str, task_type: str = "serve") -> bool:
+async def _cookbook_register_task(
+    session_id: str, model: str, host: str, cmd: str, task_type: str = "serve"
+) -> bool:
     """Append a task entry to cookbook_state.json after the agent
     launches via /api/model/serve or /api/model/download. The route
     spawns tmux but leaves state-writing to the UI; the agent needs to
     do that here so the task shows up in the Cookbook tab.
     Returns True on success, False if the write failed (best-effort)."""
-    import httpx
     import time as _time
+
+    import httpx
+
     headers = _internal_headers()
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
-            state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            r = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+            )
+            state = (
+                r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
     except Exception as e:
         logger.debug(f"cookbook state read failed: {e}")
         return False
@@ -2662,30 +3269,33 @@ async def _cookbook_register_task(session_id: str, model: str, host: str,
     placeholder = (
         f"Launched via agent — waiting for tmux output…\n"
         f"  session: {session_id}\n"
-        f"  target:  {target}{cmd.split()[0] if cmd else ''}\n"
+        f"  target:  {target}{(cmd.split() or [''])[0] if cmd else ''}\n"
         f"  cmd:     {cmd[:200]}{'…' if len(cmd) > 200 else ''}"
     )
-    tasks.append({
-        "id": session_id,
-        "sessionId": session_id,
-        "name": display_name,
-        "modelId": model,
-        "type": task_type,
-        "status": "running",
-        "output": placeholder,
-        "ts": int(_time.time() * 1000),
-        "payload": {"repo_id": model, "remote_host": host or "", "_cmd": cmd},
-        "remoteHost": host or "",
-        "sshPort": "",
-        "platform": "linux",
-        "_serveReady": False,
-        "_endpointAdded": False,
-    })
+    tasks.append(
+        {
+            "id": session_id,
+            "sessionId": session_id,
+            "name": display_name,
+            "modelId": model,
+            "type": task_type,
+            "status": "running",
+            "output": placeholder,
+            "ts": int(_time.time() * 1000),
+            "payload": {"repo_id": model, "remote_host": host or "", "_cmd": cmd},
+            "remoteHost": host or "",
+            "sshPort": "",
+            "platform": "linux",
+            "_serveReady": False,
+            "_endpointAdded": False,
+        }
+    )
     state["tasks"] = tasks
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{_COOKBOOK_BASE}/api/cookbook/state",
-                                  json=state, headers=headers)
+            r = await client.post(
+                f"{_INTERNAL_BASE}/api/cookbook/state", json=state, headers=headers
+            )
         return r.status_code < 400
     except Exception as e:
         logger.debug(f"cookbook state write failed: {e}")
@@ -2693,51 +3303,63 @@ async def _cookbook_register_task(session_id: str, model: str, host: str,
 
 
 # Paths the generic `app_api` tool will refuse to call. Auth/token/user
-# administration is too risky to route through an agent surface even
-# when the agent is admin-context — accidental "delete account"
-# style mistakes have permanent blast radius.
+# administration and host shell execution are too risky to route through an
+# agent surface even when the agent is admin-context; accidental account or
+# command mistakes have permanent blast radius.
 _APP_API_BLOCKLIST_PREFIXES = (
-    "/api/auth",           # login/logout/password
-    "/api/users",          # user CRUD (bare /api/users list+create+delete must also block)
-    "/api/tokens",         # api token mgmt (bare /api/tokens list+create must also block)
-    "/api/admin",          # admin one-shots (wipe etc.)
-    "/api/backup/restore", # destructive restore
+    "/api/auth",  # login/logout/password
+    "/api/users",  # user CRUD (bare /api/users list+create+delete must also block)
+    "/api/tokens",  # api token mgmt (bare /api/tokens list+create must also block)
+    "/api/admin",  # admin one-shots (wipe etc.)
+    "/api/shell",  # host shell execution must stay behind named command tooling
+    "/api/backup/restore",  # destructive restore
 )
 
 # (method, prefix) pairs to refuse specifically. Used for endpoints
-# where GET is fine but writes are destructive — saw the agent wipe
-# cookbook_state.json (presets + tasks) by POSTing {"tasks": []} to
-# /api/cookbook/state, which overwrote the whole file. Use the
-# dedicated preset/task tools instead.
+# where GET is fine but writes are destructive or host-control shaped.
+# Saw the agent wipe cookbook_state.json (presets + tasks) by POSTing
+# {"tasks": []} to /api/cookbook/state, which overwrote the whole file.
+# Use dedicated tools or UI flows instead.
 _APP_API_BLOCKLIST_METHOD_PATH = (
-    ("GET",    "/api/email/accounts"),  # owner-filtered in tool context; use list_email_accounts MCP tool
-    ("POST",   "/api/cookbook/state"),   # whole-file overwrite — agent must use serve_preset/serve_model instead
+    (
+        "GET",
+        "/api/email/accounts",
+    ),  # owner-filtered in tool context; use list_email_accounts MCP tool
+    (
+        "POST",
+        "/api/cookbook/state",
+    ),  # whole-file overwrite — agent must use serve_preset/serve_model instead
     ("DELETE", "/api/cookbook/state"),
+    # Host-control routes: package install, engine rebuild, and process
+    # signalling should not be reachable through the generic API bridge.
+    ("POST", "/api/cookbook/packages/install"),
+    ("POST", "/api/cookbook/rebuild-engine"),
+    ("POST", "/api/cookbook/kill-pid"),
     # Use the named tools (download_model / serve_model) — they handle
     # host-name resolution, per-host env_prefix, AND register the task
     # in cookbook state so it shows in the UI + list_downloads. Hitting
     # the raw endpoint via app_api skips all of that → orphan task.
-    ("POST",   "/api/model/download"),
-    ("POST",   "/api/model/serve"),
+    ("POST", "/api/model/download"),
+    ("POST", "/api/model/serve"),
     # Use trigger_research — it returns a UI hint so the Deep Research
     # sidebar surfaces the session. Raw start works but the agent
     # fumbles the payload + the session doesn't reliably show up.
-    ("POST",   "/api/research/start"),
+    ("POST", "/api/research/start"),
     # Use the named tools — they handle owner attribution, natural-
     # language due_date parsing, timezone, dedup, and tag/category
     # normalization. Hitting the raw endpoint via app_api saves a
     # note/event with the wrong fields, no reminder, or the wrong tz.
-    ("POST",   "/api/notes"),
-    ("PUT",    "/api/notes"),
+    ("POST", "/api/notes"),
+    ("PUT", "/api/notes"),
     ("DELETE", "/api/notes"),
-    ("POST",   "/api/calendar/events"),
-    ("PUT",    "/api/calendar/events"),
+    ("POST", "/api/calendar/events"),
+    ("PUT", "/api/calendar/events"),
     ("DELETE", "/api/calendar/events"),
 )
 
 
 async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
-    """Generic loopback to any internal Odysseus API endpoint. Lets the
+    """Generic loopback to allowed internal Odysseus API endpoints. Lets the
     agent reach the full UI-button surface (cookbook, email, notes,
     calendar, skills, sessions, gallery, research, etc.) without us
     landing a named tool wrapper for every one.
@@ -2751,16 +3373,18 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
 
     The `endpoints` action returns the OpenAPI surface (method + path +
     summary) so the agent can discover what's reachable. A blocklist
-    refuses auth/user/admin paths to keep blast radius bounded.
+    refuses sensitive auth/user/admin/shell paths and method-specific
+    host-control routes to keep blast radius bounded.
     """
     import httpx
+
     try:
         args = _parse_tool_args(content) if content.strip() else {}
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
 
     action = (args.get("action") or "call").lower()
-    base = _COOKBOOK_BASE
+    base = _INTERNAL_BASE
 
     if action == "endpoints":
         # Fetch FastAPI's OpenAPI schema so the agent can discover any
@@ -2769,8 +3393,9 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
         kw = (args.get("filter") or "").lower()
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(f"{base}/openapi.json",
-                                        headers=_internal_headers())
+                resp = await client.get(
+                    f"{base}/openapi.json", headers=_internal_headers()
+                )
                 data = resp.json()
         except Exception as e:
             return {"error": f"OpenAPI fetch failed: {e}", "exit_code": 1}
@@ -2783,17 +3408,31 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
             for method, op in methods.items():
                 if method.lower() not in ("get", "post", "put", "patch", "delete"):
                     continue
-                if any(method.upper() == m and path.startswith(p) for m, p in _APP_API_BLOCKLIST_METHOD_PATH):
+                if any(
+                    method.upper() == m and path.startswith(p)
+                    for m, p in _APP_API_BLOCKLIST_METHOD_PATH
+                ):
                     continue
-                summary = (op or {}).get("summary") or (op or {}).get("description") or ""
+                summary = (
+                    (op or {}).get("summary") or (op or {}).get("description") or ""
+                )
                 if isinstance(summary, str):
                     summary = summary.strip().split("\n")[0][:140]
                 if kw and kw not in path.lower() and kw not in (summary or "").lower():
                     continue
-                rows.append({"method": method.upper(), "path": path, "summary": summary})
+                rows.append(
+                    {"method": method.upper(), "path": path, "summary": summary}
+                )
         rows.sort(key=lambda r: (r["path"], r["method"]))
         if not rows:
-            return {"output": f"No endpoints match filter {kw!r}." if kw else "No endpoints found.", "exit_code": 0}
+            return {
+                "output": (
+                    f"No endpoints match filter {kw!r}."
+                    if kw
+                    else "No endpoints found."
+                ),
+                "exit_code": 0,
+            }
         lines = [f"{len(rows)} endpoint(s)" + (f" matching {kw!r}" if kw else "") + ":"]
         for r in rows[:200]:
             line = f"  {r['method']:6s} {r['path']}"
@@ -2811,25 +3450,66 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
     if not path.startswith("/"):
         path = "/" + path
     if any(path.startswith(p) for p in _APP_API_BLOCKLIST_PREFIXES):
-        return {"error": f"Path blocked for safety: {path}. Auth/user/admin endpoints are off-limits via app_api.", "exit_code": 1}
+        return {
+            "error": f"Path blocked for safety: {path}. Sensitive endpoints are off-limits via app_api.",
+            "exit_code": 1,
+        }
 
     method = (args.get("method") or "GET").upper()
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         return {"error": f"Unsupported method: {method}", "exit_code": 1}
-    if any(method == m and path.startswith(p) for m, p in _APP_API_BLOCKLIST_METHOD_PATH):
+    if any(
+        method == m and path.startswith(p) for m, p in _APP_API_BLOCKLIST_METHOD_PATH
+    ):
         if "/api/email/accounts" in path:
-            return {"error": "Don't use /api/email/accounts via app_api — it is owner-filtered in tool context and may return empty. Use the `list_email_accounts` email tool, then pass `account` to list_emails/read_email.", "exit_code": 1}
+            return {
+                "error": "Don't use /api/email/accounts via app_api — it is owner-filtered in tool context and may return empty. Use the `list_email_accounts` email tool, then pass `account` to list_emails/read_email.",
+                "exit_code": 1,
+            }
+        if "/api/cookbook/packages/install" in path:
+            return {
+                "error": "Don't POST /api/cookbook/packages/install via app_api — package installation is host code execution. Use the dedicated Cookbook dependency UI/flow instead.",
+                "exit_code": 1,
+            }
+        if "/api/cookbook/rebuild-engine" in path:
+            return {
+                "error": "Don't POST /api/cookbook/rebuild-engine via app_api — engine rebuild mutates local or remote host state. Use the dedicated Cookbook UI/flow instead.",
+                "exit_code": 1,
+            }
+        if "/api/cookbook/kill-pid" in path:
+            return {
+                "error": "Don't POST /api/cookbook/kill-pid via app_api — process signalling is host control. Use the dedicated Cookbook stop/diagnostic flow instead.",
+                "exit_code": 1,
+            }
         if "/api/model/download" in path:
-            return {"error": "Don't POST /api/model/download directly — use the `download_model` tool (it resolves the server name, sets the venv env_prefix, and registers the task so it shows in the UI).", "exit_code": 1}
+            return {
+                "error": "Don't POST /api/model/download directly — use the `download_model` tool (it resolves the server name, sets the venv env_prefix, and registers the task so it shows in the UI).",
+                "exit_code": 1,
+            }
         if "/api/model/serve" in path:
-            return {"error": "Don't POST /api/model/serve directly — use the `serve_model` or `serve_preset` tool (handles host resolution, env_prefix, and cookbook tracking).", "exit_code": 1}
+            return {
+                "error": "Don't POST /api/model/serve directly — use the `serve_model` or `serve_preset` tool (handles host resolution, env_prefix, and cookbook tracking).",
+                "exit_code": 1,
+            }
         if "/api/research/start" in path:
-            return {"error": "Don't POST /api/research/start directly — use the `trigger_research` tool (it surfaces the session in the Deep Research sidebar).", "exit_code": 1}
+            return {
+                "error": "Don't POST /api/research/start directly — use the `trigger_research` tool (it surfaces the session in the Deep Research sidebar).",
+                "exit_code": 1,
+            }
         if "/api/notes" in path:
-            return {"error": "Don't hit /api/notes via app_api — use the `manage_notes` tool. It accepts natural-language due_date ('11pm today', 'tomorrow at 9am'), fires reminders from the due_date itself (no separate calendar event), and uses the caller's timezone. The raw endpoint requires ISO-UTC + a separate calendar event, both of which the agent tends to get wrong.", "exit_code": 1}
+            return {
+                "error": "Don't hit /api/notes via app_api — use the `manage_notes` tool. It accepts natural-language due_date ('11pm today', 'tomorrow at 9am'), fires reminders from the due_date itself (no separate calendar event), and uses the caller's timezone. The raw endpoint requires ISO-UTC + a separate calendar event, both of which the agent tends to get wrong.",
+                "exit_code": 1,
+            }
         if "/api/calendar/events" in path:
-            return {"error": "Don't hit /api/calendar/events via app_api — use the `manage_calendar` tool. It handles tz-aware natural-language datetimes and reminder_minutes correctly. If the user wants a note + reminder, prefer `manage_notes` with due_date — it bundles both.", "exit_code": 1}
-        return {"error": f"{method} {path} is blocked — it overwrites the whole cookbook state file. Use list_serve_presets / serve_preset / serve_model instead.", "exit_code": 1}
+            return {
+                "error": "Don't hit /api/calendar/events via app_api — use the `manage_calendar` tool. It handles tz-aware natural-language datetimes and reminder_minutes correctly. If the user wants a note + reminder, prefer `manage_notes` with due_date — it bundles both.",
+                "exit_code": 1,
+            }
+        return {
+            "error": f"{method} {path} is blocked — it overwrites the whole cookbook state file. Use list_serve_presets / serve_preset / serve_model instead.",
+            "exit_code": 1,
+        }
 
     body = args.get("body")
     query = args.get("query") or None
@@ -2841,8 +3521,13 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.request(
-                method, f"{base}{path}",
-                json=body if body is not None and method in ("POST", "PUT", "PATCH") else None,
+                method,
+                f"{base}{path}",
+                json=(
+                    body
+                    if body is not None and method in ("POST", "PUT", "PATCH")
+                    else None
+                ),
                 params=query,
                 headers=headers,
             )
@@ -2876,20 +3561,26 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
 # the cookbook's task tracker. Each entry: (label, substring-list).
 # Match is case-insensitive against the FULL cmdline. First-match wins.
 _MODEL_PROCESS_PATTERNS = [
-    ("vLLM",            ["vllm.entrypoints", "vllm serve", "/vllm/", "vllm-openai"]),
-    ("SGLang",          ["sglang.launch_server", "sglang/launch_server"]),
-    ("llama.cpp",       ["llama-server", "llama_cpp_server", "llamacppserver"]),
-    ("Ollama",          ["ollama serve", "ollama runner", "/ollama "]),
-    ("ComfyUI",         ["comfyui/main.py", "/ComfyUI/main.py", "ComfyUI"]),
-    ("A1111 WebUI",     ["stable-diffusion-webui/webui", "stable-diffusion-webui/launch", "webui.sh"]),
-    ("Fooocus",         ["Fooocus/entry_with_update", "Fooocus/launch"]),
-    ("InvokeAI",        ["invokeai-web", "invokeai.app", "invokeai/api_app"]),
-    ("Forge WebUI",     ["stable-diffusion-webui-forge", "forge/webui"]),
-    ("SD.Next",         ["automatic/webui", "sd.next"]),
-    ("TGI",             ["text-generation-launcher", "text_generation_launcher"]),
-    ("Aphrodite",       ["aphrodite.endpoints", "aphrodite-engine"]),
-    ("Triton",          ["tritonserver", "triton/main"]),
-    ("Diffusers",       ["diffusers.pipelines", "StableDiffusionInpaintPipeline", "DiffusionPipeline"]),
+    ("vLLM", ["vllm.entrypoints", "vllm serve", "/vllm/", "vllm-openai"]),
+    ("SGLang", ["sglang.launch_server", "sglang/launch_server"]),
+    ("llama.cpp", ["llama-server", "llama_cpp_server", "llamacppserver"]),
+    ("Ollama", ["ollama serve", "ollama runner", "/ollama "]),
+    ("ComfyUI", ["comfyui/main.py", "/ComfyUI/main.py", "ComfyUI"]),
+    (
+        "A1111 WebUI",
+        ["stable-diffusion-webui/webui", "stable-diffusion-webui/launch", "webui.sh"],
+    ),
+    ("Fooocus", ["Fooocus/entry_with_update", "Fooocus/launch"]),
+    ("InvokeAI", ["invokeai-web", "invokeai.app", "invokeai/api_app"]),
+    ("Forge WebUI", ["stable-diffusion-webui-forge", "forge/webui"]),
+    ("SD.Next", ["automatic/webui", "sd.next"]),
+    ("TGI", ["text-generation-launcher", "text_generation_launcher"]),
+    ("Aphrodite", ["aphrodite.endpoints", "aphrodite-engine"]),
+    ("Triton", ["tritonserver", "triton/main"]),
+    (
+        "Diffusers",
+        ["diffusers.pipelines", "StableDiffusionInpaintPipeline", "DiffusionPipeline"],
+    ),
 ]
 
 
@@ -2915,7 +3606,11 @@ def _cookbook_apply_retry_suggestion(cmd: str, suggestion: Dict[str, Any]) -> st
             return cmd
         repl = f"{flag} {value}"
         if re.search(rf"(^|\s){re.escape(flag)}(\s+\S+)?", cmd):
-            return re.sub(rf"(^|\s){re.escape(flag)}(?:\s+\S+)?", lambda m: (m.group(1) or " ") + repl, cmd).strip()
+            return re.sub(
+                rf"(^|\s){re.escape(flag)}(?:\s+\S+)?",
+                lambda m: (m.group(1) or " ") + repl,
+                cmd,
+            ).strip()
         return f"{cmd.rstrip()} {repl}"
     return cmd
 
@@ -2926,6 +3621,7 @@ def _scan_running_model_processes() -> List[Dict[str, Any]]:
     a dict shaped like a cookbook task so the caller can merge cleanly.
     """
     import os
+
     if not os.path.isdir("/proc"):
         return []
     out: List[Dict[str, Any]] = []
@@ -2942,7 +3638,9 @@ def _scan_running_model_processes() -> List[Dict[str, Any]]:
             if not raw:
                 continue
             # cmdline is NUL-separated; join with spaces for matching/display
-            cmdline = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+            cmdline = (
+                raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+            )
             if not cmdline:
                 continue
             lower = cmdline.lower()
@@ -2957,22 +3655,33 @@ def _scan_running_model_processes() -> List[Dict[str, Any]]:
                     # Try to pluck a model name out of the cmdline.
                     model = ""
                     for tok in cmdline.split():
-                        if "/" in tok and any(s in tok.lower() for s in (
-                            "model", "checkpoint", ".safetensors", ".gguf", ".bin", "huggingface"
-                        )):
+                        if "/" in tok and any(
+                            s in tok.lower()
+                            for s in (
+                                "model",
+                                "checkpoint",
+                                ".safetensors",
+                                ".gguf",
+                                ".bin",
+                                "huggingface",
+                            )
+                        ):
                             model = tok
                             break
-                    out.append({
-                        "session_id": f"pid-{pid_dir}",
-                        "model": model or label,
-                        "phase": "running (external)",
-                        "type": "serve",
-                        "remote": "local",
-                        "pid": int(pid_dir),
-                        "label": label,
-                        "cmdline_preview": cmdline[:140] + ("…" if len(cmdline) > 140 else ""),
-                        "external": True,
-                    })
+                    out.append(
+                        {
+                            "session_id": f"pid-{pid_dir}",
+                            "model": model or label,
+                            "phase": "running (external)",
+                            "type": "serve",
+                            "remote": "local",
+                            "pid": int(pid_dir),
+                            "label": label,
+                            "cmdline_preview": cmdline[:140]
+                            + ("…" if len(cmdline) > 140 else ""),
+                            "external": True,
+                        }
+                    )
                     break
     except Exception as e:
         logger.debug(f"_scan_running_model_processes failed: {e}")
@@ -2982,6 +3691,7 @@ def _scan_running_model_processes() -> List[Dict[str, Any]]:
 async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
     """Download a HuggingFace model via the cookbook API."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -3009,25 +3719,48 @@ async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
         payload["include"] = args["include"]
     # Per-host env_prefix + hf_token from cookbook_state (same as serve).
     env_cfg = await _cookbook_env_for_host(host)
-    if env_cfg.get("env_prefix"): payload["env_prefix"] = env_cfg["env_prefix"]
-    if env_cfg.get("hf_token"):   payload["hf_token"]   = env_cfg["hf_token"]
-    if env_cfg.get("platform"):   payload["platform"]   = env_cfg["platform"]
-    if env_cfg.get("ssh_port"):   payload["ssh_port"]   = env_cfg["ssh_port"]
+    if env_cfg.get("env_prefix"):
+        payload["env_prefix"] = env_cfg["env_prefix"]
+    if env_cfg.get("hf_token"):
+        payload["hf_token"] = env_cfg["hf_token"]
+    if env_cfg.get("platform"):
+        payload["platform"] = env_cfg["platform"]
+    if env_cfg.get("ssh_port"):
+        payload["ssh_port"] = env_cfg["ssh_port"]
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_COOKBOOK_BASE}/api/model/download",
-                                     json=payload, headers=_internal_headers())
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/model/download",
+                json=payload,
+                headers=_internal_headers(),
+            )
             data = resp.json()
         if data.get("ok"):
             sid = data.get("session_id", "?")
             registered = await _cookbook_register_task(
-                session_id=sid, model=repo_id, host=host,
-                cmd=f"hf download {repo_id}", task_type="download",
+                session_id=sid,
+                model=repo_id,
+                host=host,
+                cmd=f"hf download {repo_id}",
+                task_type="download",
             )
-            note = "" if registered else " (state-write failed — download may not show in UI)"
+            note = (
+                ""
+                if registered
+                else " (state-write failed — download may not show in UI)"
+            )
             where = host or "local"
-            default_note = " (defaulted to the cookbook's selected server — pass host= or local=true to override)" if _host_defaulted else ""
-            return {"output": f"Download started: {repo_id} on {where} (session: {sid}){note}{default_note}", "session_id": sid, "host": host, "exit_code": 0}
+            default_note = (
+                " (defaulted to the cookbook's selected server — pass host= or local=true to override)"
+                if _host_defaulted
+                else ""
+            )
+            return {
+                "output": f"Download started: {repo_id} on {where} (session: {sid}){note}{default_note}",
+                "session_id": sid,
+                "host": host,
+                "exit_code": 0,
+            }
         return {"error": data.get("error", "Download failed"), "exit_code": 1}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -3036,6 +3769,7 @@ async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
 async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
     """Start serving a model via the cookbook API."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -3073,6 +3807,7 @@ async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
         # Match the FIRST shell-token: skip leading KEY=VAL env-var prefixes
         # (CUDA_VISIBLE_DEVICES=… VLLM_USE_FLASHINFER_SAMPLER=…) before the binary.
         import re as _re3
+
         tokens = cmd.split()
         idx = 0
         env_re = _re3.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -3084,24 +3819,41 @@ async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
                 tokens[idx] = f"{venv_bin}/{head}"
                 cmd = " ".join(tokens)
                 payload["cmd"] = cmd
-    if env_cfg.get("env_prefix"): payload["env_prefix"] = env_cfg["env_prefix"]
-    if env_cfg.get("gpus"):       payload["gpus"]       = env_cfg["gpus"]
-    if env_cfg.get("hf_token"):   payload["hf_token"]   = env_cfg["hf_token"]
-    if env_cfg.get("platform"):   payload["platform"]   = env_cfg["platform"]
-    if env_cfg.get("ssh_port"):   payload["ssh_port"]   = env_cfg["ssh_port"]
+    if env_cfg.get("env_prefix"):
+        payload["env_prefix"] = env_cfg["env_prefix"]
+    if env_cfg.get("gpus"):
+        payload["gpus"] = env_cfg["gpus"]
+    if env_cfg.get("hf_token"):
+        payload["hf_token"] = env_cfg["hf_token"]
+    if env_cfg.get("platform"):
+        payload["platform"] = env_cfg["platform"]
+    if env_cfg.get("ssh_port"):
+        payload["ssh_port"] = env_cfg["ssh_port"]
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_COOKBOOK_BASE}/api/model/serve",
-                                     json=payload, headers=_internal_headers())
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/model/serve",
+                json=payload,
+                headers=_internal_headers(),
+            )
             data = resp.json()
         if data.get("ok"):
             sid = data.get("session_id", "?")
             registered = await _cookbook_register_task(
-                session_id=sid, model=repo_id,
-                host=host, cmd=cmd, task_type="serve",
+                session_id=sid,
+                model=repo_id,
+                host=host,
+                cmd=cmd,
+                task_type="serve",
             )
-            note = "" if registered else " (state-write failed — task may not show in UI)"
-            return {"output": f"Serving {repo_id} (session: {sid}){note}", "session_id": sid, "exit_code": 0}
+            note = (
+                "" if registered else " (state-write failed — task may not show in UI)"
+            )
+            return {
+                "output": f"Serving {repo_id} (session: {sid}){note}",
+                "session_id": sid,
+                "exit_code": 0,
+            }
         # FastAPI HTTPException puts the message under `detail`, not `error`.
         # Surface BOTH so the agent sees "Invalid characters in cmd" (from
         # _validate_serve_cmd rejecting `&&`/`source`/`cd`) instead of
@@ -3109,11 +3861,13 @@ async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
         err_msg = data.get("error") or data.get("detail") or "Serve failed"
         hint = ""
         if isinstance(err_msg, str) and "cmd" in err_msg.lower():
-            hint = (" — the cmd must START with an allowlisted binary "
-                    "(vllm, python3, llama-server, ollama, sglang, lmdeploy, node, npx). "
-                    "Do NOT prefix with `cd …`, `source …`, or chain with `&&`. "
-                    "env_prefix (e.g. `source ~/qwen35-env/bin/activate`) is added "
-                    "automatically from the host's saved venv settings.")
+            hint = (
+                " — the cmd must START with an allowlisted binary "
+                "(vllm, python3, llama-server, ollama, sglang, lmdeploy, node, npx). "
+                "Do NOT prefix with `cd …`, `source …`, or chain with `&&`. "
+                "env_prefix (e.g. `source ~/qwen35-env/bin/activate`) is added "
+                "automatically from the host's saved venv settings."
+            )
         return {"error": f"{err_msg}{hint}", "exit_code": 1}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -3124,6 +3878,7 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
     a /proc scan for externally-launched LLM/diffusion processes
     (vLLM, sglang, llama.cpp, Ollama, ComfyUI, A1111, Fooocus, etc.)."""
     import asyncio
+
     import httpx
 
     # Cookbook-tracked tasks (best-effort; don't fail the whole call if
@@ -3131,8 +3886,10 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
     cookbook_tasks: List[Dict[str, Any]] = []
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/tasks/status",
-                                    headers=_internal_headers())
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/tasks/status",
+                headers=_internal_headers(),
+            )
             cookbook_tasks = (resp.json() or {}).get("tasks") or []
     except Exception as e:
         logger.debug(f"cookbook tasks/status fetch failed: {e}")
@@ -3162,15 +3919,28 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
     # completed tasks are mostly historical noise — they shouldn't lead
     # the list when something is genuinely serving.
     _ORDER = {
-        "ready": 0, "running": 1, "loading": 1, "warming": 1,
-        "queued": 2, "starting": 2,
-        "error": 5, "crashed": 5, "failed": 5,
-        "stopped": 6, "killed": 6, "cancelled": 6, "canceled": 6,
-        "done": 7, "completed": 7, "finished": 7,
+        "ready": 0,
+        "running": 1,
+        "loading": 1,
+        "warming": 1,
+        "queued": 2,
+        "starting": 2,
+        "error": 5,
+        "crashed": 5,
+        "failed": 5,
+        "stopped": 6,
+        "killed": 6,
+        "cancelled": 6,
+        "canceled": 6,
+        "done": 7,
+        "completed": 7,
+        "finished": 7,
     }
+
     def _rank(t: Dict[str, Any]) -> int:
         phase = (t.get("phase") or t.get("status") or "unknown").lower()
         return _ORDER.get(phase, 3)
+
     merged.sort(key=_rank)
 
     cb_n = len(cookbook_tasks)
@@ -3200,7 +3970,11 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
             for s in suggestions[:3]:
                 label = s.get("label") or "retry"
                 retry_cmd = _cookbook_apply_retry_suggestion(cmd, s)
-                if retry_cmd and retry_cmd != cmd and s.get("op") in {"append", "replace", "remove"}:
+                if (
+                    retry_cmd
+                    and retry_cmd != cmd
+                    and s.get("op") in {"append", "replace", "remove"}
+                ):
                     actionable.append(f"{label}: `{retry_cmd}`")
                 else:
                     actionable.append(label)
@@ -3218,8 +3992,12 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
                 _tail_lines = tail.splitlines()
                 _shown = _tail_lines[-30:]
                 for _i, _ln in enumerate(_tail_lines):
-                    if "Traceback (most recent call last)" in _ln or "ERROR" in _ln or "Error:" in _ln:
-                        _shown = _tail_lines[_i:_i + 40]
+                    if (
+                        "Traceback (most recent call last)" in _ln
+                        or "ERROR" in _ln
+                        or "Error:" in _ln
+                    ):
+                        _shown = _tail_lines[_i : _i + 40]
                         break
                 lines.append("    recent log:")
                 for line in _shown:
@@ -3229,8 +4007,9 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
     return {"output": "\n".join(lines), "tasks": merged, "exit_code": 0}
 
 
-async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
-                                 ssh_port: str = "", verb: str = "Stopped") -> Dict:
+async def _cookbook_kill_session(
+    session_id: str, *, remote_host: str = "", ssh_port: str = "", verb: str = "Stopped"
+) -> Dict:
     """Kill a cookbook tmux session — remote-aware — AND mark the task
     stopped in cookbook_state.json. Shared by stop_served_model and
     cancel_download so both behave identically.
@@ -3240,8 +4019,10 @@ async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
     that's the bug where "stop the download" appeared to work but the
     download kept running on the remote host.
     """
-    import httpx
     import shlex
+
+    import httpx
+
     headers = _internal_headers()
     remote = remote_host or ""
     sport = ssh_port or ""
@@ -3250,15 +4031,19 @@ async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
     state: Dict[str, Any] = {}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+            )
             state = resp.json() or {}
     except Exception as e:
         logger.debug(f"cookbook state lookup failed for {session_id}: {e}")
     if not isinstance(state, dict):
         state = {}
     matched = None
-    for t in (state.get("tasks") or []):
-        if isinstance(t, dict) and (t.get("sessionId") == session_id or t.get("id") == session_id):
+    for t in state.get("tasks") or []:
+        if isinstance(t, dict) and (
+            t.get("sessionId") == session_id or t.get("id") == session_id
+        ):
             matched = t
             if not remote:
                 remote = t.get("remoteHost") or ""
@@ -3279,29 +4064,48 @@ async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
-                                     json={"command": cmd}, headers=headers)
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/shell/exec",
+                json={"command": cmd},
+                headers=headers,
+            )
         if resp.status_code >= 400:
-            return {"error": f"shell/exec returned HTTP {resp.status_code}: {resp.text[:200]}", "exit_code": 1}
+            return {
+                "error": f"shell/exec returned HTTP {resp.status_code}: {resp.text[:200]}",
+                "exit_code": 1,
+            }
         try:
             data = resp.json()
         except Exception:
             data = {}
         kill_failed = isinstance(data, dict) and data.get("exit_code") not in (None, 0)
-        kill_err = ((data.get("stderr") or data.get("error") or "").strip() if isinstance(data, dict) else "")
+        kill_err = (
+            (data.get("stderr") or data.get("error") or "").strip()
+            if isinstance(data, dict)
+            else ""
+        )
         # "no server running" / "can't find session" means it was already
         # gone — treat as success (the goal is "not running").
-        already_gone = any(s in kill_err.lower() for s in ("no server running", "can't find session", "session not found"))
+        already_gone = any(
+            s in kill_err.lower()
+            for s in ("no server running", "can't find session", "session not found")
+        )
         if kill_failed and not already_gone:
-            return {"error": f"Failed to {verb.lower()} {target_label}: {kill_err or 'kill-session returned non-zero'}", "exit_code": 1}
+            return {
+                "error": f"Failed to {verb.lower()} {target_label}: {kill_err or 'kill-session returned non-zero'}",
+                "exit_code": 1,
+            }
 
         # Update state: mark stopped (so the UI + list reflect reality).
         if matched is not None:
             try:
                 matched["status"] = "stopped"
                 async with httpx.AsyncClient(timeout=10) as client:
-                    await client.post(f"{_COOKBOOK_BASE}/api/cookbook/state",
-                                      json=state, headers=headers)
+                    await client.post(
+                        f"{_INTERNAL_BASE}/api/cookbook/state",
+                        json=state,
+                        headers=headers,
+                    )
             except Exception as e:
                 logger.debug(f"failed to mark {session_id} stopped in state: {e}")
 
@@ -3337,16 +4141,22 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
     flashinfer version mismatch, OOM, missing kernels, etc.) and decide
     whether to relaunch via serve_model with new flags.
     """
-    import httpx
     import shlex
+
+    import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     session_id = (args.get("session_id") or "").strip()
     if not session_id:
-        return {"error": "session_id is required (from list_served_models)", "exit_code": 1}
+        return {
+            "error": "session_id is required (from list_served_models)",
+            "exit_code": 1,
+        }
     import re as _re
+
     if not _re.fullmatch(r"[a-zA-Z0-9_-]+", session_id):
         return {"error": "Invalid session_id format", "exit_code": 1}
     try:
@@ -3363,13 +4173,17 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
         state: Dict[str, Any] = {}
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
+                resp = await client.get(
+                    f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+                )
                 state = resp.json() or {}
         except Exception as e:
             logger.debug(f"cookbook state lookup failed for {session_id}: {e}")
         if isinstance(state, dict):
-            for t in (state.get("tasks") or []):
-                if isinstance(t, dict) and (t.get("sessionId") == session_id or t.get("id") == session_id):
+            for t in state.get("tasks") or []:
+                if isinstance(t, dict) and (
+                    t.get("sessionId") == session_id or t.get("id") == session_id
+                ):
                     remote = t.get("remoteHost") or ""
                     if not sport:
                         sport = t.get("sshPort") or ""
@@ -3383,7 +4197,9 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
     # the pane when the log file doesn't exist (older sessions launched
     # before the tmux+tee wrapper was added).
     log_path = f"/tmp/odysseus-tmux/{session_id}.log"
-    pane_inner = f"tmux capture-pane -t {shlex.quote(session_id)} -p -S -{tail} 2>/dev/null"
+    pane_inner = (
+        f"tmux capture-pane -t {shlex.quote(session_id)} -p -S -{tail} 2>/dev/null"
+    )
     file_inner = f"tail -n {tail} {shlex.quote(log_path)} 2>/dev/null"
     inner = (
         f"if [ -s {shlex.quote(log_path)} ]; then {file_inner}; "
@@ -3401,24 +4217,46 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
         host_label = "local"
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
-                                     json={"command": cmd}, headers=headers)
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/shell/exec",
+                json={"command": cmd},
+                headers=headers,
+            )
         if resp.status_code >= 400:
-            return {"error": f"shell/exec returned HTTP {resp.status_code}: {resp.text[:200]}", "exit_code": 1}
+            return {
+                "error": f"shell/exec returned HTTP {resp.status_code}: {resp.text[:200]}",
+                "exit_code": 1,
+            }
         data = resp.json() if resp.content else {}
         output_text = (data.get("stdout") or "").strip()
         stderr_text = (data.get("stderr") or "").strip()
         rc = data.get("exit_code")
         if rc not in (None, 0) and not output_text:
-            already_gone = any(s in (stderr_text or "").lower() for s in ("no server running", "can't find session", "session not found"))
+            already_gone = any(
+                s in (stderr_text or "").lower()
+                for s in (
+                    "no server running",
+                    "can't find session",
+                    "session not found",
+                )
+            )
             if already_gone:
-                return {"output": f"Tmux session {session_id} on {host_label} is gone (task already exited).", "exit_code": 0, "session_id": session_id, "host": host_label}
-            return {"error": f"capture-pane failed on {host_label}: {stderr_text or f'exit {rc}'}", "exit_code": 1}
+                return {
+                    "output": f"Tmux session {session_id} on {host_label} is gone (task already exited).",
+                    "exit_code": 0,
+                    "session_id": session_id,
+                    "host": host_label,
+                }
+            return {
+                "error": f"capture-pane failed on {host_label}: {stderr_text or f'exit {rc}'}",
+                "exit_code": 1,
+            }
         # Dedupe download-progress noise. A 100-shard HF download produces
         # tens of thousands of `model-NN-of-MM.safetensors: 91%|...` lines
         # that all look the same to the agent and drown the actual error.
         # Keep only one sample per (file, decile-percent) bucket.
         import re as _re2
+
         lines = output_text.splitlines()
         dedup_lines = []
         seen_progress = set()
@@ -3450,12 +4288,19 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
 async def do_list_downloads(content: str, owner: Optional[str] = None) -> Dict:
     """List in-flight model downloads (filters /api/cookbook/tasks/status to type=download)."""
     import httpx
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/tasks/status",
-                                    headers=_internal_headers())
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/tasks/status",
+                headers=_internal_headers(),
+            )
             data = resp.json()
-        tasks = [t for t in data.get("tasks", []) if (t.get("type") or "").lower() == "download"]
+        tasks = [
+            t
+            for t in data.get("tasks", [])
+            if (t.get("type") or "").lower() == "download"
+        ]
         if not tasks:
             return {"output": "No downloads in progress.", "exit_code": 0}
         lines = [f"{len(tasks)} download(s) in progress:"]
@@ -3464,7 +4309,9 @@ async def do_list_downloads(content: str, owner: Optional[str] = None) -> Dict:
             model = t.get("model", "?")
             pct = t.get("progress_percent") or t.get("percent")
             pct_str = f" {pct}%" if pct is not None else ""
-            lines.append(f"- {model}: {phase}{pct_str} ({t.get('remote', 'local')}, session: {t.get('session_id', '?')})")
+            lines.append(
+                f"- {model}: {phase}{pct_str} ({t.get('remote', 'local')}, session: {t.get('session_id', '?')})"
+            )
         return {"output": "\n".join(lines), "downloads": tasks, "exit_code": 0}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -3490,6 +4337,7 @@ async def do_cancel_download(content: str, owner: Optional[str] = None) -> Dict:
 async def do_search_hf_models(content: str, owner: Optional[str] = None) -> Dict:
     """Search HuggingFace via the cookbook /api/cookbook/hf-latest endpoint."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -3503,14 +4351,23 @@ async def do_search_hf_models(content: str, owner: Optional[str] = None) -> Dict
         params["limit"] = str(limit)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/hf-latest",
-                                    params=params, headers=_internal_headers())
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/hf-latest",
+                params=params,
+                headers=_internal_headers(),
+            )
             data = resp.json()
         models = data.get("models") if isinstance(data, dict) else data
         if not models:
             return {"output": f"No models found for query: {query!r}", "exit_code": 0}
-        lines = [f"Found {len(models)} model(s) for {query!r}:" if query else f"{len(models)} model(s):"]
-        for m in models[:limit if isinstance(limit, int) else 10]:
+        lines = [
+            (
+                f"Found {len(models)} model(s) for {query!r}:"
+                if query
+                else f"{len(models)} model(s):"
+            )
+        ]
+        for m in models[: limit if isinstance(limit, int) else 10]:
             if isinstance(m, dict):
                 name = m.get("repo_id") or m.get("modelId") or m.get("id") or "?"
                 dl = m.get("downloads")
@@ -3544,8 +4401,10 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
       name:          optional display name (defaults to model basename)
       add_endpoint:  bool (default true) — also register as a chat endpoint
     """
-    import httpx
     import shlex
+
+    import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -3555,7 +4414,9 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     sess = (args.get("tmux_session") or args.get("session_id") or "").strip()
     model = (args.get("model") or args.get("repo_id") or "").strip()
     port = args.get("port") or 8000
-    display_name = (args.get("name") or "").strip() or (model.split("/")[-1] if "/" in model else model)
+    display_name = (args.get("name") or "").strip() or (
+        model.split("/")[-1] if "/" in model else model
+    )
     add_endpoint = args.get("add_endpoint", True)
 
     if not sess or not model:
@@ -3569,12 +4430,22 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
         check = f"tmux has-session -t {shlex.quote(sess)} 2>&1"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
-                                  json={"command": check}, headers=headers)
-            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            r = await client.post(
+                f"{_INTERNAL_BASE}/api/shell/exec",
+                json={"command": check},
+                headers=headers,
+            )
+            data = (
+                r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
         if r.status_code >= 400 or (data.get("exit_code") not in (None, 0)):
             err = (data.get("stderr") or data.get("error") or r.text[:200]).strip()
-            return {"error": f"tmux session {sess!r} not found on {host or 'local'}: {err}", "exit_code": 1}
+            return {
+                "error": f"tmux session {sess!r} not found on {host or 'local'}: {err}",
+                "exit_code": 1,
+            }
     except Exception as e:
         return {"error": f"verify failed: {e}", "exit_code": 1}
 
@@ -3586,9 +4457,16 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     server_up = False
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
-                                  json={"command": health_cmd}, headers=headers)
-            body = (r.json() or {}).get("stdout", "") if r.headers.get("content-type", "").startswith("application/json") else ""
+            r = await client.post(
+                f"{_INTERNAL_BASE}/api/shell/exec",
+                json={"command": health_cmd},
+                headers=headers,
+            )
+            body = (
+                (r.json() or {}).get("stdout", "")
+                if r.headers.get("content-type", "").startswith("application/json")
+                else ""
+            )
             server_up = '"data"' in body or '"object"' in body
     except Exception:
         pass
@@ -3597,8 +4475,14 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     # overwrite the whole file (that'd nuke presets).
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
-            state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            r = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+            )
+            state = (
+                r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
     except Exception as e:
         return {"error": f"could not read cookbook state: {e}", "exit_code": 1}
     if not isinstance(state, dict):
@@ -3610,6 +4494,7 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     else:
         adopted_already = False
         import time as _time
+
         new_task = {
             "id": sess,
             "sessionId": sess,
@@ -3621,7 +4506,11 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
                 "Reconnect polling will start streaming tmux output shortly."
             ),
             "ts": int(_time.time() * 1000),
-            "payload": {"repo_id": model, "remote_host": host or "", "_cmd": "(adopted — launched outside cookbook)"},
+            "payload": {
+                "repo_id": model,
+                "remote_host": host or "",
+                "_cmd": "(adopted — launched outside cookbook)",
+            },
             "remoteHost": host or "",
             "sshPort": "",
             "platform": "linux",
@@ -3633,8 +4522,9 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
         state["tasks"] = tasks
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                await client.post(f"{_COOKBOOK_BASE}/api/cookbook/state",
-                                  json=state, headers=headers)
+                await client.post(
+                    f"{_INTERNAL_BASE}/api/cookbook/state", json=state, headers=headers
+                )
         except Exception as e:
             return {"error": f"could not save cookbook state: {e}", "exit_code": 1}
 
@@ -3645,19 +4535,28 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
         host_only = host.split("@", 1)[-1] if host else "localhost"
         endpoint_url = f"http://{host_only}:{int(port)}/v1"
         try:
-            from src.tool_implementations import do_manage_endpoints  # avoid forward ref issues
+            from src.tool_implementations import (  # avoid forward ref issues
+                do_manage_endpoints,
+            )
         except Exception:
             do_manage_endpoints = None
         if do_manage_endpoints is not None:
             try:
-                ep_result = await do_manage_endpoints(json.dumps({
-                    "action": "add",
-                    "name": display_name,
-                    "endpoint_url": endpoint_url,
-                    "is_local": False,
-                }), owner=owner)
+                ep_result = await do_manage_endpoints(
+                    json.dumps(
+                        {
+                            "action": "add",
+                            "name": display_name,
+                            "endpoint_url": endpoint_url,
+                            "is_local": False,
+                        }
+                    ),
+                    owner=owner,
+                )
                 if isinstance(ep_result, dict) and not ep_result.get("error"):
-                    endpoint_msg = f" Endpoint {endpoint_url} added as {display_name!r}."
+                    endpoint_msg = (
+                        f" Endpoint {endpoint_url} added as {display_name!r}."
+                    )
                 else:
                     endpoint_msg = f" Endpoint registration skipped: {(ep_result or {}).get('error', 'unknown')}"
             except Exception as e:
@@ -3666,8 +4565,16 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     return {
         "output": (
             f"Adopted session {sess!r} ({model}) on {host or 'local'}:{port}. "
-            + ("Already tracked — skipped state write. " if adopted_already else "Added to cookbook state. ")
-            + ("Server responding. " if server_up else "Server not responding yet (still loading?). ")
+            + (
+                "Already tracked — skipped state write. "
+                if adopted_already
+                else "Added to cookbook state. "
+            )
+            + (
+                "Server responding. "
+                if server_up
+                else "Server not responding yet (still loading?). "
+            )
             + endpoint_msg
         ).strip(),
         "session_id": sess,
@@ -3687,19 +4594,38 @@ async def do_list_cookbook_servers(content: str, owner: Optional[str] = None) ->
     hosts = servers.get("hosts") or []
     default = servers.get("default_host") or ""
     if not hosts:
-        return {"output": "No cookbook servers configured. Downloads/serves default to localhost.", "servers": [], "default_host": "", "exit_code": 0}
+        return {
+            "output": "No cookbook servers configured. Downloads/serves default to localhost.",
+            "servers": [],
+            "default_host": "",
+            "exit_code": 0,
+        }
     # Resolve which server is the default by its friendly name too.
-    default_name = next((h.get("name") for h in hosts if h.get("host") == default and h.get("name")), default or "local")
+    default_name = next(
+        (h.get("name") for h in hosts if h.get("host") == default and h.get("name")),
+        default or "local",
+    )
     lines = [f"{len(hosts)} configured server(s) (default: {default_name}):"]
     for h in hosts:
         name = h.get("name") or "(unnamed)"
         host = h.get("host") or "local"
         mark = " ← default" if h.get("host") == default else ""
-        env_bit = f" [{h.get('env')}: {h.get('envPath')}]" if h.get("env") and h.get("env") != "none" else ""
+        env_bit = (
+            f" [{h.get('env')}: {h.get('envPath')}]"
+            if h.get("env") and h.get("env") != "none"
+            else ""
+        )
         plat = f" ({h.get('platform')})" if h.get("platform") else ""
         lines.append(f"- {name} → {host}{plat}{env_bit}{mark}")
-    lines.append("\nRefer to servers by their name (e.g. download_model with host=\"gpu-box\").")
-    return {"output": "\n".join(lines), "servers": hosts, "default_host": default, "exit_code": 0}
+    lines.append(
+        '\nRefer to servers by their name (e.g. download_model with host="gpu-box").'
+    )
+    return {
+        "output": "\n".join(lines),
+        "servers": hosts,
+        "default_host": default,
+        "exit_code": 0,
+    }
 
 
 async def do_list_serve_presets(content: str, owner: Optional[str] = None) -> Dict:
@@ -3708,10 +4634,12 @@ async def do_list_serve_presets(content: str, owner: Optional[str] = None) -> Di
     discover what the user has previously configured so you can
     launch by preset instead of fabricating tmux commands."""
     import httpx
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state",
-                                    headers=_internal_headers())
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=_internal_headers()
+            )
             state = resp.json() or {}
     except Exception as e:
         return {"error": f"Failed to fetch cookbook state: {e}", "exit_code": 1}
@@ -3748,18 +4676,23 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
     standard model/serve endpoint. Saves the agent from having to
     reinvent tmux launch commands the user already saved."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     name = (args.get("name") or args.get("preset") or "").strip()
     if not name:
-        return {"error": "name (preset name) is required. Call list_serve_presets to see what's available.", "exit_code": 1}
+        return {
+            "error": "name (preset name) is required. Call list_serve_presets to see what's available.",
+            "exit_code": 1,
+        }
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state",
-                                    headers=_internal_headers())
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/cookbook/state", headers=_internal_headers()
+            )
             state = resp.json() or {}
     except Exception as e:
         return {"error": f"Failed to fetch cookbook state: {e}", "exit_code": 1}
@@ -3778,14 +4711,22 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
                 chosen = p
                 break
     if chosen is None:
-        sample = ", ".join((p.get("name") or "?") for p in presets[:8] if isinstance(p, dict))
-        return {"error": f"No preset matching {name!r}. Available: {sample or '(none)'}", "exit_code": 1}
+        sample = ", ".join(
+            (p.get("name") or "?") for p in presets[:8] if isinstance(p, dict)
+        )
+        return {
+            "error": f"No preset matching {name!r}. Available: {sample or '(none)'}",
+            "exit_code": 1,
+        }
 
     repo_id = chosen.get("model") or chosen.get("modelId") or ""
     cmd = (chosen.get("cmd") or "").strip()
     host = chosen.get("host") or chosen.get("remoteHost") or ""
     if not repo_id or not cmd:
-        return {"error": f"Preset {chosen.get('name')!r} is missing model or cmd — can't launch.", "exit_code": 1}
+        return {
+            "error": f"Preset {chosen.get('name')!r} is missing model or cmd — can't launch.",
+            "exit_code": 1,
+        }
 
     payload: Dict[str, Any] = {"repo_id": repo_id, "cmd": cmd}
     if host:
@@ -3794,25 +4735,42 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
     # env_prefix (source ~/vllm-env/bin/activate), gpus, hf_token,
     # etc. from cookbook_state.env so launches actually find vllm.
     env_cfg = await _cookbook_env_for_host(host)
-    if env_cfg.get("env_prefix"): payload["env_prefix"] = env_cfg["env_prefix"]
-    if env_cfg.get("gpus"):       payload["gpus"]       = env_cfg["gpus"]
-    if env_cfg.get("hf_token"):   payload["hf_token"]   = env_cfg["hf_token"]
-    if env_cfg.get("platform"):   payload["platform"]   = env_cfg["platform"]
-    if env_cfg.get("ssh_port"):   payload["ssh_port"]   = env_cfg["ssh_port"]
+    if env_cfg.get("env_prefix"):
+        payload["env_prefix"] = env_cfg["env_prefix"]
+    if env_cfg.get("gpus"):
+        payload["gpus"] = env_cfg["gpus"]
+    if env_cfg.get("hf_token"):
+        payload["hf_token"] = env_cfg["hf_token"]
+    if env_cfg.get("platform"):
+        payload["platform"] = env_cfg["platform"]
+    if env_cfg.get("ssh_port"):
+        payload["ssh_port"] = env_cfg["ssh_port"]
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_COOKBOOK_BASE}/api/model/serve",
-                                     json=payload, headers=_internal_headers())
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/model/serve",
+                json=payload,
+                headers=_internal_headers(),
+            )
             data = resp.json()
         if data.get("ok"):
             sid = data.get("session_id", "?")
             registered = await _cookbook_register_task(
-                session_id=sid, model=repo_id, host=host,
-                cmd=cmd, task_type="serve",
+                session_id=sid,
+                model=repo_id,
+                host=host,
+                cmd=cmd,
+                task_type="serve",
             )
-            note = "" if registered else " (state-write failed — task may not show in UI)"
-            return {"output": f"Launched preset {chosen.get('name')!r}: {repo_id} on {host or 'local'} (session: {sid}){note}", "session_id": sid, "exit_code": 0}
+            note = (
+                "" if registered else " (state-write failed — task may not show in UI)"
+            )
+            return {
+                "output": f"Launched preset {chosen.get('name')!r}: {repo_id} on {host or 'local'} (session: {sid}){note}",
+                "session_id": sid,
+                "exit_code": 0,
+            }
         return {"error": data.get("error", "Serve failed"), "exit_code": 1}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -3826,6 +4784,7 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
     instead of having to query each server individually.
     """
     import httpx
+
     try:
         args = _parse_tool_args(content) if content.strip() else {}
     except ValueError:
@@ -3833,8 +4792,13 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
     raw_host = (args.get("host") or "").strip()
     headers = _internal_headers()
 
-    async def _scan_one(host_label: str, host_val: str, ssh_port: str = "",
-                        platform: str = "", model_dir: str = "") -> list:
+    async def _scan_one(
+        host_label: str,
+        host_val: str,
+        ssh_port: str = "",
+        platform: str = "",
+        model_dir: str = "",
+    ) -> list:
         """Hit /api/model/cached for one host; tag each returned model with its source."""
         p: Dict[str, str] = {}
         if host_val:
@@ -3854,8 +4818,9 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             p["platform"] = args["platform"]
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.get(f"{_COOKBOOK_BASE}/api/model/cached",
-                                        params=p, headers=headers)
+                resp = await client.get(
+                    f"{_INTERNAL_BASE}/api/model/cached", params=p, headers=headers
+                )
                 data = resp.json()
             ms = data.get("models", []) if isinstance(data, dict) else (data or [])
             for m in ms:
@@ -3874,8 +4839,14 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
         servers: list = []
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                st = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
-                st_data = st.json() if st.headers.get("content-type", "").startswith("application/json") else {}
+                st = await client.get(
+                    f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+                )
+                st_data = (
+                    st.json()
+                    if st.headers.get("content-type", "").startswith("application/json")
+                    else {}
+                )
             servers = (st_data.get("env", {}) or {}).get("servers") or []
         except Exception as e:
             logger.debug(f"server list fetch failed: {e}")
@@ -3890,10 +4861,18 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             edge cases where the extra dir suppresses the deeper scan.
             We only need to forward the NON-default dirs (e.g. /mnt/HADES/models).
             """
-            mds = server_record.get("modelDirs") if isinstance(server_record, dict) else None
+            mds = (
+                server_record.get("modelDirs")
+                if isinstance(server_record, dict)
+                else None
+            )
             HF_DEFAULTS = {"~/.cache/huggingface/hub", "~/.cache/huggingface"}
             if isinstance(mds, list):
-                extras = [d for d in mds if isinstance(d, str) and d.strip() and d.strip() not in HF_DEFAULTS]
+                extras = [
+                    d
+                    for d in mds
+                    if isinstance(d, str) and d.strip() and d.strip() not in HF_DEFAULTS
+                ]
                 return ",".join(extras)
             if isinstance(mds, str) and mds.strip() not in HF_DEFAULTS:
                 return mds
@@ -3903,14 +4882,29 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             host = await _resolve_cookbook_host(raw_host)
             # Find this host's saved record so its modelDirs apply too.
             srv = next(
-                (s for s in servers if isinstance(s, dict)
-                 and (s.get("name") == raw_host or s.get("host") == host or s.get("host") == raw_host)),
+                (
+                    s
+                    for s in servers
+                    if isinstance(s, dict)
+                    and (
+                        s.get("name") == raw_host
+                        or s.get("host") == host
+                        or s.get("host") == raw_host
+                    )
+                ),
                 {},
             )
             models = await _scan_one(raw_host, host, model_dir=_dirs_for(srv))
         else:
             # Always include local. Local's saved record is the one with no host.
-            local_srv = next((s for s in servers if isinstance(s, dict) and not (s.get("host") or "").strip()), {})
+            local_srv = next(
+                (
+                    s
+                    for s in servers
+                    if isinstance(s, dict) and not (s.get("host") or "").strip()
+                ),
+                {},
+            )
             scans: list = [_scan_one("local", "", model_dir=_dirs_for(local_srv))]
             for s in servers:
                 if not isinstance(s, dict):
@@ -3919,13 +4913,15 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
                 host_val = s.get("host") or ""
                 if not host_val:
                     continue
-                scans.append(_scan_one(
-                    name,
-                    host_val,
-                    ssh_port=str(s.get("port") or ""),
-                    platform=s.get("platform") or "",
-                    model_dir=_dirs_for(s),
-                ))
+                scans.append(
+                    _scan_one(
+                        name,
+                        host_val,
+                        ssh_port=str(s.get("port") or ""),
+                        platform=s.get("platform") or "",
+                        model_dir=_dirs_for(s),
+                    )
+                )
             results = await asyncio.gather(*scans, return_exceptions=False)
             # Dedupe by (host, repo_id) — same model could appear in both HF cache + Ollama list.
             seen = set()
@@ -3945,26 +4941,54 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             downloaded = []
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
-                    st = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
-                    state = st.json() if st.headers.get("content-type", "").startswith("application/json") else {}
-                for t in (state.get("tasks") or []):
+                    st = await client.get(
+                        f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
+                    )
+                    state = (
+                        st.json()
+                        if st.headers.get("content-type", "").startswith(
+                            "application/json"
+                        )
+                        else {}
+                    )
+                for t in state.get("tasks") or []:
                     if not isinstance(t, dict) or t.get("type") != "download":
                         continue
                     if (t.get("status") or "").lower() not in {"done", "completed"}:
                         continue
-                    task_host = t.get("remoteHost") or (t.get("payload") or {}).get("remote_host") or ""
+                    task_host = (
+                        t.get("remoteHost")
+                        or (t.get("payload") or {}).get("remote_host")
+                        or ""
+                    )
                     if raw_host and task_host != raw_host:
                         continue
-                    repo = t.get("modelId") or t.get("repoId") or (t.get("payload") or {}).get("repo_id") or t.get("name")
+                    repo = (
+                        t.get("modelId")
+                        or t.get("repoId")
+                        or (t.get("payload") or {}).get("repo_id")
+                        or t.get("name")
+                    )
                     if repo and repo not in downloaded:
                         downloaded.append(repo)
             except Exception:
                 downloaded = []
             host_str = f" on {raw_host}" if raw_host else ""
             if downloaded:
-                lines = [f"No cache paths were detected{host_str}, but Cookbook has completed download task(s):"]
-                lines.extend(f"- {repo} — downloaded via Cookbook task" for repo in downloaded)
-                return {"output": "\n".join(lines), "models": [{"repo_id": repo, "source": "cookbook_task"} for repo in downloaded], "exit_code": 0}
+                lines = [
+                    f"No cache paths were detected{host_str}, but Cookbook has completed download task(s):"
+                ]
+                lines.extend(
+                    f"- {repo} — downloaded via Cookbook task" for repo in downloaded
+                )
+                return {
+                    "output": "\n".join(lines),
+                    "models": [
+                        {"repo_id": repo, "source": "cookbook_task"}
+                        for repo in downloaded
+                    ],
+                    "exit_code": 0,
+                }
             return {"output": f"No cached models found{host_str}.", "exit_code": 0}
         # Multi-host scan: group by host so the agent sees inventory per server.
         # Single-host scan: flat list (matches old output shape).
@@ -3972,12 +4996,17 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             lines = [f"{len(models)} cached model(s) on {raw_host}:"]
             for m in models:
                 name = m.get("repo_id", "?")
-                sz = m.get("size") or (f"{m.get('size_bytes', 0) / (1024**3):.1f}GB" if m.get("size_bytes") else "")
+                sz = m.get("size") or (
+                    f"{m.get('size_bytes', 0) / (1024**3):.1f}GB"
+                    if m.get("size_bytes")
+                    else ""
+                )
                 inc = " (incomplete)" if m.get("has_incomplete") else ""
                 kind = " [diffusion]" if m.get("is_diffusion") else ""
                 lines.append(f"- {name}{kind} — {sz}{inc}")
         else:
             from collections import defaultdict as _dd
+
             by_host = _dd(list)
             for m in models:
                 by_host[m.get("host", "local")].append(m)
@@ -3986,7 +5015,11 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
                 lines.append(f"\n[{host_name}]")
                 for m in by_host[host_name]:
                     name = m.get("repo_id", "?")
-                    sz = m.get("size") or (f"{m.get('size_bytes', 0) / (1024**3):.1f}GB" if m.get("size_bytes") else "")
+                    sz = m.get("size") or (
+                        f"{m.get('size_bytes', 0) / (1024**3):.1f}GB"
+                        if m.get("size_bytes")
+                        else ""
+                    )
                     inc = " (incomplete)" if m.get("has_incomplete") else ""
                     kind = " [diffusion]" if m.get("is_diffusion") else ""
                     backend = f" ({m.get('backend')})" if m.get("backend") else ""
@@ -3998,9 +5031,11 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
 
 # ── Gallery tools ──
 
+
 async def do_edit_image(content: str, owner: Optional[str] = None) -> Dict:
     """Edit a gallery image (upscale, rembg, inpaint, harmonize)."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -4016,10 +5051,15 @@ async def do_edit_image(content: str, owner: Optional[str] = None) -> Dict:
         payload["scale"] = args["scale"]
     try:
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(f"http://localhost:7000/api/gallery/{action}", json=payload)
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/gallery/{action}", json=payload
+            )
             data = resp.json()
         if data.get("success") or data.get("id"):
-            return {"output": f"Image edited ({action}). New image ID: {data.get('id', '?')}", "exit_code": 0}
+            return {
+                "output": f"Image edited ({action}). New image ID: {data.get('id', '?')}",
+                "exit_code": 0,
+            }
         return {"error": data.get("error", f"{action} failed"), "exit_code": 1}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -4027,12 +5067,14 @@ async def do_edit_image(content: str, owner: Optional[str] = None) -> Dict:
 
 # ── Research tools ──
 
+
 async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict:
     """List, read/open, or delete saved deep-research results from the Library.
     Args (JSON): {"action": "list|read|delete", "id": "<id>", "search": "..."}.
     Research is stored as data/deep_research/<id>.json (query, summary, sources)."""
     import json as _json
     from pathlib import Path as _Path
+
     try:
         args = _parse_tool_args(content) if content.strip().startswith("{") else {}
     except ValueError:
@@ -4040,7 +5082,9 @@ async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict:
     if not isinstance(args, dict):
         args = {}
     action = (args.get("action") or "list").lower()
-    rid = (args.get("id") or args.get("session_id") or args.get("research_id") or "").strip()
+    rid = (
+        args.get("id") or args.get("session_id") or args.get("research_id") or ""
+    ).strip()
     data_dir = _Path("data/deep_research")
 
     # SECURITY: the research id is interpolated straight into a filesystem
@@ -4065,12 +5109,19 @@ async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict:
         if not p.exists():
             return {"error": f"Research '{rid}' not found."}
         d = _load(p) or {}
-        summary = d.get("result") or d.get("raw_report") or d.get("summary") or d.get("report") or "(no report body)"
+        summary = (
+            d.get("result")
+            or d.get("raw_report")
+            or d.get("summary")
+            or d.get("report")
+            or "(no report body)"
+        )
         srcs = d.get("sources", []) or []
         out = f"# {d.get('query', '(untitled)')}\n\n{summary}"
         if srcs:
             out += "\n\nSources:\n" + "\n".join(
-                f"- {s.get('title') or s.get('url', '')}: {s.get('url', '')}" for s in srcs[:30]
+                f"- {s.get('title') or s.get('url', '')}: {s.get('url', '')}"
+                for s in srcs[:30]
             )
         return {"output": out[:16000], "exit_code": 0}
 
@@ -4097,12 +5148,29 @@ async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict:
             q = d.get("query", "")
             if search and search not in q.lower():
                 continue
-            items.append((d.get("completed_at", 0) or 0, p.stem, q, len(d.get("sources", []) or [])))
+            items.append(
+                (
+                    d.get("completed_at", 0) or 0,
+                    p.stem,
+                    q,
+                    len(d.get("sources", []) or []),
+                )
+            )
     items.sort(reverse=True)
     if not items:
-        return {"output": "No research found in the library." + (f" (search: {search})" if search else ""), "exit_code": 0}
-    rows = "\n".join(f"- [{q or '(untitled)'}](#research-{sid}) — {n} sources" for _, sid, q, n in items[:50])
-    return {"output": f"Research library ({len(items)} item{'s' if len(items) != 1 else ''}):\n{rows}", "exit_code": 0}
+        return {
+            "output": "No research found in the library."
+            + (f" (search: {search})" if search else ""),
+            "exit_code": 0,
+        }
+    rows = "\n".join(
+        f"- [{q or '(untitled)'}](#research-{sid}) — {n} sources"
+        for _, sid, q, n in items[:50]
+    )
+    return {
+        "output": f"Research library ({len(items)} item{'s' if len(items) != 1 else ''}):\n{rows}",
+        "exit_code": 0,
+    }
 
 
 async def do_trigger_research(content: str, owner: Optional[str] = None) -> Dict:
@@ -4111,6 +5179,7 @@ async def do_trigger_research(content: str, owner: Optional[str] = None) -> Dict
     'Research' button uses) so the session is discoverable + streamable
     there, rather than creating a scheduled task that never surfaces."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -4121,21 +5190,31 @@ async def do_trigger_research(content: str, owner: Optional[str] = None) -> Dict
     payload: Dict[str, Any] = {"query": topic}
     # Optional knobs the research panel supports.
     if args.get("max_rounds") is not None:
-        try: payload["max_rounds"] = int(args["max_rounds"])
-        except (ValueError, TypeError): pass
+        try:
+            payload["max_rounds"] = int(args["max_rounds"])
+        except (ValueError, TypeError):
+            pass
     if args.get("max_time") is not None:
-        try: payload["max_time"] = int(args["max_time"])
-        except (ValueError, TypeError): pass
+        try:
+            payload["max_time"] = int(args["max_time"])
+        except (ValueError, TypeError):
+            pass
     if args.get("category"):
         payload["category"] = args["category"]
     if args.get("search_provider"):
         payload["search_provider"] = args["search_provider"]
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_COOKBOOK_BASE}/api/research/start",
-                                     json=payload, headers=_internal_headers(owner))
+            resp = await client.post(
+                f"{_INTERNAL_BASE}/api/research/start",
+                json=payload,
+                headers=_internal_headers(owner),
+            )
         if resp.status_code >= 400:
-            return {"error": f"research/start returned HTTP {resp.status_code}: {resp.text[:200]}", "exit_code": 1}
+            return {
+                "error": f"research/start returned HTTP {resp.status_code}: {resp.text[:200]}",
+                "exit_code": 1,
+            }
         data = resp.json()
         sid = data.get("session_id", "?")
         return {
@@ -4156,9 +5235,11 @@ async def do_trigger_research(content: str, owner: Optional[str] = None) -> Dict
 
 # ── Contact tools ──
 
+
 async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
     """Look up a contact by name. Searches: CardDAV -> email history -> memory."""
     import httpx
+
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -4174,30 +5255,42 @@ async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
     # cookie and would 401 under require_user.
     try:
         import asyncio
+
         from routes import contacts_routes as cc
+
         all_contacts = await asyncio.to_thread(cc._fetch_contacts)
         q = name.lower()
-        for c in (all_contacts or []):
+        for c in all_contacts or []:
             hay_name = (c.get("name") or "").lower()
-            match = q in hay_name or any(q in (e or "").lower() for e in c.get("emails", []))
+            match = q in hay_name or any(
+                q in (e or "").lower() for e in c.get("emails", [])
+            )
             if not match:
                 continue
-            for email in (c.get("emails") or []):
+            for email in c.get("emails") or []:
                 email = (email or "").strip().lower()
                 if email and "@" in email:
-                    contacts[email] = {"name": c.get("name") or email, "source": "contacts"}
+                    contacts[email] = {
+                        "name": c.get("name") or email,
+                        "source": "contacts",
+                    }
     except Exception:
         pass
 
     async with httpx.AsyncClient(timeout=30) as client:
         # 2. Email history (sent/received)
         try:
-            resp = await client.get("http://localhost:7000/api/email/resolve-contact", params={"name": name})
+            resp = await client.get(
+                f"{_INTERNAL_BASE}/api/email/resolve-contact", params={"name": name}
+            )
             if resp.status_code == 200:
-                for c in (resp.json().get("contacts") or []):
+                for c in resp.json().get("contacts") or []:
                     email = (c.get("email") or "").strip().lower()
                     if email and email not in contacts:
-                        contacts[email] = {"name": c.get("name") or email, "source": "email history"}
+                        contacts[email] = {
+                            "name": c.get("name") or email,
+                            "source": "email history",
+                        }
         except Exception:
             pass
 
@@ -4228,6 +5321,7 @@ async def do_manage_contact(content: str, owner: Optional[str] = None) -> Dict:
     # The contacts helpers are sync (httpx blocking calls to CardDAV) — run
     # them in a thread so we don't block the event loop.
     import asyncio
+
     try:
         if action == "list":
             rows = await asyncio.to_thread(cc._fetch_contacts, True)
@@ -4236,7 +5330,9 @@ async def do_manage_contact(content: str, owner: Optional[str] = None) -> Dict:
             lines = [f"{len(rows)} contacts:"]
             for c in rows:
                 em = ", ".join(c.get("emails") or [])
-                lines.append(f"- {c.get('name') or '(no name)'} <{em}>  [uid={c.get('uid','')}]")
+                lines.append(
+                    f"- {c.get('name') or '(no name)'} <{em}>  [uid={c.get('uid','')}]"
+                )
             return {"output": "\n".join(lines), "exit_code": 0}
 
         if action == "add":
@@ -4248,14 +5344,23 @@ async def do_manage_contact(content: str, owner: Optional[str] = None) -> Dict:
             existing = await asyncio.to_thread(cc._fetch_contacts)
             for c in existing:
                 if email.lower() in [e.lower() for e in c.get("emails", [])]:
-                    return {"output": f"{email} is already a contact ({c.get('name','')}).", "exit_code": 0}
+                    return {
+                        "output": f"{email} is already a contact ({c.get('name','')}).",
+                        "exit_code": 0,
+                    }
             ok = await asyncio.to_thread(cc._create_contact, name, email)
-            return {"output": f"{'Added' if ok else 'Failed to add'} {name} <{email}>.", "exit_code": 0 if ok else 1}
+            return {
+                "output": f"{'Added' if ok else 'Failed to add'} {name} <{email}>.",
+                "exit_code": 0 if ok else 1,
+            }
 
         if action in ("update", "edit"):
             uid = (args.get("uid") or "").strip()
             if not uid:
-                return {"error": "uid is required for update (use action=list to find it)", "exit_code": 1}
+                return {
+                    "error": "uid is required for update (use action=list to find it)",
+                    "exit_code": 1,
+                }
             name = (args.get("name") or "").strip()
             emails = args.get("emails")
             if emails is None and args.get("email"):
@@ -4267,25 +5372,39 @@ async def do_manage_contact(content: str, owner: Optional[str] = None) -> Dict:
             if not name and emails:
                 name = emails[0].split("@")[0]
             ok = await asyncio.to_thread(cc._update_contact, uid, name, emails, phones)
-            return {"output": "Contact updated." if ok else "Update failed.", "exit_code": 0 if ok else 1}
+            return {
+                "output": "Contact updated." if ok else "Update failed.",
+                "exit_code": 0 if ok else 1,
+            }
 
         if action == "delete":
             uid = (args.get("uid") or "").strip()
             if not uid:
-                return {"error": "uid is required for delete (use action=list to find it)", "exit_code": 1}
+                return {
+                    "error": "uid is required for delete (use action=list to find it)",
+                    "exit_code": 1,
+                }
             ok = await asyncio.to_thread(cc._delete_contact, uid)
-            return {"output": "Contact deleted." if ok else "Delete failed.", "exit_code": 0 if ok else 1}
+            return {
+                "output": "Contact deleted." if ok else "Delete failed.",
+                "exit_code": 0 if ok else 1,
+            }
 
-        return {"error": f"Unknown action '{action}'. Use list, add, update, or delete.", "exit_code": 1}
+        return {
+            "error": f"Unknown action '{action}'. Use list, add, update, or delete.",
+            "exit_code": 1,
+        }
     except Exception as e:
         return {"error": f"Contact operation failed: {e}", "exit_code": 1}
 
 
 # ── Vaultwarden / Bitwarden CLI tools ──
 
+
 def _load_vault_config() -> Dict:
     """Load Vaultwarden config from data/vault.json."""
     from pathlib import Path
+
     p = Path("data/vault.json")
     if p.exists():
         try:
@@ -4295,24 +5414,35 @@ def _load_vault_config() -> Dict:
     return {}
 
 
-async def _run_bw(args: list, session: Optional[str] = None, input_text: Optional[str] = None) -> tuple:
+async def _run_bw(
+    args: list, session: Optional[str] = None, input_text: Optional[str] = None
+) -> tuple:
     """Run a bw CLI command with optional session + stdin. Returns (stdout, stderr, returncode)."""
     import asyncio
+
     env = {}
     import os as _os
+
     env.update(_os.environ)
     if session:
         env["BW_SESSION"] = session
 
     proc = await asyncio.create_subprocess_exec(
-        "bw", *args,
+        "bw",
+        *args,
         stdin=asyncio.subprocess.PIPE if input_text else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
-    stdout, stderr = await proc.communicate(input=input_text.encode() if input_text else None)
-    return stdout.decode(errors="replace").strip(), stderr.decode(errors="replace").strip(), proc.returncode
+    stdout, stderr = await proc.communicate(
+        input=input_text.encode() if input_text else None
+    )
+    return (
+        stdout.decode(errors="replace").strip(),
+        stderr.decode(errors="replace").strip(),
+        proc.returncode,
+    )
 
 
 async def do_vault_search(content: str, owner: Optional[str] = None) -> Dict:
@@ -4328,9 +5458,14 @@ async def do_vault_search(content: str, owner: Optional[str] = None) -> Dict:
     cfg = _load_vault_config()
     session = cfg.get("session")
     if not session:
-        return {"error": "Vault is locked. Run vault_unlock or provide session key in settings.", "exit_code": 1}
+        return {
+            "error": "Vault is locked. Run vault_unlock or provide session key in settings.",
+            "exit_code": 1,
+        }
 
-    stdout, stderr, rc = await _run_bw(["list", "items", "--search", query], session=session)
+    stdout, stderr, rc = await _run_bw(
+        ["list", "items", "--search", query], session=session
+    )
     if rc != 0:
         return {"error": f"bw failed: {stderr[:300]}", "exit_code": 1}
 
@@ -4371,7 +5506,10 @@ async def do_vault_get(content: str, owner: Optional[str] = None) -> Dict:
     if not item_id:
         return {"error": "item_id is required", "exit_code": 1}
     if not reason:
-        return {"error": "reason is required — explain WHY you need this password", "exit_code": 1}
+        return {
+            "error": "reason is required — explain WHY you need this password",
+            "exit_code": 1,
+        }
 
     cfg = _load_vault_config()
     session = cfg.get("session")
@@ -4393,6 +5531,7 @@ async def do_vault_get(content: str, owner: Optional[str] = None) -> Dict:
     # Audit log to assistant chat
     try:
         from src.assistant_log import log_to_assistant
+
         if owner:
             log_to_assistant(
                 owner,
@@ -4430,7 +5569,9 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
 
     # Do not pass the master password as an argv element. Local process lists
     # can expose argv to other users; stdin keeps the secret out of `ps`.
-    stdout, stderr, rc = await _run_bw(["unlock", "--raw"], input_text=master_password + "\n")
+    stdout, stderr, rc = await _run_bw(
+        ["unlock", "--raw"], input_text=master_password + "\n"
+    )
     if rc != 0:
         return {"error": f"Unlock failed: {stderr[:300]}", "exit_code": 1}
 
@@ -4440,6 +5581,7 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
 
     # Save session to vault.json
     from pathlib import Path
+
     p = Path("data/vault.json")
     cfg = {}
     if p.exists():
@@ -4449,10 +5591,12 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
             pass
     cfg["session"] = session
     from datetime import datetime as _dt
+
     cfg["unlocked_at"] = _dt.utcnow().isoformat()
     p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     try:
         import os as _os
+
         _os.chmod(str(p), 0o600)
     except Exception:
         pass

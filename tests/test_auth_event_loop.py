@@ -11,13 +11,15 @@ The fix offloads the bcrypt-bearing AuthManager calls via asyncio.to_thread.
 This test asserts those calls run on a worker thread, not the loop thread; it
 fails if they are awaited inline again.
 """
+
+import asyncio
 import os
 import sys
 import types
-import asyncio
-import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 
 # Stub `core.auth` / `core.database` before importing the route module.
@@ -73,13 +75,15 @@ def _event_loop_stubs(monkeypatch):
     monkeypatch.setitem(sys.modules, "core.auth", auth)
 
 
-from routes.auth_routes import setup_auth_routes, LoginRequest
+from routes.auth_routes import LoginRequest, setup_auth_routes
 
 
 def _login_endpoint(auth_manager):
     router = setup_auth_routes(auth_manager)
     for r in router.routes:
-        if getattr(r, "path", None) == "/api/auth/login" and "POST" in getattr(r, "methods", set()):
+        if getattr(r, "path", None) == "/api/auth/login" and "POST" in getattr(
+            r, "methods", set()
+        ):
             return r.endpoint
     raise AssertionError("login route not found on the auth router")
 
@@ -95,7 +99,7 @@ def test_login_offloads_bcrypt_bearing_calls(monkeypatch):
     monkeypatch.setattr("routes.auth_routes.asyncio.to_thread", fake_to_thread)
     auth.verify_password.return_value = True
     auth.totp_enabled.return_value = False
-    auth.create_session.return_value = "tok-123"
+    auth.create_session_trusted.return_value = "tok-123"
 
     login = _login_endpoint(auth)
 
@@ -107,7 +111,7 @@ def test_login_offloads_bcrypt_bearing_calls(monkeypatch):
 
     assert result["ok"] is True
     auth.verify_password.assert_called_once()
-    auth.create_session.assert_called_once()
+    auth.create_session_trusted.assert_called_once()
     # The whole point: the expensive bcrypt-bearing calls go through
     # asyncio.to_thread rather than running inline in the request coroutine.
-    assert calls == [auth.verify_password, auth.create_session]
+    assert calls == [auth.verify_password, auth.create_session_trusted]

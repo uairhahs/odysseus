@@ -419,22 +419,23 @@ Most setup is done inside the app with `/setup` or **Settings**. Use `.env`
 for deployment-level defaults and secrets you want present before first boot.
 Key settings:
 
-| Variable           | Default                        | Description                                                                                                   |
-| ------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `LLM_HOST`         | `localhost`                    | Your LLM server (e.g. `llm-host.local:8000`)                                                                  |
-| `LLM_HOSTS`        | --                             | Comma-separated list for model discovery                                                                      |
-| `OPENAI_API_KEY`   | --                             | Optional OpenAI key. Prefer adding providers in the app unless pre-seeding.                                   |
-| `SEARXNG_INSTANCE` | `http://localhost:8080`        | SearXNG URL. Docker overrides this to `http://searxng:8080`.                                                  |
-| `SEARXNG_SECRET`   | generated on first Docker boot | Optional SearXNG cookie/CSRF secret. Leave blank unless you need to pin it.                                   |
-| `APP_BIND`         | `127.0.0.1`                    | Docker Compose host bind address for the web UI. Use `0.0.0.0` only for intentional LAN/reverse-proxy access. |
-| `APP_PORT`         | `7000`                         | Docker Compose host port for the web UI.                                                                      |
-| `AUTH_ENABLED`     | `true`                         | Enable/disable login                                                                                          |
-| `LOCALHOST_BYPASS` | `false`                        | Development-only auth bypass for loopback requests. Keep false for shared/network deployments.                |
-| `SECURE_COOKIES`   | `false`                        | Set true when serving Odysseus through HTTPS at a trusted proxy or private access gateway.                    |
-| `DATABASE_URL`     | `sqlite:///./data/app.db`      | Database connection string                                                                                    |
-| `CHROMADB_HOST`    | `localhost`                    | ChromaDB host for vector memory. Docker overrides this to `chromadb`.                                         |
-| `CHROMADB_PORT`    | `8100`                         | ChromaDB port for manual host runs. Docker overrides this to `8000`.                                          |
-| `EMBEDDING_URL`    | --                             | OpenAI-compatible embeddings endpoint                                                                         |
+| Variable                         | Default                        | Description                                                                                                   |
+| -------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `LLM_HOST`                       | `localhost`                    | Your LLM server (e.g. `llm-host.local:8000`)                                                                  |
+| `LLM_HOSTS`                      | --                             | Comma-separated list for model discovery                                                                      |
+| `OPENAI_API_KEY`                 | --                             | Optional OpenAI key. Prefer adding providers in the app unless pre-seeding.                                   |
+| `SEARXNG_INSTANCE`               | `http://localhost:8080`        | SearXNG URL. Docker overrides this to `http://searxng:8080`.                                                  |
+| `SEARXNG_SECRET`                 | generated on first Docker boot | Optional SearXNG cookie/CSRF secret. Leave blank unless you need to pin it.                                   |
+| `APP_BIND`                       | `127.0.0.1`                    | Docker Compose host bind address for the web UI. Use `0.0.0.0` only for intentional LAN/reverse-proxy access. |
+| `APP_PORT`                       | `7000`                         | Docker Compose host port for the web UI.                                                                      |
+| `AUTH_ENABLED`                   | `true`                         | Enable/disable login                                                                                          |
+| `LOCALHOST_BYPASS`               | `false`                        | Development-only auth bypass for loopback requests. Keep false for shared/network deployments.                |
+| `SECURE_COOKIES`                 | `false`                        | Set true when serving Odysseus through HTTPS at a trusted proxy or private access gateway.                    |
+| `DATABASE_URL`                   | `sqlite:///./data/app.db`      | Database connection string                                                                                    |
+| `CHROMADB_HOST`                  | `localhost`                    | ChromaDB host for vector memory. Docker overrides this to `chromadb`.                                         |
+| `CHROMADB_PORT`                  | `8100`                         | ChromaDB port for manual host runs. Docker overrides this to `8000`.                                          |
+| `EMBEDDING_URL`                  | --                             | OpenAI-compatible embeddings endpoint                                                                         |
+| `ODYSSEUS_CHAT_UPLOAD_MAX_BYTES` | `10485760`                     | Chat/agent attachment cap in bytes. Raise for larger local PDFs or text documents.                            |
 
 ### Built-in MCP servers (optional setup)
 

@@ -20,11 +20,14 @@ from pathlib import Path
 
 import httpx
 
+from core.constants import DATA_DIR, internal_api_base
+
 logger = logging.getLogger(__name__)
 
 
 def _internal_headers() -> dict:
     from core.middleware import INTERNAL_TOOL_HEADER, INTERNAL_TOOL_TOKEN
+
     return {INTERNAL_TOOL_HEADER: INTERNAL_TOOL_TOKEN}
 
 
@@ -36,6 +39,7 @@ async def _delete_endpoint_for_task(task: dict) -> None:
     the user has to delete it by hand in Settings -> Endpoints.
     """
     import re as _re
+
     payload = task.get("payload") or {}
     cmd = str(payload.get("_cmd") or "")
     remote = task.get("remoteHost") or ""
@@ -58,7 +62,7 @@ async def _delete_endpoint_for_task(task: dict) -> None:
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             r = await client.get(
-                "http://localhost:7000/api/model-endpoints",
+                f"{internal_api_base()}/api/model-endpoints",
                 headers=_internal_headers(),
             )
             if r.status_code >= 400:
@@ -70,10 +74,12 @@ async def _delete_endpoint_for_task(task: dict) -> None:
             ep = next((e for e in eps if e.get("base_url") == base_url), None)
             if not ep:
                 hostport = f"{host}:{port}"
-                ep = next((e for e in eps if hostport in (e.get("base_url") or "")), None)
+                ep = next(
+                    (e for e in eps if hostport in (e.get("base_url") or "")), None
+                )
             if ep:
                 await client.delete(
-                    f"http://localhost:7000/api/model-endpoints/{ep['id']}",
+                    f"{internal_api_base()}/api/model-endpoints/{ep['id']}",
                     headers=_internal_headers(),
                 )
                 logger.info(
@@ -84,7 +90,9 @@ async def _delete_endpoint_for_task(task: dict) -> None:
         logger.warning(f"cookbook_serve_lifecycle: endpoint delete failed: {e}")
 
 
-async def _stop_serve(session_id: str, remote_host: str = "", ssh_port: str = "") -> bool:
+async def _stop_serve(
+    session_id: str, remote_host: str = "", ssh_port: str = ""
+) -> bool:
     """Kill the tmux session that hosts the serve.
 
     There's no `/api/model/stop` route — the cookbook UI and the chat
@@ -96,8 +104,13 @@ async def _stop_serve(session_id: str, remote_host: str = "", ssh_port: str = ""
     returned 404 and the result was logged as "failed").
     """
     import shlex
+
     if remote_host:
-        port_flag = f"-p {shlex.quote(str(ssh_port))} " if ssh_port and str(ssh_port) != "22" else ""
+        port_flag = (
+            f"-p {shlex.quote(str(ssh_port))} "
+            if ssh_port and str(ssh_port) != "22"
+            else ""
+        )
         cmd = (
             f"ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "
             f"{port_flag}{shlex.quote(remote_host)} "
@@ -108,7 +121,7 @@ async def _stop_serve(session_id: str, remote_host: str = "", ssh_port: str = ""
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
-                "http://localhost:7000/api/shell/exec",
+                f"{internal_api_base()}/api/shell/exec",
                 json={"command": cmd},
                 headers=_internal_headers(),
             )
@@ -122,14 +135,18 @@ async def _stop_serve(session_id: str, remote_host: str = "", ssh_port: str = ""
             if ec in (None, 0):
                 return True
             stderr = (data.get("stderr") or "").lower()
-            return "no server" in stderr or "can't find session" in stderr or "session not found" in stderr
+            return (
+                "no server" in stderr
+                or "can't find session" in stderr
+                or "session not found" in stderr
+            )
     except Exception as e:
         logger.warning(f"cookbook_serve_lifecycle: stop {session_id} failed: {e}")
         return False
 
 
 async def _tick() -> None:
-    state_path = Path("/app/data/cookbook_state.json")
+    state_path = Path(DATA_DIR) / "cookbook_state.json"
     if not state_path.exists():
         return
     try:
@@ -160,13 +177,17 @@ async def _tick() -> None:
     stopped_any = False
     for sid, host, port in to_stop:
         ok = await _stop_serve(sid, host, port)
-        logger.info(f"cookbook_serve_lifecycle: stop {sid} (host={host or 'local'}): {'ok' if ok else 'failed'}")
+        logger.info(
+            f"cookbook_serve_lifecycle: stop {sid} (host={host or 'local'}): {'ok' if ok else 'failed'}"
+        )
         if ok:
             stopped_any = True
             # Drop the auto-registered endpoint so the model picker and
             # the chat router don't keep pointing at a dead server.
             for t in tasks:
-                if isinstance(t, dict) and (t.get("sessionId") == sid or t.get("id") == sid):
+                if isinstance(t, dict) and (
+                    t.get("sessionId") == sid or t.get("id") == sid
+                ):
                     if t.get("type") == "serve":
                         await _delete_endpoint_for_task(t)
                     t["status"] = "stopped"
@@ -176,6 +197,7 @@ async def _tick() -> None:
     if stopped_any:
         try:
             from core.atomic_io import atomic_write_json
+
             state["tasks"] = tasks
             atomic_write_json(state_path, state)
         except Exception as e:

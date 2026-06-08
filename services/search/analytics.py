@@ -4,23 +4,35 @@ import json
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+
+from core.constants import DATA_DIR
 
 from .cache import cache_metrics
 
 logger = logging.getLogger(__name__)
 
-# Dedicated error logger with file handler
-_error_log_path = Path(__file__).resolve().parent.parent / "search_engine_error.log"
-_error_handler = logging.FileHandler(_error_log_path, encoding="utf-8")
-_error_handler.setLevel(logging.WARNING)
-_error_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+# Dedicated error logger — write to the data logs directory (writable on both
+# native runs and Docker, where DATA_DIR resolves to the bind-mounted volume).
+_log_dir = Path(DATA_DIR) / "logs"
+_error_log_path = _log_dir / "search_engine_error.log"
 error_logger = logging.getLogger("search_engine_error")
-error_logger.addHandler(_error_handler)
 error_logger.propagate = False
+try:
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _error_handler = logging.FileHandler(_error_log_path, encoding="utf-8")
+    _error_handler.setLevel(logging.WARNING)
+    _error_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    error_logger.addHandler(_error_handler)
+except Exception as _e:
+    logging.getLogger(__name__).warning(
+        "search_engine_error log handler unavailable: %s", _e
+    )
 
-# Analytics file
-ANALYTICS_FILE = Path(__file__).resolve().parent.parent / "search_analytics.json"
+# Analytics file — also in the writable logs volume.
+ANALYTICS_FILE = _log_dir / "search_analytics.json"
 
 
 # ----------------------------------------------------------------------
@@ -120,9 +132,9 @@ def get_search_stats() -> Dict[str, Any]:
     cache_total = analytics.get("cache_hits", 0) + analytics.get("cache_misses", 0) or 1
     cache_hit_rate = analytics.get("cache_hits", 0) / cache_total
 
-    pattern_counter = Counter({
-        q: data["count"] for q, data in analytics.get("query_patterns", {}).items()
-    })
+    pattern_counter = Counter(
+        {q: data["count"] for q, data in analytics.get("query_patterns", {}).items()}
+    )
     most_common = [q for q, _ in pattern_counter.most_common(5)]
 
     return {

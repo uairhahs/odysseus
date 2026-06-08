@@ -15,9 +15,9 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from core.constants import DATA_DIR
 from src.auth_helpers import require_authenticated_request, require_user
 from src.tool_implementations import do_manage_notes
-
 
 COOKBOOK_READ_SCOPES = {"cookbook:read", "cookbook:launch"}
 COOKBOOK_LAUNCH_SCOPES = {"cookbook:launch"}
@@ -32,7 +32,18 @@ CALENDAR_READ_SCOPES = {"calendar:read", "calendar:write"}
 CALENDAR_WRITE_SCOPES = {"calendar:write"}
 DOCS_READ_SCOPES = {"documents:read", "documents:write"}
 DOCS_WRITE_SCOPES = {"documents:write"}
-WRITE_ACTIONS = {"add", "create", "new", "save", "remind", "update", "delete", "toggle_item", "remove", "remove_item"}
+WRITE_ACTIONS = {
+    "add",
+    "create",
+    "new",
+    "save",
+    "remind",
+    "update",
+    "delete",
+    "toggle_item",
+    "remove",
+    "remove_item",
+}
 
 
 async def _as_owner(request: Request, owner: str, fn, *args, **kwargs):
@@ -78,7 +89,9 @@ def _find_endpoint(router: APIRouter | None, method: str, path: str):
     if router is None:
         return None
     for route in getattr(router, "routes", []):
-        if getattr(route, "path", "") == path and method in getattr(route, "methods", set()):
+        if getattr(route, "path", "") == path and method in getattr(
+            route, "methods", set()
+        ):
             return route.endpoint
     return None
 
@@ -96,18 +109,28 @@ def setup_codex_routes(
     email_draft_endpoint = _find_endpoint(email_router, "POST", "/api/email/draft")
     memory_list_endpoint = _find_endpoint(memory_router, "GET", "/api/memory")
     memory_add_endpoint = _find_endpoint(memory_router, "POST", "/api/memory/add")
-    calendar_list_events = _find_endpoint(calendar_router, "GET", "/api/calendar/events")
-    calendar_create_event = _find_endpoint(calendar_router, "POST", "/api/calendar/events")
-    documents_library_endpoint = _find_endpoint(document_router, "GET", "/api/documents/library")
-    documents_get_endpoint = _find_endpoint(document_router, "GET", "/api/document/{doc_id}")
+    calendar_list_events = _find_endpoint(
+        calendar_router, "GET", "/api/calendar/events"
+    )
+    calendar_create_event = _find_endpoint(
+        calendar_router, "POST", "/api/calendar/events"
+    )
+    documents_library_endpoint = _find_endpoint(
+        document_router, "GET", "/api/documents/library"
+    )
+    documents_get_endpoint = _find_endpoint(
+        document_router, "GET", "/api/document/{doc_id}"
+    )
     documents_create_endpoint = _find_endpoint(document_router, "POST", "/api/document")
 
     @router.get("/capabilities")
     def capabilities(request: Request):
         token_scopes = set(getattr(request.state, "api_token_scopes", []) or [])
         has_token = bool(getattr(request.state, "api_token", False))
+
         def scoped(allowed):
             return bool(token_scopes.intersection(allowed)) if has_token else True
+
         return {
             "integration": "codex",
             "token_scopes": sorted(token_scopes),
@@ -162,15 +185,23 @@ def setup_codex_routes(
         buf = BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for path in sorted(root.rglob("*")):
-                if path.is_dir() or "__pycache__" in path.parts or path.suffix == ".pyc":
+                if (
+                    path.is_dir()
+                    or "__pycache__" in path.parts
+                    or path.suffix == ".pyc"
+                ):
                     continue
                 zf.write(path, Path("odysseus") / path.relative_to(root))
         buf.seek(0)
-        headers = {"Content-Disposition": 'attachment; filename="odysseus-codex-plugin.zip"'}
+        headers = {
+            "Content-Disposition": 'attachment; filename="odysseus-codex-plugin.zip"'
+        }
         return StreamingResponse(buf, media_type="application/zip", headers=headers)
 
     @router.get("/todos")
-    async def list_todos(request: Request, archived: bool = False, label: str | None = None):
+    async def list_todos(
+        request: Request, archived: bool = False, label: str | None = None
+    ):
         owner = _scope_owner(request, TODO_READ_SCOPES)
         args: dict[str, Any] = {"action": "list", "archived": archived}
         if label:
@@ -178,7 +209,9 @@ def setup_codex_routes(
         return await do_manage_notes(json.dumps(args), owner=owner)
 
     @router.post("/todos")
-    async def manage_todos(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def manage_todos(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         action = str(body.get("action") or "add").replace("-", "_").strip().lower()
         allowed = TODO_WRITE_SCOPES if action in WRITE_ACTIONS else TODO_READ_SCOPES
         owner = _scope_owner(request, allowed)
@@ -246,7 +279,9 @@ def setup_codex_routes(
     # FastAPI Depends, so we call them directly without patching state.
 
     @router.post("/emails/draft")
-    async def codex_email_draft(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_email_draft(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         owner = _scope_owner(request, EMAIL_DRAFT_SCOPES)
         if email_draft_endpoint is None:
             raise HTTPException(503, "Email integration is not available")
@@ -259,7 +294,9 @@ def setup_codex_routes(
         return await email_draft_endpoint(req=req, owner=owner)
 
     @router.post("/emails/send")
-    async def codex_email_send(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_email_send(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         owner = _scope_owner(request, EMAIL_SEND_SCOPES)
         if email_send_endpoint is None:
             raise HTTPException(503, "Email integration is not available")
@@ -269,7 +306,9 @@ def setup_codex_routes(
             req = SendEmailRequest(**body)
         except Exception as exc:
             raise HTTPException(400, f"Invalid send payload: {exc}")
-        return await email_send_endpoint(req=req, background_tasks=BackgroundTasks(), owner=owner)
+        return await email_send_endpoint(
+            req=req, background_tasks=BackgroundTasks(), owner=owner
+        )
 
     # ── Memory ────────────────────────────────────────────────────────────
 
@@ -281,7 +320,9 @@ def setup_codex_routes(
         return await _as_owner(request, owner, memory_list_endpoint, request)
 
     @router.post("/memory")
-    async def codex_memory_add(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_memory_add(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         owner = _scope_owner(request, MEMORY_WRITE_SCOPES)
         if memory_add_endpoint is None:
             raise HTTPException(503, "Memory integration is not available")
@@ -298,19 +339,27 @@ def setup_codex_routes(
             raise HTTPException(400, f"Invalid memory payload: {exc}")
         if not memory_data.text:
             raise HTTPException(400, "Empty memory text")
-        return await _as_owner(request, owner, memory_add_endpoint, request, memory_data)
+        return await _as_owner(
+            request, owner, memory_add_endpoint, request, memory_data
+        )
 
     # ── Calendar ──────────────────────────────────────────────────────────
 
     @router.get("/calendar/events")
-    async def codex_calendar_list(request: Request, start: str, end: str, calendar: str = ""):
+    async def codex_calendar_list(
+        request: Request, start: str, end: str, calendar: str = ""
+    ):
         owner = _scope_owner(request, CALENDAR_READ_SCOPES)
         if calendar_list_events is None:
             raise HTTPException(503, "Calendar integration is not available")
-        return await _as_owner(request, owner, calendar_list_events, request, start, end, calendar)
+        return await _as_owner(
+            request, owner, calendar_list_events, request, start, end, calendar
+        )
 
     @router.post("/calendar/events")
-    async def codex_calendar_create(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_calendar_create(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         owner = _scope_owner(request, CALENDAR_WRITE_SCOPES)
         if calendar_create_event is None:
             raise HTTPException(503, "Calendar integration is not available")
@@ -338,8 +387,16 @@ def setup_codex_routes(
         if documents_library_endpoint is None:
             raise HTTPException(503, "Documents integration is not available")
         return await _as_owner(
-            request, owner, documents_library_endpoint,
-            request, search, language, sort, offset, limit, archived,
+            request,
+            owner,
+            documents_library_endpoint,
+            request,
+            search,
+            language,
+            sort,
+            offset,
+            limit,
+            archived,
         )
 
     @router.get("/documents/{doc_id}")
@@ -351,16 +408,24 @@ def setup_codex_routes(
 
     # ── DELETE endpoints so agents can clean up after themselves ──────────
 
-    memory_delete_endpoint = _find_endpoint(memory_router, "DELETE", "/api/memory/{memory_id}")
-    calendar_delete_event = _find_endpoint(calendar_router, "DELETE", "/api/calendar/events/{uid}")
-    documents_delete_endpoint = _find_endpoint(document_router, "DELETE", "/api/document/{doc_id}")
+    memory_delete_endpoint = _find_endpoint(
+        memory_router, "DELETE", "/api/memory/{memory_id}"
+    )
+    calendar_delete_event = _find_endpoint(
+        calendar_router, "DELETE", "/api/calendar/events/{uid}"
+    )
+    documents_delete_endpoint = _find_endpoint(
+        document_router, "DELETE", "/api/document/{doc_id}"
+    )
 
     @router.delete("/memory/{memory_id}")
     async def codex_memory_delete(request: Request, memory_id: str):
         owner = _scope_owner(request, MEMORY_WRITE_SCOPES)
         if memory_delete_endpoint is None:
             raise HTTPException(503, "Memory delete not available")
-        return await _as_owner(request, owner, memory_delete_endpoint, request, memory_id)
+        return await _as_owner(
+            request, owner, memory_delete_endpoint, request, memory_id
+        )
 
     @router.delete("/calendar/events/{uid}")
     async def codex_calendar_delete(request: Request, uid: str):
@@ -374,10 +439,14 @@ def setup_codex_routes(
         owner = _scope_owner(request, DOCS_WRITE_SCOPES)
         if documents_delete_endpoint is None:
             raise HTTPException(503, "Documents delete not available")
-        return await _as_owner(request, owner, documents_delete_endpoint, request, doc_id)
+        return await _as_owner(
+            request, owner, documents_delete_endpoint, request, doc_id
+        )
 
     @router.post("/documents")
-    async def codex_documents_create(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_documents_create(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         owner = _scope_owner(request, DOCS_WRITE_SCOPES)
         if documents_create_endpoint is None:
             raise HTTPException(503, "Documents integration is not available")
@@ -403,6 +472,7 @@ def setup_codex_routes(
     async def _run_shell(cmd: str, timeout: float = 15.0) -> dict:
         """Run a shell command, return {exit_code, stdout, stderr}."""
         import asyncio as _asyncio
+
         try:
             proc = await _asyncio.create_subprocess_shell(
                 cmd,
@@ -410,7 +480,9 @@ def setup_codex_routes(
                 stderr=_asyncio.subprocess.PIPE,
             )
             try:
-                stdout_b, stderr_b = await _asyncio.wait_for(proc.communicate(), timeout=timeout)
+                stdout_b, stderr_b = await _asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
             except _asyncio.TimeoutError:
                 proc.kill()
                 return {"exit_code": -1, "stdout": "", "stderr": "timed out"}
@@ -423,9 +495,10 @@ def setup_codex_routes(
             return {"exit_code": -1, "stdout": "", "stderr": str(exc)}
 
     def _read_cookbook_state() -> dict:
+        import json as _json
         from pathlib import Path as _Path
-        import os as _os, json as _json
-        p = _Path(_os.environ.get("DATA_DIR", "data")) / "cookbook_state.json"
+
+        p = _Path(DATA_DIR) / "cookbook_state.json"
         if not p.exists():
             return {}
         try:
@@ -438,8 +511,9 @@ def setup_codex_routes(
         clean = {k: v for k, v in t.items() if k not in ("hf_token", "_secrets")}
         if isinstance(clean.get("payload"), dict):
             pl = clean["payload"]
-            clean["payload"] = {k: v for k, v in pl.items()
-                                if k not in ("hf_token", "_secrets")}
+            clean["payload"] = {
+                k: v for k, v in pl.items() if k not in ("hf_token", "_secrets")
+            }
         return clean
 
     @router.get("/cookbook/tasks")
@@ -457,15 +531,17 @@ def setup_codex_routes(
         # Strip ssh creds / passwords; keep only what's needed to pick a host.
         cleaned = []
         for s in servers:
-            cleaned.append({
-                "name": s.get("name"),
-                "host": s.get("host"),
-                "port": s.get("port"),
-                "env": s.get("env"),
-                "envPath": s.get("envPath"),
-                "platform": s.get("platform"),
-                "modelDirs": s.get("modelDirs"),
-            })
+            cleaned.append(
+                {
+                    "name": s.get("name"),
+                    "host": s.get("host"),
+                    "port": s.get("port"),
+                    "env": s.get("env"),
+                    "envPath": s.get("envPath"),
+                    "platform": s.get("platform"),
+                    "modelDirs": s.get("modelDirs"),
+                }
+            )
         return {"servers": cleaned}
 
     @router.get("/cookbook/output/{session_id}")
@@ -475,6 +551,7 @@ def setup_codex_routes(
         # (`serve-XXXX` / `cookbook-XXXX` / `queue-XXXX`); anything else
         # would let the agent run arbitrary `tmux capture-pane` targets.
         import re as _re
+
         if not _re.fullmatch(r"[a-zA-Z0-9_-]+", session_id):
             raise HTTPException(400, "Invalid session id")
         tail = max(20, min(int(tail or 400), 4000))
@@ -500,6 +577,7 @@ def setup_codex_routes(
         if host:
             port_flag = f"-p {ssh_port} " if ssh_port and ssh_port != "22" else ""
             import shlex
+
             cmd = f"ssh {port_flag}{host} {shlex.quote(inner)}"
         else:
             cmd = inner
@@ -513,13 +591,16 @@ def setup_codex_routes(
         }
 
     @router.post("/cookbook/serve")
-    async def codex_cookbook_serve(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_cookbook_serve(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         _scope_owner(request, COOKBOOK_LAUNCH_SCOPES)
         # Wraps /api/model/serve with the SAME validation the UI uses.
         # _validate_serve_cmd (called inside model_serve) rejects shell
         # metachars and requires the leading binary to be in the
         # cookbook allowlist (vllm / python3 / sglang / llama-server / ...).
         from routes.cookbook_helpers import ServeRequest
+
         # Accept friendly aliases agents naturally reach for. Without these,
         # passing `host` silently maps to nothing and the serve runs LOCAL
         # instead of on the intended remote — exactly the bug an agent
@@ -529,7 +610,11 @@ def setup_codex_routes(
             norm["remote_host"] = norm.pop("host")
         if "model" in norm and "repo_id" not in norm:
             norm["repo_id"] = norm.pop("model")
-        if "ssh_port" not in norm and "port" in norm and (str(norm.get("port") or "").isdigit() and int(norm["port"]) >= 1000):
+        if (
+            "ssh_port" not in norm
+            and "port" in norm
+            and (str(norm.get("port") or "").isdigit() and int(norm["port"]) >= 1000)
+        ):
             # Heuristic: if `port` looks like an SSH port (≥1000) and there's
             # no explicit ssh_port, treat it as such. UI ports (8000, 8001,
             # 30000) belong inside the cmd string, not here.
@@ -542,9 +627,12 @@ def setup_codex_routes(
         # Fall back to importing from the cookbook router registered on app.
         if serve_endpoint is None:
             from fastapi import FastAPI
+
             app: FastAPI = request.app
             for route in app.routes:
-                if getattr(route, "path", None) == "/api/model/serve" and "POST" in getattr(route, "methods", set()):
+                if getattr(
+                    route, "path", None
+                ) == "/api/model/serve" and "POST" in getattr(route, "methods", set()):
                     serve_endpoint = route.endpoint
                     break
         if serve_endpoint is None:
@@ -555,6 +643,7 @@ def setup_codex_routes(
     async def codex_cookbook_stop(request: Request, session_id: str):
         _scope_owner(request, COOKBOOK_LAUNCH_SCOPES)
         import re as _re
+
         if not _re.fullmatch(r"[a-zA-Z0-9_-]+", session_id):
             raise HTTPException(400, "Invalid session id")
         state = _read_cookbook_state()
@@ -564,11 +653,15 @@ def setup_codex_routes(
         ssh_port = ((task or {}).get("sshPort") or "").strip()
         if host:
             port_flag = f"-p {ssh_port} " if ssh_port and ssh_port != "22" else ""
-            cmd = f"ssh {port_flag}{host} \"tmux kill-session -t {session_id}\""
+            cmd = f'ssh {port_flag}{host} "tmux kill-session -t {session_id}"'
         else:
             cmd = f"tmux kill-session -t {session_id}"
         result = await _run_shell(cmd, timeout=10)
-        return {"session_id": session_id, "exit_code": result.get("exit_code"), "host": host or "local"}
+        return {
+            "session_id": session_id,
+            "exit_code": result.get("exit_code"),
+            "host": host or "local",
+        }
 
     @router.get("/cookbook/cached")
     async def codex_cookbook_cached(request: Request, host: str | None = None):
@@ -582,27 +675,44 @@ def setup_codex_routes(
         env = state.get("env") if isinstance(state, dict) else {}
         servers = (env.get("servers") if isinstance(env, dict) else None) or []
         HF_DEFAULTS = {"~/.cache/huggingface/hub", "~/.cache/huggingface"}
+
         def _dirs_for(srv: dict) -> str:
             mds = srv.get("modelDirs") if isinstance(srv, dict) else None
             if isinstance(mds, list):
-                extras = [d for d in mds if isinstance(d, str) and d.strip() and d.strip() not in HF_DEFAULTS]
+                extras = [
+                    d
+                    for d in mds
+                    if isinstance(d, str) and d.strip() and d.strip() not in HF_DEFAULTS
+                ]
                 return ",".join(extras)
             if isinstance(mds, str) and mds.strip() not in HF_DEFAULTS:
                 return mds
             return ""
+
         # Resolve friendly host name → real host (matches list_cached_models flow).
         resolved_host = host or ""
         srv: dict[str, Any] = {}
         if host:
             srv = next(
-                (s for s in servers if isinstance(s, dict)
-                 and (s.get("name") == host or s.get("host") == host)),
+                (
+                    s
+                    for s in servers
+                    if isinstance(s, dict)
+                    and (s.get("name") == host or s.get("host") == host)
+                ),
                 {},
             )
             if srv and srv.get("host"):
                 resolved_host = srv["host"]
         else:
-            srv = next((s for s in servers if isinstance(s, dict) and not (s.get("host") or "").strip()), {})
+            srv = next(
+                (
+                    s
+                    for s in servers
+                    if isinstance(s, dict) and not (s.get("host") or "").strip()
+                ),
+                {},
+            )
         params: dict[str, str] = {}
         if resolved_host:
             params["host"] = resolved_host
@@ -616,9 +726,12 @@ def setup_codex_routes(
         cached_endpoint = _find_endpoint(None, "GET", "/api/model/cached")
         if cached_endpoint is None:
             from fastapi import FastAPI
+
             app: FastAPI = request.app
             for route in app.routes:
-                if getattr(route, "path", None) == "/api/model/cached" and "GET" in getattr(route, "methods", set()):
+                if getattr(
+                    route, "path", None
+                ) == "/api/model/cached" and "GET" in getattr(route, "methods", set()):
                     cached_endpoint = route.endpoint
                     break
         if cached_endpoint is None:
@@ -644,14 +757,19 @@ def setup_codex_routes(
         for p in presets:
             if not isinstance(p, dict):
                 continue
-            out.append({
-                "name": p.get("name"),
-                "model": p.get("model") or p.get("modelId"),
-                "host": p.get("host") or p.get("remoteHost"),
-                "port": p.get("port"),
-                "cmd": p.get("cmd"),
-            })
-        return {"presets": out, "default_host": (state.get("env") or {}).get("defaultServer", "")}
+            out.append(
+                {
+                    "name": p.get("name"),
+                    "model": p.get("model") or p.get("modelId"),
+                    "host": p.get("host") or p.get("remoteHost"),
+                    "port": p.get("port"),
+                    "cmd": p.get("cmd"),
+                }
+            )
+        return {
+            "presets": out,
+            "default_host": (state.get("env") or {}).get("defaultServer", ""),
+        }
 
     @router.post("/cookbook/preset/{name}")
     async def codex_cookbook_serve_preset(request: Request, name: str):
@@ -659,18 +777,27 @@ def setup_codex_routes(
         user already saved, avoiding the cmd-allowlist trial-and-error loop."""
         _scope_owner(request, COOKBOOK_LAUNCH_SCOPES)
         import re as _re
+
         if not _re.fullmatch(r"[A-Za-z0-9 _.:@\-]+", name):
             raise HTTPException(400, "Invalid preset name")
         state = _read_cookbook_state()
         presets = state.get("presets") or []
         lname = name.lower().strip()
         chosen = next(
-            (p for p in presets if isinstance(p, dict) and (p.get("name") or "").lower() == lname),
+            (
+                p
+                for p in presets
+                if isinstance(p, dict) and (p.get("name") or "").lower() == lname
+            ),
             None,
         )
         if chosen is None:
             chosen = next(
-                (p for p in presets if isinstance(p, dict) and lname in (p.get("name") or "").lower()),
+                (
+                    p
+                    for p in presets
+                    if isinstance(p, dict) and lname in (p.get("name") or "").lower()
+                ),
                 None,
             )
         if chosen is None:
@@ -679,11 +806,15 @@ def setup_codex_routes(
         cmd = (chosen.get("cmd") or "").strip()
         host = chosen.get("host") or chosen.get("remoteHost") or ""
         if not repo_id or not cmd or cmd.startswith("(adopted"):
-            raise HTTPException(400, f"Preset {chosen.get('name')!r} has no launchable cmd "
-                                     "(adopted from external launch). Use POST /cookbook/serve "
-                                     "with the actual cmd instead.")
+            raise HTTPException(
+                400,
+                f"Preset {chosen.get('name')!r} has no launchable cmd "
+                "(adopted from external launch). Use POST /cookbook/serve "
+                "with the actual cmd instead.",
+            )
         # Reuse the serve handler we already validated.
         from routes.cookbook_helpers import ServeRequest
+
         body = {"repo_id": repo_id, "cmd": cmd}
         if host:
             body["remote_host"] = host
@@ -694,9 +825,12 @@ def setup_codex_routes(
         serve_endpoint = _find_endpoint(None, "POST", "/api/model/serve")
         if serve_endpoint is None:
             from fastapi import FastAPI
+
             app: FastAPI = request.app
             for route in app.routes:
-                if getattr(route, "path", None) == "/api/model/serve" and "POST" in getattr(route, "methods", set()):
+                if getattr(
+                    route, "path", None
+                ) == "/api/model/serve" and "POST" in getattr(route, "methods", set()):
                     serve_endpoint = route.endpoint
                     break
         if serve_endpoint is None:
@@ -704,7 +838,9 @@ def setup_codex_routes(
         return await serve_endpoint(request, req)
 
     @router.post("/cookbook/adopt")
-    async def codex_cookbook_adopt(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_cookbook_adopt(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         """Adopt an existing tmux session (one started via raw ssh+tmux) into
         cookbook tracking. Needed when serve_model rejects a cmd and the
         agent falls back to direct ssh — without adoption the session is
@@ -716,24 +852,31 @@ def setup_codex_routes(
         host = (norm.get("host") or norm.get("remote_host") or "").strip()
         port = norm.get("port") or 8000
         import re as _re
+
         if not sess or not _re.fullmatch(r"[a-zA-Z0-9_-]+", sess):
             raise HTTPException(400, "tmux_session required, [a-zA-Z0-9_-]+ only")
         if not model:
             raise HTTPException(400, "model required")
         # Verify the tmux session exists on the target host before adopting.
         import shlex
+
         if host:
             check = f"ssh {shlex.quote(host)} 'tmux has-session -t {shlex.quote(sess)}'"
         else:
             check = f"tmux has-session -t {shlex.quote(sess)}"
         chk = await _run_shell(check, timeout=8)
         if chk.get("exit_code") not in (0, None):
-            raise HTTPException(404, f"tmux session {sess!r} not found on {host or 'local'}")
+            raise HTTPException(
+                404, f"tmux session {sess!r} not found on {host or 'local'}"
+            )
         # Write into cookbook_state.json.
-        import time as _t, json as _json
-        from core.atomic_io import atomic_write_json
+        import json as _json
+        import time as _t
         from pathlib import Path as _Path
-        cookbook_state_path = _Path("/app/data/cookbook_state.json")
+
+        from core.atomic_io import atomic_write_json
+
+        cookbook_state_path = _Path(DATA_DIR) / "cookbook_state.json"
         try:
             state = _json.loads(cookbook_state_path.read_text(encoding="utf-8"))
         except Exception:
@@ -741,16 +884,29 @@ def setup_codex_routes(
         tasks = state.setdefault("tasks", [])
         if any(isinstance(t, dict) and t.get("sessionId") == sess for t in tasks):
             return {"ok": True, "already_tracked": True, "session_id": sess}
-        tasks.append({
-            "id": sess, "sessionId": sess,
-            "name": model.split("/")[-1] if "/" in model else model,
-            "type": "serve", "status": "running",
-            "output": f"Adopted externally-launched session {sess!r} on {host or 'local'}.",
-            "ts": int(_t.time() * 1000),
-            "payload": {"repo_id": model, "remote_host": host, "_cmd": "(adopted — launched outside cookbook)", "port": int(port)},
-            "remoteHost": host, "sshPort": "", "platform": "linux",
-            "_serveReady": False, "_endpointAdded": False, "_adoptedExternally": True,
-        })
+        tasks.append(
+            {
+                "id": sess,
+                "sessionId": sess,
+                "name": model.split("/")[-1] if "/" in model else model,
+                "type": "serve",
+                "status": "running",
+                "output": f"Adopted externally-launched session {sess!r} on {host or 'local'}.",
+                "ts": int(_t.time() * 1000),
+                "payload": {
+                    "repo_id": model,
+                    "remote_host": host,
+                    "_cmd": "(adopted — launched outside cookbook)",
+                    "port": int(port),
+                },
+                "remoteHost": host,
+                "sshPort": "",
+                "platform": "linux",
+                "_serveReady": False,
+                "_endpointAdded": False,
+                "_adoptedExternally": True,
+            }
+        )
         try:
             atomic_write_json(cookbook_state_path, state)
         except Exception as exc:
@@ -774,18 +930,29 @@ def setup_claude_routes() -> APIRouter:
         require_authenticated_request(request)
         # Only ship the skills/ subtree so extracting at ~/.claude/ doesn't dump
         # README.md or other bundle metadata into the user's claude config dir.
-        skills_root = Path(__file__).resolve().parent.parent / "integrations" / "claude" / "skills"
+        skills_root = (
+            Path(__file__).resolve().parent.parent
+            / "integrations"
+            / "claude"
+            / "skills"
+        )
         if not skills_root.exists():
             raise HTTPException(404, "Claude skill bundle not found")
         bundle_root = skills_root.parent
         buf = BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for path in sorted(skills_root.rglob("*")):
-                if path.is_dir() or "__pycache__" in path.parts or path.suffix == ".pyc":
+                if (
+                    path.is_dir()
+                    or "__pycache__" in path.parts
+                    or path.suffix == ".pyc"
+                ):
                     continue
                 zf.write(path, path.relative_to(bundle_root))
         buf.seek(0)
-        headers = {"Content-Disposition": 'attachment; filename="odysseus-claude-skill.zip"'}
+        headers = {
+            "Content-Disposition": 'attachment; filename="odysseus-claude-skill.zip"'
+        }
         return StreamingResponse(buf, media_type="application/zip", headers=headers)
 
     return router

@@ -12,8 +12,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from src.endpoint_resolver import resolve_endpoint
+
 from src.auth_helpers import _auth_disabled, get_current_user
+from src.endpoint_resolver import resolve_endpoint
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9-]{1,128}$")
 
@@ -24,26 +25,36 @@ logger = logging.getLogger(__name__)
 # `text-embedding-ada-002` etc. first in its model list, which is why research
 # was failing with "Cannot reach model 'text-embedding-ada-002'".
 _NON_CHAT_MODEL = (
-    "text-embedding", "embedding", "tts-", "whisper", "dall-e",
-    "moderation", "rerank", "reranker", "clip", "stable-diffusion",
+    "text-embedding",
+    "embedding",
+    "tts-",
+    "whisper",
+    "dall-e",
+    "moderation",
+    "rerank",
+    "reranker",
+    "clip",
+    "stable-diffusion",
 )
 
 
 def _first_chat_model(models) -> str:
     """First model that isn't an embedding/tts/etc. — falls back to models[0]."""
-    for m in (models or []):
+    for m in models or []:
         if not any(p in str(m).lower() for p in _NON_CHAT_MODEL):
             return m
-    return (models[0] if models else "")
+    return models[0] if models else ""
 
 
 def _resolve_research_endpoint(sess) -> tuple:
     """Return (endpoint_url, model, headers) for Deep Research, checking admin overrides."""
+    owner = getattr(sess, "owner", None) or None
     url, model, headers = resolve_endpoint(
         "research",
         fallback_url=sess.endpoint_url,
         fallback_model=sess.model,
         fallback_headers=sess.headers,
+        owner=owner,
     )
     return url, model, headers
 
@@ -64,8 +75,9 @@ def _owned_enabled_endpoint(db, owner, endpoint_id=None):
     session_routes._owned_endpoint. A null/empty owner is a no-op (single-user /
     legacy mode).
     """
-    from src.database import ModelEndpoint
     from src.auth_helpers import owner_filter
+    from src.database import ModelEndpoint
+
     q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
     if endpoint_id:
         q = q.filter(ModelEndpoint.id == endpoint_id)
@@ -116,13 +128,15 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             if entry.get("owner", "") != user:
                 continue
             if entry.get("status") == "running":
-                active.append({
-                    "session_id": sid,
-                    "query": entry.get("query", ""),
-                    "status": "running",
-                    "progress": entry.get("progress", {}),
-                    "started_at": entry.get("started_at", 0),
-                })
+                active.append(
+                    {
+                        "session_id": sid,
+                        "query": entry.get("query", ""),
+                        "status": "running",
+                        "progress": entry.get("progress", {}),
+                        "started_at": entry.get("started_at", 0),
+                    }
+                )
         return {"active": active}
 
     @router.get("/api/research/status/{session_id}")
@@ -193,7 +207,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         url: str
 
     @router.post("/api/research/{session_id}/hide-image")
-    async def research_hide_image(session_id: str, body: HideImageRequest, request: Request):
+    async def research_hide_image(
+        session_id: str, body: HideImageRequest, request: Request
+    ):
         """Mark an image URL as hidden for this research's visual report.
         Persisted to the research JSON so subsequent /report renders skip it."""
         user = _require_user(request)
@@ -242,18 +258,20 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 if search and search.lower() not in query.lower():
                     continue
                 sources = d.get("sources", [])
-                items.append({
-                    "id": p.stem,
-                    "query": query,
-                    "category": d.get("category") or "",
-                    "source_count": len(sources),
-                    "status": d.get("status", "done"),
-                    "duration": d.get("stats", {}).get("Duration", ""),
-                    "rounds": d.get("stats", {}).get("Rounds", ""),
-                    "started_at": d.get("started_at", 0),
-                    "completed_at": d.get("completed_at", 0),
-                    "archived": bool(d.get("archived")),
-                })
+                items.append(
+                    {
+                        "id": p.stem,
+                        "query": query,
+                        "category": d.get("category") or "",
+                        "source_count": len(sources),
+                        "status": d.get("status", "done"),
+                        "duration": d.get("stats", {}).get("Duration", ""),
+                        "rounds": d.get("stats", {}).get("Rounds", ""),
+                        "started_at": d.get("started_at", 0),
+                        "completed_at": d.get("completed_at", 0),
+                        "archived": bool(d.get("archived")),
+                    }
+                )
             except Exception:
                 continue
 
@@ -288,7 +306,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         return data
 
     @router.post("/api/research/{session_id}/archive")
-    async def research_archive(session_id: str, request: Request, archived: bool = Query(True)):
+    async def research_archive(
+        session_id: str, request: Request, archived: bool = Query(True)
+    ):
         """Soft-archive / restore a research report (sets `archived` in its JSON)."""
         user = _require_user(request)
         _validate_session_id(session_id)
@@ -349,16 +369,24 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     async def research_start(body: ResearchStartRequest, request: Request):
         """Launch a research job from the dedicated panel."""
         from src.auth_helpers import require_privilege
+
         user = require_privilege(request, "can_use_research")
         if user == "internal-tool":
             tool_owner = (request.headers.get("X-Odysseus-Owner") or "").strip()
-            if tool_owner and tool_owner not in {"internal-tool", "api", "demo", "system"}:
+            if tool_owner and tool_owner not in {
+                "internal-tool",
+                "api",
+                "demo",
+                "system",
+            }:
                 auth_mgr = getattr(request.app.state, "auth_manager", None)
                 if auth_mgr is not None and getattr(auth_mgr, "is_configured", False):
                     try:
                         privs = auth_mgr.get_privileges(tool_owner) or {}
                         if not privs.get("can_use_research", True):
-                            raise HTTPException(403, f"Your account is not allowed to can use research.")
+                            raise HTTPException(
+                                403, f"Your account is not allowed to can use research."
+                            )
                     except HTTPException:
                         raise
                     except Exception:
@@ -368,7 +396,12 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
 
         if body.endpoint_id:
             from src.database import SessionLocal
-            from src.endpoint_resolver import normalize_base, build_chat_url, build_headers
+            from src.endpoint_resolver import (
+                build_chat_url,
+                build_headers,
+                normalize_base,
+            )
+
             db = SessionLocal()
             try:
                 # Owner-scoped: never resolve another user's private endpoint
@@ -384,7 +417,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 if not ep_model:
                     try:
                         import json as _json
-                        models = _json.loads(ep.cached_models) if ep.cached_models else []
+
+                        models = (
+                            _json.loads(ep.cached_models) if ep.cached_models else []
+                        )
                         if models:
                             ep_model = _first_chat_model(models)
                     except Exception:
@@ -392,20 +428,25 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             finally:
                 db.close()
         else:
-            ep_url, ep_model, ep_headers = resolve_endpoint("research")
+            ep_url, ep_model, ep_headers = resolve_endpoint("research", owner=user)
             if not ep_url:
-                ep_url, ep_model, ep_headers = resolve_endpoint("utility")
+                ep_url, ep_model, ep_headers = resolve_endpoint("utility", owner=user)
             # When neither research nor utility is configured, use the user's
             # configured DEFAULT model (default_endpoint_id/default_model) rather
             # than arbitrarily grabbing the first enabled endpoint's first model
             # (which surfaced gpt-3.5). "Default" should mean the default model.
             if not ep_url:
-                ep_url, ep_model, ep_headers = resolve_endpoint("default")
+                ep_url, ep_model, ep_headers = resolve_endpoint("default", owner=user)
             if not ep_url:
-                ep_url, ep_model, ep_headers = resolve_endpoint("chat")
+                ep_url, ep_model, ep_headers = resolve_endpoint("chat", owner=user)
             if not ep_url:
                 from src.database import SessionLocal
-                from src.endpoint_resolver import normalize_base, build_chat_url, build_headers
+                from src.endpoint_resolver import (
+                    build_chat_url,
+                    build_headers,
+                    normalize_base,
+                )
+
                 db = SessionLocal()
                 try:
                     # Owner-scoped first-enabled fallback: the caller's own rows
@@ -421,6 +462,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                         if ep.cached_models:
                             try:
                                 import json as _json
+
                                 models = _json.loads(ep.cached_models)
                                 if models:
                                     ep_model = _first_chat_model(models)
@@ -429,7 +471,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 finally:
                     db.close()
             if not ep_url:
-                raise HTTPException(400, "No endpoints configured. Add one in Settings first.")
+                raise HTTPException(
+                    400, "No endpoints configured. Add one in Settings first."
+                )
             if body.model:
                 ep_model = body.model
 
@@ -458,6 +502,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         _validate_session_id(session_id)
         if not _owns_in_memory(session_id, user):
             raise HTTPException(404, "No research found for this session")
+
         async def _generate():
             last_progress = None
             while True:
@@ -471,10 +516,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                     last_progress = progress
                     yield f"data: {json.dumps({**progress, 'status': st})}\n\n"
                 if st != "running":
-                    final = {'status': st, 'final': True}
+                    final = {"status": st, "final": True}
                     task = research_handler._active_tasks.get(session_id, {})
                     if st == "error" and task.get("result"):
-                        final['error'] = str(task["result"])[:500]
+                        final["error"] = str(task["result"])[:500]
                     yield f"data: {json.dumps(final)}\n\n"
                     return
                 await asyncio.sleep(1.5)
@@ -506,7 +551,12 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             raise HTTPException(404, "No research result available")
         sources = research_handler.get_sources(session_id) or []
         raw_findings = research_handler.get_raw_findings(session_id) or []
-        return {"result": result, "sources": sources, "raw_findings": raw_findings, "category": ""}
+        return {
+            "result": result,
+            "sources": sources,
+            "raw_findings": raw_findings,
+            "category": "",
+        }
 
     @router.post("/api/research/spinoff/{session_id}")
     async def research_spinoff(session_id: str, request: Request):
@@ -572,19 +622,23 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 ep_headers = dict(r_headers)
 
         if not ep_url or not ep_model:
-            _merge(*resolve_endpoint("chat"))
+            _merge(*resolve_endpoint("chat", owner=user))
         if not ep_url or not ep_model:
-            _merge(*resolve_endpoint("research"))
+            _merge(*resolve_endpoint("research", owner=user))
         if not ep_url or not ep_model:
-            _merge(*resolve_endpoint("utility"))
+            _merge(*resolve_endpoint("utility", owner=user))
         if not ep_url or not ep_model:
-            # Last resort: any enabled endpoint
+            # Last resort: this user's enabled endpoint, plus legacy shared rows.
             from src.database import SessionLocal
-            from src.database import ModelEndpoint
-            from src.endpoint_resolver import normalize_base, build_chat_url, build_headers
+            from src.endpoint_resolver import (
+                build_chat_url,
+                build_headers,
+                normalize_base,
+            )
+
             db = SessionLocal()
             try:
-                ep = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).first()
+                ep = _owned_enabled_endpoint(db, user)
                 if ep:
                     base = normalize_base(ep.base_url)
                     fallback_url = build_chat_url(base)
@@ -594,7 +648,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                         try:
                             models = json.loads(ep.cached_models)
                             if models:
-                                fallback_model = models[0]
+                                fallback_model = _first_chat_model(models)
                         except Exception:
                             pass
                     _merge(fallback_url, fallback_model, fallback_headers)
@@ -602,7 +656,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 db.close()
 
         if not ep_url or not ep_model:
-            raise HTTPException(400, "No endpoint configured — add one in Settings first")
+            raise HTTPException(
+                400, "No endpoint configured — add one in Settings first"
+            )
 
         # Create new session
         new_sid = str(uuid.uuid4())
@@ -625,6 +681,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             session_manager.save_sessions()
         try:
             from src.event_bus import fire_event
+
             fire_event("session_created", user)
         except Exception:
             logger.debug("session_created event dispatch failed", exc_info=True)
@@ -645,11 +702,14 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         )
 
         from core.models import ChatMessage
-        new_sess.add_message(ChatMessage(
-            role="system",
-            content=primer,
-            metadata={"research_spinoff_from": session_id},
-        ))
+
+        new_sess.add_message(
+            ChatMessage(
+                role="system",
+                content=primer,
+                metadata={"research_spinoff_from": session_id},
+            )
+        )
         session_manager.save_sessions()
 
         return {

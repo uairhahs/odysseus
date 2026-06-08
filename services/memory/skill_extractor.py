@@ -63,6 +63,46 @@ def _has_duplicate_title(skills, title: str) -> bool:
     return False
 
 
+def _extract_json_object(text: str) -> Optional[dict]:
+    """Best-effort extraction of a JSON object from an LLM response.
+
+    The response may be wrapped in code fences or surrounded by prose, and some
+    models emit a stray brace in the prose before the real object
+    (e.g. "uses {placeholder} then {...}"). Slicing first-'{' .. last-'}' then
+    grabs an unparseable span and the skill is silently lost. Try the whole
+    string first, then each '{' start position in turn, returning the first
+    candidate that parses to a JSON object (dict). Returns None if none do.
+    """
+    if not text:
+        return None
+    s = text.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    end = s.rfind("}")
+    if end == -1:
+        return None
+
+    def _as_dict(candidate):
+        try:
+            obj = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        return obj if isinstance(obj, dict) else None
+
+    # The clean, common case: the whole (de-fenced) string is the object.
+    obj = _as_dict(s)
+    if obj is not None:
+        return obj
+    # Otherwise scan each '{' candidate up to the last '}'.
+    start = s.find("{")
+    while 0 <= start < end:
+        obj = _as_dict(s[start : end + 1])
+        if obj is not None:
+            return obj
+        start = s.find("{", start + 1)
+    return None
+
+
 async def maybe_extract_skill(
     session,
     skills_manager,
@@ -81,7 +121,10 @@ async def maybe_extract_skill(
     # Quiet by default; flip to DEBUG when chasing extractor issues.
     logger.debug(
         "[skill-extract] start: rounds=%d tools=%d model=%s owner=%s",
-        round_count, tool_count, model, owner,
+        round_count,
+        tool_count,
+        model,
+        owner,
     )
     if round_count < 2 and tool_count < 2:
         logger.debug("[skill-extract] BELOW threshold (need rounds>=2 or tools>=2)")
@@ -102,7 +145,11 @@ async def maybe_extract_skill(
         for msg in recent:
             content = msg.get("content", "")
             if isinstance(content, list):
-                text_only = [b for b in content if isinstance(b, dict) and b.get("type") == "text"]
+                text_only = [
+                    b
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
                 if not text_only and content:
                     continue
                 content = text_only
@@ -118,7 +165,9 @@ async def maybe_extract_skill(
             content = msg.get("content", "")
             if isinstance(content, list):
                 content = " ".join(
-                    b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                    b.get("text", "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
                 )
             # Truncate long messages
             if len(content) > 500:
@@ -130,10 +179,12 @@ async def maybe_extract_skill(
         prompt = SKILL_EXTRACT_PROMPT.format(rounds=round_count, tool_count=tool_count)
 
         import time as _time
+
         _t0 = _time.monotonic()
         logger.debug(
             "[skill-extract] calling LLM (endpoint=%s, ctx=%d msgs, timeout=30s)",
-            endpoint_url, len(recent),
+            endpoint_url,
+            len(recent),
         )
         response = await llm_call_async(
             endpoint_url,
@@ -147,7 +198,9 @@ async def maybe_extract_skill(
         )
         logger.debug(
             "[skill-extract] LLM returned in %.1fs (len=%d, head=%r)",
-            _time.monotonic() - _t0, len(response or ""), (response or "")[:80],
+            _time.monotonic() - _t0,
+            len(response or ""),
+            (response or "")[:80],
         )
 
         if not response or response.strip().lower() == "null":
@@ -165,25 +218,19 @@ async def maybe_extract_skill(
         # time and the silent-bail looked like "extractor doesn't work".
         try:
             from src.text_helpers import strip_think as _strip_think
+
             response = _strip_think(response, prose=True, prompt_echo=True)
         except Exception:
             pass
 
-        # Parse JSON
-        text = response.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        # After strip_think, the JSON may still be embedded inside surrounding
-        # commentary — slice from the first '{' to the matching last '}'.
-        if text and text[0] != "{":
-            _start = text.find("{")
-            _end = text.rfind("}")
-            if 0 <= _start < _end:
-                text = text[_start : _end + 1]
-
-        data = json.loads(text)
-        if not data or not isinstance(data, dict):
-            logger.debug("[skill-extract] parsed JSON not a dict, dropping")
+        # Parse JSON. The object may be wrapped in code fences or surrounded by
+        # commentary (and may contain a stray/invalid brace fragment before
+        # the real object — including one that makes the response itself look
+        # like it starts with '{'), so use a tolerant extractor that tries the
+        # whole string first and then each '{' candidate left-to-right.
+        data = _extract_json_object(response)
+        if not data:
+            logger.debug("[skill-extract] no JSON object found in response, dropping")
             return None
 
         title = data.get("title", "").strip()
@@ -200,14 +247,18 @@ async def maybe_extract_skill(
         if _conf < MIN_CONFIDENCE:
             logger.debug(
                 "[skill-extract] '%s' below confidence floor (%.2f < %.2f) — dropped",
-                title, _conf, MIN_CONFIDENCE,
+                title,
+                _conf,
+                MIN_CONFIDENCE,
             )
             return None
 
         # Check for duplicate skills
         existing = skills_manager.load(owner=owner)
         if _has_duplicate_title(existing, title):
-            logger.debug("[skill-extract] '%s' already exists — dropped as duplicate", title)
+            logger.debug(
+                "[skill-extract] '%s' already exists — dropped as duplicate", title
+            )
             return None
 
         entry = skills_manager.add_skill(
@@ -223,6 +274,7 @@ async def maybe_extract_skill(
         )
         try:
             from src.event_bus import fire_event
+
             fire_event("skill_added", owner)
         except Exception:
             logger.debug("skill_added event dispatch failed", exc_info=True)

@@ -16,6 +16,8 @@ from collections import namedtuple
 from pathlib import Path
 from typing import Any, Dict
 
+from core.platform_compat import IS_APPLE_SILICON, which_tool
+
 # POSIX-only: `pty`/`fcntl` transitively import `termios`, which does NOT exist
 # on Windows, so importing them unconditionally crashed app startup there
 # (ModuleNotFoundError: termios — issues #140/#92/#63/#149/#150). The PTY code
@@ -228,6 +230,12 @@ def _package_pip_update_status(
     native llama-server can come from a package manager/source build, and a CLI
     may be on PATH without matching Python package metadata.
     """
+    if pkg.get("name") == "APFEL":
+        return PackageUpdateStatus(
+            False,
+            "",  # Note is empty because IT DOES allow for updates outside of PIP.
+        )
+
     if pkg.get("kind") == "system" or not pkg.get("pip"):
         return PackageUpdateStatus(
             False, "Update this system dependency outside Odysseus."
@@ -1009,6 +1017,24 @@ def setup_shell_routes() -> APIRouter:
                 "kind": "system",
                 "install_hint": "Install Docker on the selected server and allow this user to run docker.",
             },
+            {
+                "name": "tmux",
+                "pip": "",
+                "desc": "Required for Linux/Termux Cookbook background downloads and serves",
+                "category": "System",
+                "target": "remote",
+                "kind": "system",
+                "install_hint": "Run Cookbook server setup, or install tmux with apt/pacman/dnf/apk/zypper.",
+            },
+            {
+                "name": "docker",
+                "pip": "",
+                "desc": "Required only for Docker-backed launch commands",
+                "category": "System",
+                "target": "remote",
+                "kind": "system",
+                "install_hint": "Install Docker on the selected server and allow this user to run docker.",
+            },
             # ── LLM ── installs on GPU servers for model serving/downloading
             {
                 "name": "hf_transfer",
@@ -1060,6 +1086,27 @@ def setup_shell_routes() -> APIRouter:
                 "category": "Image",
                 "target": "local",
             },
+            {
+                "name": "diffusers",
+                "pip": "diffusers[torch]",
+                "desc": "Image generation pipelines (SD, Flux) with PyTorch",
+                "category": "Image",
+                "target": "remote",
+            },
+            {
+                "name": "rembg",
+                "pip": "rembg[gpu]",
+                "desc": "AI background removal for image editor",
+                "category": "Image",
+                "target": "local",
+            },
+            {
+                "name": "realesrgan",
+                "pip": "realesrgan",
+                "desc": "AI denoise + upscale (Real-ESRGAN). Used by editor's Denoise and Upscale tools.",
+                "category": "Image",
+                "target": "local",
+            },
             # ── Tools ──
             {
                 "name": "playwright",
@@ -1069,10 +1116,26 @@ def setup_shell_routes() -> APIRouter:
                 "target": "local",
             },
         ]
+
+        # Most packages should not be installed through external means. Hence, set the default of the
+        # install_cmd and update_cmd to None, which indicates that the recommended way to install/update is through the Cookbook # server setup or pip. Only system packages, should have explicit install/update commands provided.
+        for pkg in packages:
+            pkg.setdefault("install_cmd", None)
+            pkg.setdefault("update_cmd", None)
         # Remote check: for remote-target packages, probe the selected server's
         # venv over SSH so a remote `pip install` actually reflects here.
         remote_status: dict = {}
         remote_details: dict = {}
+        remote_names = [
+            p["name"]
+            for p in packages
+            if p.get("target") == "remote" and p.get("kind") != "system"
+        ]
+        remote_system_names = [
+            p["name"]
+            for p in packages
+            if p.get("target") == "remote" and p.get("kind") == "system"
+        ]
         remote_names = [
             p["name"]
             for p in packages
@@ -1154,7 +1217,16 @@ def setup_shell_routes() -> APIRouter:
                     if note:
                         pkg["status_note"] = note
             elif pkg.get("kind") == "system":
-                pkg["installed"] = shutil.which(pkg["name"]) is not None
+                if pkg["name"] == "APFEL":
+                    pkg["applicable"] = IS_APPLE_SILICON
+                    pkg["installed"] = which_tool("apfel") is not None
+                    pkg["status_note"] = (
+                        "Available on Apple Silicon (arm64) devices; exposed through a local OpenAI-compatible API."
+                        if IS_APPLE_SILICON
+                        else "Requires a native Apple Silicon Mac with Apple Foundational Models support."
+                    )
+                else:
+                    pkg["installed"] = shutil.which(pkg["name"]) is not None
             elif pkg["name"] == "llama_cpp" and shutil.which("llama-server"):
                 pkg["installed"] = True
                 pkg["status_note"] = (
@@ -1232,8 +1304,15 @@ def setup_shell_routes() -> APIRouter:
             return {"ok": False, "error": f"Unsupported action: {action}"}
         # Validate against known packages to prevent arbitrary pip install
         known = {
-            # local-target (Odysseus app)
             "rembg[gpu]",
+            "hf_transfer",
+            "llama-cpp-python[server]",
+            "sglang[all]",
+            "diffusers",
+            "diffusers[torch]",
+            "TTS",
+            "bark",
+            "faster-whisper",
             "playwright",
             "realesrgan",
             "gfpgan",
@@ -1241,18 +1320,7 @@ def setup_shell_routes() -> APIRouter:
             "onnxruntime-gpu",
             "onnxruntime",
             "hdbscan",
-            # server-target (model serving / downloading) — also installed locally
-            # when Local server is selected (uv-managed venv has no pip)
-            "hf_transfer",
-            "huggingface_hub",
-            "llama-cpp-python[server]",
-            "sglang[all]",
             "vllm",
-            "diffusers",
-            "diffusers[torch]",
-            "TTS",
-            "bark",
-            "faster-whisper",
         }
         if pip_name not in known:
             return {"ok": False, "error": f"Unknown package: {pip_name}"}

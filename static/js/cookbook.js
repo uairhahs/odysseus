@@ -238,16 +238,27 @@ export function _getPlatform(hostOrTask) {
   )
     .toLowerCase()
     .includes("win");
+  // The browser's OS is NOT the server's OS when the UI is opened remotely —
+  // e.g. a Windows browser driving a Mac/Linux homeserver. Trusting the
+  // user-agent there makes the serve builder emit the Windows python-only
+  // shape (`python -m llama_cpp.server`, no `llama-server ||` fallback), which
+  // then fails on the actual Unix server. The local hardware probe is
+  // authoritative: it reports a backend (metal/cuda/rocm/cpu_*) for any Unix
+  // server and carries platform:"windows" for local Windows (which sets
+  // _envState.platform, short-circuiting below). So only fall back to the
+  // browser hint when we have no server-side signal at all.
+  const localPlatform = () => {
+    if (_envState.platform) return _envState.platform;
+    if (String(_hwfitCache?.system?.backend || "")) return "";
+    return isWinBrowser ? "windows" : "";
+  };
   if (!hostOrTask || hostOrTask === "local") {
-    // For local connections, prioritize explicit platform setting over browser UA.
-    // Odysseus is Linux-based, so only return 'windows' if explicitly set in _envState.
-    return _envState.platform || "";
+    return localPlatform();
   }
   if (typeof hostOrTask === "object") {
     const h = hostOrTask.remoteHost;
     if (!h || h === "local") {
-      // For tasks on local/no remoteHost: use explicit platform if set, otherwise default to empty (Linux-like).
-      return hostOrTask.platform || _envState.platform || "";
+      return hostOrTask.platform || localPlatform();
     }
     return hostOrTask.platform || _getPlatform(h);
   }
@@ -864,12 +875,18 @@ async function _fetchDependencies() {
     const _statusTag = (pkg, isLocal, isSystemDep, winBlocked) => {
       if (winBlocked)
         return `<span class="cookbook-dep-tag cookbook-dep-na">N/A</span>`;
+      const hasCustomInstall = !!pkg.install_cmd;
+      const hasCustomUpdate = !!pkg.update_cmd;
       if (!pkg.installed && _pendingDepPips.has(pkg.pip || "")) {
         return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Install task is running">Installing...</span>`;
       }
-      if (pkg.installed && isSystemDep)
+      if (pkg.installed && isSystemDep && !hasCustomUpdate)
         return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Found on selected server">Installed</span>`;
-      if (pkg.installed && pkg.pip_update_available === false) {
+      if (
+        pkg.installed &&
+        pkg.pip_update_available === false &&
+        !hasCustomUpdate
+      ) {
         const tip = esc(
           pkg.update_note ||
             pkg.status_note ||
@@ -879,14 +896,14 @@ async function _fetchDependencies() {
       }
       if (pkg.installed)
         return `<button class="cookbook-dep-tag cookbook-dep-installed cookbook-dep-installed-btn" title="Installed — click for actions"><span class="cookbook-dep-installed-label">Installed</span><span class="cookbook-dep-caret">&#9662;</span></button>`;
-      if (isSystemDep) {
+      if (isSystemDep && !hasCustomInstall) {
         const depTip = esc(
           pkg.install_hint || "Install this OS package on the selected server.",
         );
         const depLabel = pkg.applicable === false ? "N/A ?" : "Missing";
         return `<span class="cookbook-dep-tag cookbook-dep-na" title="${depTip}">${depLabel}</span>`;
       }
-      return `<button class="cookbook-dep-tag cookbook-dep-install" data-dep-pip="${esc(pkg.pip)}" data-dep-target="${isLocal ? "local" : "remote"}">Install</button>`;
+      return `<button class="cookbook-dep-tag cookbook-dep-install" data-dep-pip="${esc(pkg.pip || "")}" data-dep-install-cmd="${esc(pkg.install_cmd || "")}" data-dep-update-cmd="${esc(pkg.update_cmd || "")}" data-dep-target="${isLocal ? "local" : "remote"}">Install</button>`;
     };
 
     const _depRow = (pkg) => {
@@ -916,7 +933,7 @@ async function _fetchDependencies() {
         _rebuildBtn = `<button type="button" class="cookbook-dep-tag cookbook-dep-rebuild cookbook-dep-reinstall" data-reinstall-pkg="sglang" title="Force-reinstall SGLang (pulls a matching torch). Runs as a tmux task in the Running tab.">Reinstall</button>`;
       }
       return (
-        `<div class="cookbook-dep-row${winBlocked ? " cookbook-dep-blocked" : ""}" data-pkg-name="${esc(pkg.name)}" data-dep-pip="${esc(pkg.pip || "")}" data-dep-target="${isLocal ? "local" : "remote"}" data-dep-kind="${esc(pkg.kind || "python")}">` +
+        `<div class="cookbook-dep-row${winBlocked ? " cookbook-dep-blocked" : ""}" data-pkg-name="${esc(pkg.name)}" data-dep-pip="${esc(pkg.pip || "")}" data-dep-install-cmd="${esc(pkg.install_cmd || "")}" data-dep-update-cmd="${esc(pkg.update_cmd || "")}" data-dep-target="${isLocal ? "local" : "remote"}" data-dep-kind="${esc(pkg.kind || "python")}">` +
         `<div class="cookbook-dep-info">` +
         `<div class="memory-item-title">${esc(pkg.name)}</div>` +
         `<div class="memory-item-meta" style="font-size:10px;opacity:0.5;margin-top:2px;">${esc(pkg.desc)}</div>` +
@@ -1108,6 +1125,74 @@ async function _fetchDependencies() {
             _shellQuote(_envState.envPath);
         }
       }
+
+      if (actionCmd) {
+        const shellCmd = envPrefix ? `${envPrefix} ${actionCmd}` : actionCmd;
+        const fullCmd =
+          !isLocalOnly && _envState.remoteHost
+            ? _sshCmd(
+                _envState.remoteHost,
+                shellCmd,
+                _getPort(_envState.remoteHost),
+              )
+            : shellCmd;
+        try {
+          if (statusEl) {
+            statusEl.textContent = upgrade ? "Updating..." : "Installing...";
+            statusEl.disabled = true;
+          }
+          const res = await fetch("/api/shell/stream", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: fullCmd }),
+          });
+          uiModule.showToast(
+            `${upgrade ? "Updating" : "Installing"} ${pkgName} on ${targetHost}...`,
+          );
+          const body = await res.text();
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const exitMatches = [...body.matchAll(/"exit_code":\s*(-?\d+)/g)].map(
+            (m) => Number(m[1]),
+          );
+          const exitCode = exitMatches.length
+            ? exitMatches[exitMatches.length - 1]
+            : 0;
+          if (exitCode !== 0) {
+            throw new Error(
+              (body.slice(-500).trim() || `${pkgName} command failed`) +
+                ` (exit ${exitCode})`,
+            );
+          }
+
+          if (upgrade) {
+            uiModule.showToast(
+              `Successfully updated ${pkgName} on ${targetHost}.`,
+            );
+          } else {
+            uiModule.showToast(
+              `Successfully installed ${pkgName} on ${targetHost}.`,
+            );
+          }
+          await _fetchDependencies();
+          return;
+        } catch (err) {
+          if (statusEl) {
+            statusEl.textContent = "Install";
+            statusEl.disabled = false;
+          }
+          uiModule.showToast(
+            `${upgrade ? "Update" : "Install"} failed: ` + err.message,
+          );
+          return;
+        }
+      }
+
+      // Always go through `python -m pip` so the leading token is `python`
+      // — matches the /api/model/serve allow-list (bare `pip` is blocked).
+      // Inside a venv/conda env, `--user` is invalid (pip refuses), so we
+      // only add `--user --break-system-packages` when there's no env —
+      // for PEP-668-locked system pythons (Arch, newer Debian).
       try {
         const reqBody = {
           repo_id: pipName,
@@ -1158,6 +1243,7 @@ async function _fetchDependencies() {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const pipName = btn.dataset.depPip;
+        const installCmd = btn.dataset.depInstallCmd || "";
         const pkgName =
           btn.closest(".cookbook-dep-row")?.querySelector(".memory-item-title")
             ?.textContent || pipName;
@@ -1167,6 +1253,7 @@ async function _fetchDependencies() {
           btn.dataset.depTarget === "local",
           !!btn.dataset.upgrade,
           btn,
+          installCmd,
         );
       });
     });
@@ -1196,11 +1283,14 @@ async function _fetchDependencies() {
       const it = document.createElement("div");
       it.className = "dropdown-item-compact";
       it.innerHTML = `<span class="dropdown-icon">${upIco}</span><span>Update</span>`;
-      it.title = `Update ${pkgName} to the latest version (pip install -U)`;
+      it.title = row.dataset.depUpdateCmd
+        ? `Update ${pkgName} using its custom command`
+        : `Update ${pkgName} to the latest version (pip install -U)`;
       it.addEventListener("click", async (e) => {
         e.stopPropagation();
         dropdown.remove();
-        await _installDep(pipName, pkgName, isLocalOnly, true, null);
+        const updateCmd = row.dataset.depUpdateCmd || "";
+        await _installDep(pipName, pkgName, isLocalOnly, true, null, updateCmd);
       });
       dropdown.appendChild(it);
       if (isLocalOnly) {

@@ -1,33 +1,34 @@
 """Authentication routes — login, logout, signup, status, user management."""
 
-from fastapi import APIRouter, Request, Response, HTTPException
-from pydantic import BaseModel
-from typing import Optional
 import asyncio
 import logging
 import os
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from core.auth import AuthManager
+from src.integrations import (
+    INTEGRATION_PRESETS,
+    add_integration,
+    delete_integration,
+    execute_api_call,
+    get_integration,
+    load_integrations,
+    mask_integration_secret,
+    migrate_from_settings,
+    update_integration,
+)
 from src.rate_limiter import RateLimiter
-from src.settings_scrub import scrub_settings
 from src.settings import (
-    load_settings as _load_settings,
-    save_settings as _save_settings,
-    load_features as _load_features,
-    save_features as _save_features,
     DEFAULT_SETTINGS,
 )
-from src.integrations import (
-    load_integrations,
-    add_integration,
-    update_integration,
-    delete_integration,
-    get_integration,
-    mask_integration_secret,
-    execute_api_call,
-    INTEGRATION_PRESETS,
-    migrate_from_settings,
-)
+from src.settings import load_features as _load_features
+from src.settings import load_settings as _load_settings
+from src.settings import save_features as _save_features
+from src.settings import save_settings as _save_settings
+from src.settings_scrub import scrub_settings
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +68,10 @@ class DeleteUserRequest(BaseModel):
 class RenameUserRequest(BaseModel):
     username: str
 
+
 class SetOpenRegistrationRequest(BaseModel):
     enabled: bool
+
 
 SESSION_COOKIE = "odysseus_session"
 
@@ -106,12 +109,16 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         if not auth_manager.is_configured:
             raise HTTPException(400, "Run setup first")
         if not auth_manager.signup_enabled:
-            raise HTTPException(403, "Registration is disabled. Ask an admin for an account.")
+            raise HTTPException(
+                403, "Registration is disabled. Ask an admin for an account."
+            )
         if len(body.password) < 8:
             raise HTTPException(400, "Password must be at least 8 characters")
         if len(body.username.strip()) < 1:
             raise HTTPException(400, "Username is required")
-        ok = await asyncio.to_thread(auth_manager.create_user, body.username, body.password, is_admin=False)
+        ok = await asyncio.to_thread(
+            auth_manager.create_user, body.username, body.password, is_admin=False
+        )
         if not ok:
             raise HTTPException(409, "Username already taken")
         return {"ok": True, "message": "Account created"}
@@ -122,7 +129,9 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             raise HTTPException(429, "Too many requests — try again later")
         # Verify password first
         username = body.username.strip().lower()
-        if not await asyncio.to_thread(auth_manager.verify_password, username, body.password):
+        if not await asyncio.to_thread(
+            auth_manager.verify_password, username, body.password
+        ):
             raise HTTPException(401, "Invalid credentials")
         # Check 2FA if enabled
         if auth_manager.totp_enabled(username):
@@ -131,10 +140,8 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
                 return {"ok": False, "requires_totp": True, "username": username}
             if not auth_manager.totp_verify(username, body.totp_code):
                 raise HTTPException(401, "Invalid 2FA code")
-        # All checks passed — create session
-        token = await asyncio.to_thread(auth_manager.create_session, username, body.password)
-        if not token:
-            raise HTTPException(401, "Invalid credentials")
+        # All checks passed — create session (password already verified above)
+        token = await asyncio.to_thread(auth_manager.create_session_trusted, username)
         cookie_kwargs = dict(
             key=SESSION_COOKIE,
             value=token,
@@ -181,7 +188,9 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         if len(body.new_password) < 8:
             raise HTTPException(400, "Password must be at least 8 characters")
         current_token = request.cookies.get(SESSION_COOKIE)
-        ok = await asyncio.to_thread(auth_manager.change_password, user, body.current_password, body.new_password)
+        ok = await asyncio.to_thread(
+            auth_manager.change_password, user, body.current_password, body.new_password
+        )
         if not ok:
             raise HTTPException(400, "Current password is incorrect")
         await asyncio.to_thread(auth_manager.revoke_user_sessions, user, current_token)
@@ -204,12 +213,20 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             raise HTTPException(500, "Failed to generate secret")
         uri = auth_manager.totp_get_provisioning_uri(user, secret)
         # Generate QR code as base64 PNG
-        import qrcode, io, base64
+        import base64
+        import io
+
+        import qrcode
+
         qr = qrcode.make(uri, box_size=6, border=2)
         buf = io.BytesIO()
         qr.save(buf, format="PNG")
         qr_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-        return {"secret": secret, "uri": uri, "qr_code": f"data:image/png;base64,{qr_b64}"}
+        return {
+            "secret": secret,
+            "uri": uri,
+            "qr_code": f"data:image/png;base64,{qr_b64}",
+        }
 
     class TotpVerifyRequest(BaseModel):
         code: str
@@ -287,7 +304,11 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         if not new_username:
             raise HTTPException(400, "Username required")
         if old_username == new_username:
-            return {"ok": True, "username": new_username, "renamed_self": old_username == user}
+            return {
+                "ok": True,
+                "username": new_username,
+                "renamed_self": old_username == user,
+            }
         if old_username not in auth_manager.users:
             raise HTTPException(404, "User not found")
         if new_username in auth_manager.users:
@@ -298,7 +319,9 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         # access to its sessions, docs, email accounts, tasks, etc.
         try:
             from sqlalchemy import func
+
             from core.database import Base, SessionLocal
+
             db = SessionLocal()
             try:
                 for mapper in Base.registry.mappers:
@@ -317,12 +340,19 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             finally:
                 db.close()
         except Exception as e:
-            logger.error("Failed to rename owner references %s -> %s: %s", old_username, new_username, e)
+            logger.error(
+                "Failed to rename owner references %s -> %s: %s",
+                old_username,
+                new_username,
+                e,
+            )
             raise HTTPException(500, "Failed to rename user data")
 
         # Per-user prefs are JSON-backed, not SQL-backed.
         try:
-            from routes.prefs_routes import _load as _load_prefs, _save as _save_prefs
+            from routes.prefs_routes import _load as _load_prefs
+            from routes.prefs_routes import _save as _save_prefs
+
             prefs = _load_prefs()
             users = prefs.get("_users") if isinstance(prefs, dict) else None
             if isinstance(users, dict):
@@ -335,7 +365,12 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
                     users[new_username] = users.pop(prefs_key)
                     _save_prefs(prefs)
         except Exception as e:
-            logger.warning("Failed to rename user prefs %s -> %s: %s", old_username, new_username, e)
+            logger.warning(
+                "Failed to rename user prefs %s -> %s: %s",
+                old_username,
+                new_username,
+                e,
+            )
 
         ok = auth_manager.rename_user(old_username, new_username, user)
         if not ok:
@@ -348,7 +383,11 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         invalidator = getattr(request.app.state, "invalidate_token_cache", None)
         if callable(invalidator):
             invalidator()
-        return {"ok": True, "username": new_username, "renamed_self": old_username == user}
+        return {
+            "ok": True,
+            "username": new_username,
+            "renamed_self": old_username == user,
+        }
 
     @router.post("/signup-toggle", deprecated=True)
     async def toggle_signup(request: Request):
@@ -373,7 +412,7 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         if not user or not auth_manager.is_admin(user):
             raise HTTPException(403, "Admin only")
         auth_manager.signup_enabled = body.enabled
-        return {"ok": True,"signup_enabled": auth_manager.signup_enabled}
+        return {"ok": True, "signup_enabled": auth_manager.signup_enabled}
 
     @router.delete("/users")
     async def admin_delete_user(body: DeleteUserRequest, request: Request):
@@ -478,7 +517,12 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
     @router.get("/integrations/presets")
     async def list_presets():
         """List available integration presets."""
-        return {"presets": {k: {kk: vv for kk, vv in v.items() if kk != "api_key"} for k, v in INTEGRATION_PRESETS.items()}}
+        return {
+            "presets": {
+                k: {kk: vv for kk, vv in v.items() if kk != "api_key"}
+                for k, v in INTEGRATION_PRESETS.items()
+            }
+        }
 
     @router.post("/integrations")
     async def create_integration(request: Request):
@@ -532,8 +576,10 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         # subscriber app is wired up correctly, this is what the green
         # checkmark + a phone ping confirms together.
         if preset == "ntfy":
-            import httpx
             from urllib.parse import urlparse
+
+            import httpx
+
             # Strip any path/query the user accidentally pasted in the
             # base URL (e.g. `http://host:8091/odysseus`) — otherwise
             # the topic gets appended after the path and we publish to
@@ -541,9 +587,15 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             # only ever serves from the root.
             raw_base = (integ.get("base_url") or "").strip()
             parsed = urlparse(raw_base)
-            base = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else raw_base.rstrip("/")
+            base = (
+                f"{parsed.scheme}://{parsed.netloc}"
+                if parsed.scheme and parsed.netloc
+                else raw_base.rstrip("/")
+            )
             settings = _load_settings()
-            topic = (settings.get("reminder_ntfy_topic") or "reminders").strip() or "reminders"
+            topic = (
+                settings.get("reminder_ntfy_topic") or "reminders"
+            ).strip() or "reminders"
             full_url = f"{base}/{topic}"
             api_key = integ.get("api_key", "")
             auth_type = (integ.get("auth_type") or "none").lower()
@@ -574,35 +626,53 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
                         "ok": True,
                         "message": (
                             f"Sent to {full_url} — on your ntfy app, "
-                            f"subscribe to topic \"{topic}\" with server "
-                            f"\"{base}\" (or paste the full URL: {full_url})."
+                            f'subscribe to topic "{topic}" with server '
+                            f'"{base}" (or paste the full URL: {full_url}).'
                         ),
                     }
-                return {"ok": False, "message": f"ntfy returned HTTP {r.status_code} from {full_url}: {r.text[:200]}"}
+                return {
+                    "ok": False,
+                    "message": f"ntfy returned HTTP {r.status_code} from {full_url}: {r.text[:200]}",
+                }
             except Exception as e:
                 hint = ""
                 if parsed.hostname not in ("127.0.0.1", "localhost"):
                     hint = " If this is Docker Compose ntfy, set NTFY_BIND to that host/Tailscale IP and NTFY_BASE_URL to the same server URL in .env, then recreate ntfy."
-                return {"ok": False, "message": f"ntfy publish to {full_url} failed: {e}.{hint}"[:500]}
+                return {
+                    "ok": False,
+                    "message": f"ntfy publish to {full_url} failed: {e}.{hint}"[:500],
+                }
 
         if preset == "discord_webhook":
             import httpx
+
             webhook_url = (integ.get("base_url") or "").strip()
             if not webhook_url:
-                return {"ok": False, "message": "No webhook URL set — paste the full Discord webhook URL into the Base URL field."}
+                return {
+                    "ok": False,
+                    "message": "No webhook URL set — paste the full Discord webhook URL into the Base URL field.",
+                }
             payload = {
-                "embeds": [{
-                    "title": "Odysseus connectivity test",
-                    "description": "If you see this, your Discord Webhook integration is wired up correctly.",
-                    "color": 5793266,
-                }]
+                "embeds": [
+                    {
+                        "title": "Odysseus connectivity test",
+                        "description": "If you see this, your Discord Webhook integration is wired up correctly.",
+                        "color": 5793266,
+                    }
+                ]
             }
             try:
                 async with httpx.AsyncClient(timeout=8.0) as client:
                     r = await client.post(webhook_url, json=payload)
                 if r.is_success:
-                    return {"ok": True, "message": "Test embed sent — check your Discord channel to confirm it arrived."}
-                return {"ok": False, "message": f"Discord returned HTTP {r.status_code}: {r.text[:200]}"}
+                    return {
+                        "ok": True,
+                        "message": "Test embed sent — check your Discord channel to confirm it arrived.",
+                    }
+                return {
+                    "ok": False,
+                    "message": f"Discord returned HTTP {r.status_code}: {r.text[:200]}",
+                }
             except Exception as e:
                 return {"ok": False, "message": f"Request failed: {e}"[:400]}
 
@@ -619,6 +689,9 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         result = await execute_api_call(integration_id, "GET", path)
         if result.get("exit_code", 1) == 0:
             return {"ok": True, "message": "Connection successful"}
-        return {"ok": False, "message": (result.get("error") or "Connection failed")[:300]}
+        return {
+            "ok": False,
+            "message": (result.get("error") or "Connection failed")[:300],
+        }
 
     return router

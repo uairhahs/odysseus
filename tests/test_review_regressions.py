@@ -115,6 +115,19 @@ def _install_core_auth_stub(monkeypatch):
     return auth_mod
 
 
+def _install_core_middleware_stub(monkeypatch):
+    """Install the narrow middleware surface needed by loopback tool tests."""
+    core_mod = types.ModuleType("core")
+    core_mod.__path__ = []
+    middleware_mod = types.ModuleType("core.middleware")
+    middleware_mod.INTERNAL_TOOL_HEADER = "X-Internal-Tool"
+    middleware_mod.INTERNAL_TOOL_TOKEN = "test-token"
+    core_mod.middleware = middleware_mod
+    monkeypatch.setitem(sys.modules, "core", core_mod)
+    monkeypatch.setitem(sys.modules, "core.middleware", middleware_mod)
+    return middleware_mod
+
+
 def test_providers_requires_admin_before_discovery_and_cache(monkeypatch):
     _install_model_route_import_stubs(monkeypatch)
     import routes.model_routes as model_routes
@@ -136,7 +149,9 @@ def test_providers_requires_admin_before_discovery_and_cache(monkeypatch):
     )
     request = SimpleNamespace()
 
-    assert endpoint(request, refresh=True) == {"providers": [{"host": "internal.example"}]}
+    assert endpoint(request, refresh=True) == {
+        "providers": [{"host": "internal.example"}]
+    }
     assert discovery.calls == 1
 
     def deny_admin(_request):
@@ -166,7 +181,8 @@ def test_default_chat_does_not_auto_pick_shared_endpoint_for_fresh_user(monkeypa
 
     def scoped_owner_filter(query, model_cls, user, *, include_shared=True):
         query.rows = [
-            row for row in query.rows
+            row
+            for row in query.rows
             if row.owner == user or (include_shared and row.owner is None)
         ]
         return query
@@ -176,14 +192,18 @@ def test_default_chat_does_not_auto_pick_shared_endpoint_for_fresh_user(monkeypa
     monkeypatch.setattr(model_routes, "_load_settings", lambda: {})
     monkeypatch.setattr(model_routes, "owner_filter", scoped_owner_filter)
     monkeypatch.setattr(model_routes, "_normalize_base", lambda base: base.rstrip("/"))
-    monkeypatch.setattr(model_routes, "build_chat_url", lambda base: f"{base}/chat/completions")
+    monkeypatch.setattr(
+        model_routes, "build_chat_url", lambda base: f"{base}/chat/completions"
+    )
     monkeypatch.setattr(prefs_routes, "_load_for_user", lambda user: {})
 
     request = SimpleNamespace(
         state=SimpleNamespace(current_user="fresh"),
-        app=SimpleNamespace(state=SimpleNamespace(
-            auth_manager=SimpleNamespace(is_admin=lambda user: False)
-        )),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                auth_manager=SimpleNamespace(is_admin=lambda user: False)
+            )
+        ),
     )
 
     assert _default_chat_endpoint()(request) == {
@@ -208,7 +228,8 @@ def test_default_chat_uses_owned_endpoint_as_regular_user_last_resort(monkeypatc
 
     def scoped_owner_filter(query, model_cls, user, *, include_shared=True):
         query.rows = [
-            row for row in query.rows
+            row
+            for row in query.rows
             if row.owner == user or (include_shared and row.owner is None)
         ]
         return query
@@ -218,14 +239,18 @@ def test_default_chat_uses_owned_endpoint_as_regular_user_last_resort(monkeypatc
     monkeypatch.setattr(model_routes, "_load_settings", lambda: {})
     monkeypatch.setattr(model_routes, "owner_filter", scoped_owner_filter)
     monkeypatch.setattr(model_routes, "_normalize_base", lambda base: base.rstrip("/"))
-    monkeypatch.setattr(model_routes, "build_chat_url", lambda base: f"{base}/chat/completions")
+    monkeypatch.setattr(
+        model_routes, "build_chat_url", lambda base: f"{base}/chat/completions"
+    )
     monkeypatch.setattr(prefs_routes, "_load_for_user", lambda user: {})
 
     request = SimpleNamespace(
         state=SimpleNamespace(current_user="fresh"),
-        app=SimpleNamespace(state=SimpleNamespace(
-            auth_manager=SimpleNamespace(is_admin=lambda user: False)
-        )),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                auth_manager=SimpleNamespace(is_admin=lambda user: False)
+            )
+        ),
     )
 
     assert _default_chat_endpoint()(request) == {
@@ -271,14 +296,16 @@ def test_preset_manager_default_custom_preset_starts_disabled(tmp_path):
 def test_preset_manager_migrates_legacy_default_custom_preset_disabled(tmp_path):
     presets_file = tmp_path / "presets.json"
     presets_file.write_text(
-        json.dumps({
-            "custom": {
-                "name": "Custom",
-                "temperature": 0.7,
-                "max_tokens": 4096,
-                "system_prompt": "You are a helpful, balanced assistant. Match your response style to the user's needs.",
+        json.dumps(
+            {
+                "custom": {
+                    "name": "Custom",
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "system_prompt": "You are a helpful, balanced assistant. Match your response style to the user's needs.",
+                }
             }
-        }),
+        ),
         encoding="utf-8",
     )
 
@@ -324,7 +351,9 @@ def test_normalize_thinking_handles_lowercase_thinking_process(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_build_chat_context_incognito_does_not_duplicate_current_user_message(monkeypatch):
+async def test_build_chat_context_incognito_does_not_duplicate_current_user_message(
+    monkeypatch,
+):
     for mod_name in [
         "starlette.middleware",
         "starlette.middleware.base",
@@ -365,7 +394,9 @@ async def test_build_chat_context_incognito_does_not_duplicate_current_user_mess
     def fake_add_user_message(sess, chat_handler, preprocessed, incognito=False):
         sess.messages.append({"role": "user", "content": preprocessed.user_content})
 
-    async def fake_maybe_compact(sess, endpoint_url, model, messages, headers):
+    async def fake_maybe_compact(
+        sess, endpoint_url, model, messages, headers, owner=None
+    ):
         return messages, 123, False
 
     monkeypatch.setattr(chat_helpers, "preprocess", fake_preprocess)
@@ -373,9 +404,13 @@ async def test_build_chat_context_incognito_does_not_duplicate_current_user_mess
     monkeypatch.setattr(chat_helpers, "add_user_message", fake_add_user_message)
     monkeypatch.setattr(chat_helpers, "load_prefs_for_user", lambda user: {})
     monkeypatch.setattr(chat_helpers, "get_current_user", lambda request: "tester")
-    monkeypatch.setattr(chat_helpers, "normalize_model_id", lambda endpoint_url, model: None)
+    monkeypatch.setattr(
+        chat_helpers, "normalize_model_id", lambda endpoint_url, model: None
+    )
     monkeypatch.setattr(chat_helpers, "maybe_compact", fake_maybe_compact)
-    monkeypatch.setattr(chat_helpers, "trim_for_context", lambda messages, context_length: messages)
+    monkeypatch.setattr(
+        chat_helpers, "trim_for_context", lambda messages, context_length: messages
+    )
 
     sess = SimpleNamespace(
         endpoint_url="http://localhost:8000/v1",
@@ -400,7 +435,11 @@ async def test_build_chat_context_incognito_does_not_duplicate_current_user_mess
         incognito=True,
     )
 
-    user_messages = [m for m in ctx.messages if m.get("role") == "user" and m.get("content") == "hello"]
+    user_messages = [
+        m
+        for m in ctx.messages
+        if m.get("role") == "user" and m.get("content") == "hello"
+    ]
     assert len(user_messages) == 1
 
 
@@ -419,13 +458,196 @@ async def test_admin_agent_tools_require_admin(monkeypatch):
 
     for tool_name in ("manage_tokens", "app_api", "serve_preset"):
         desc, result = await execute_tool_block(
-            SimpleNamespace(tool_type=tool_name, content='{"action":"create","name":"bad"}'),
+            SimpleNamespace(
+                tool_type=tool_name, content='{"action":"create","name":"bad"}'
+            ),
             owner="regular-user",
         )
 
         assert desc == f"{tool_name}: BLOCKED"
         assert result["exit_code"] == 1
         assert "requires an admin" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_app_api_blocks_shell_routes_before_loopback(monkeypatch):
+    import httpx
+
+    from src.tool_implementations import do_app_api
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("app_api should block shell routes before loopback")
+
+    monkeypatch.setattr(httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    for path in ("/api/shell/exec", "api/shell/stream"):
+        result = await do_app_api(
+            json.dumps(
+                {
+                    "action": "call",
+                    "method": "POST",
+                    "path": path,
+                    "body": {"command": "echo should-not-run"},
+                }
+            ),
+            owner="admin",
+        )
+
+        assert result["exit_code"] == 1
+        assert "Path blocked for safety" in result["error"]
+        assert "Sensitive endpoints" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_app_api_blocks_cookbook_host_control_routes_before_loopback(monkeypatch):
+    import httpx
+
+    from src.tool_implementations import do_app_api
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError(
+                "app_api should block host-control routes before loopback"
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    blocked_calls = (
+        (
+            "api/cookbook/packages/install",
+            {"pip": "hf_transfer"},
+            "package installation is host code execution",
+        ),
+        (
+            "/api/cookbook/rebuild-engine",
+            {"engine": "llamacpp"},
+            "engine rebuild mutates local or remote host state",
+        ),
+        (
+            "/api/cookbook/kill-pid",
+            {"pid": 12345, "signal": "TERM"},
+            "process signalling is host control",
+        ),
+    )
+
+    for path, body, error_text in blocked_calls:
+        result = await do_app_api(
+            json.dumps(
+                {
+                    "action": "call",
+                    "method": "POST",
+                    "path": path,
+                    "body": body,
+                }
+            ),
+            owner="admin",
+        )
+
+        assert result["exit_code"] == 1
+        assert error_text in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_app_api_endpoint_discovery_hides_shell_routes(monkeypatch):
+    _install_core_middleware_stub(monkeypatch)
+    import httpx
+
+    from src.tool_implementations import do_app_api
+
+    class FakeResponse:
+        def json(self):
+            return {
+                "paths": {
+                    "/api/shell/exec": {"post": {"summary": "Execute Shell Command"}},
+                    "/api/shell/stream": {"post": {"summary": "Stream Shell Command"}},
+                    "/api/auth/settings": {"get": {"summary": "Auth Settings"}},
+                    "/api/cookbook/gpus": {"get": {"summary": "List GPUs"}},
+                }
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await do_app_api(json.dumps({"action": "endpoints"}), owner="admin")
+
+    assert result["exit_code"] == 0
+    paths = {(endpoint["method"], endpoint["path"]) for endpoint in result["endpoints"]}
+    assert ("GET", "/api/cookbook/gpus") in paths
+    assert ("POST", "/api/shell/exec") not in paths
+    assert ("POST", "/api/shell/stream") not in paths
+    assert ("GET", "/api/auth/settings") not in paths
+    assert all(
+        not endpoint["path"].startswith("/api/shell")
+        for endpoint in result["endpoints"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_app_api_endpoint_discovery_hides_cookbook_host_control_routes(
+    monkeypatch,
+):
+    _install_core_middleware_stub(monkeypatch)
+    import httpx
+
+    from src.tool_implementations import do_app_api
+
+    class FakeResponse:
+        def json(self):
+            return {
+                "paths": {
+                    "/api/cookbook/packages": {
+                        "get": {"summary": "List Cookbook Packages"}
+                    },
+                    "/api/cookbook/packages/install": {
+                        "post": {"summary": "Install Package"}
+                    },
+                    "/api/cookbook/rebuild-engine": {
+                        "post": {"summary": "Rebuild Engine"}
+                    },
+                    "/api/cookbook/kill-pid": {"post": {"summary": "Kill Process"}},
+                    "/api/cookbook/gpus": {"get": {"summary": "List GPUs"}},
+                }
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await do_app_api(
+        json.dumps({"action": "endpoints", "filter": "cookbook"}), owner="admin"
+    )
+
+    assert result["exit_code"] == 0
+    paths = {(endpoint["method"], endpoint["path"]) for endpoint in result["endpoints"]}
+    assert ("GET", "/api/cookbook/packages") in paths
+    assert ("GET", "/api/cookbook/gpus") in paths
+    assert ("POST", "/api/cookbook/packages/install") not in paths
+    assert ("POST", "/api/cookbook/rebuild-engine") not in paths
+    assert ("POST", "/api/cookbook/kill-pid") not in paths
 
 
 @pytest.mark.asyncio
@@ -494,7 +716,9 @@ async def test_webhook_tool_reuses_private_url_validation():
     _wm_saved_module = sys.modules.get("src.webhook_manager", _ABSENT)
     _src_pkg = sys.modules.get("src")
     _wm_saved_attr = (
-        getattr(_src_pkg, "webhook_manager", _ABSENT) if _src_pkg is not None else _ABSENT
+        getattr(_src_pkg, "webhook_manager", _ABSENT)
+        if _src_pkg is not None
+        else _ABSENT
     )
 
     # Drop both bindings so the import re-executes against the fake src.database,
@@ -554,18 +778,24 @@ def test_default_chat_skips_hidden_first_model(monkeypatch):
     monkeypatch.setattr(model_routes, "_load_settings", lambda: {})
     monkeypatch.setattr(model_routes, "owner_filter", lambda q, m, u, **kw: q)
     monkeypatch.setattr(model_routes, "_normalize_base", lambda base: base.rstrip("/"))
-    monkeypatch.setattr(model_routes, "build_chat_url", lambda base: f"{base}/chat/completions")
+    monkeypatch.setattr(
+        model_routes, "build_chat_url", lambda base: f"{base}/chat/completions"
+    )
     monkeypatch.setattr(prefs_routes, "_load_for_user", lambda user: {})
 
     request = SimpleNamespace(
         state=SimpleNamespace(current_user="fresh"),
-        app=SimpleNamespace(state=SimpleNamespace(
-            auth_manager=SimpleNamespace(is_admin=lambda user: False)
-        )),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                auth_manager=SimpleNamespace(is_admin=lambda user: False)
+            )
+        ),
     )
 
     result = _default_chat_endpoint()(request)
-    assert result["model"] == "visible-model", f"Expected visible-model, got {result['model']!r}"
+    assert (
+        result["model"] == "visible-model"
+    ), f"Expected visible-model, got {result['model']!r}"
 
 
 def test_default_chat_admin_skips_hidden_first_model(monkeypatch):
@@ -587,13 +817,17 @@ def test_default_chat_admin_skips_hidden_first_model(monkeypatch):
     monkeypatch.setattr(model_routes, "_load_settings", lambda: {})
     monkeypatch.setattr(model_routes, "owner_filter", lambda q, m, u, **kw: q)
     monkeypatch.setattr(model_routes, "_normalize_base", lambda base: base.rstrip("/"))
-    monkeypatch.setattr(model_routes, "build_chat_url", lambda base: f"{base}/chat/completions")
+    monkeypatch.setattr(
+        model_routes, "build_chat_url", lambda base: f"{base}/chat/completions"
+    )
 
     request = SimpleNamespace(
         state=SimpleNamespace(current_user="admin"),
-        app=SimpleNamespace(state=SimpleNamespace(
-            auth_manager=SimpleNamespace(is_admin=lambda user: True)
-        )),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                auth_manager=SimpleNamespace(is_admin=lambda user: True)
+            )
+        ),
     )
 
     result = _default_chat_endpoint()(request)
@@ -619,13 +853,17 @@ def test_default_chat_all_models_hidden_returns_empty_model(monkeypatch):
     monkeypatch.setattr(model_routes, "_load_settings", lambda: {})
     monkeypatch.setattr(model_routes, "owner_filter", lambda q, m, u, **kw: q)
     monkeypatch.setattr(model_routes, "_normalize_base", lambda base: base.rstrip("/"))
-    monkeypatch.setattr(model_routes, "build_chat_url", lambda base: f"{base}/chat/completions")
+    monkeypatch.setattr(
+        model_routes, "build_chat_url", lambda base: f"{base}/chat/completions"
+    )
 
     request = SimpleNamespace(
         state=SimpleNamespace(current_user="admin"),
-        app=SimpleNamespace(state=SimpleNamespace(
-            auth_manager=SimpleNamespace(is_admin=lambda user: True)
-        )),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                auth_manager=SimpleNamespace(is_admin=lambda user: True)
+            )
+        ),
     )
 
     result = _default_chat_endpoint()(request)

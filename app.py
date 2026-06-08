@@ -44,7 +44,7 @@ from core.exceptions import (
     SessionNotFoundError,
     WebSearchError,
 )
-from core.middleware import SecurityHeadersMiddleware
+from core.middleware import SecurityHeadersMiddleware, is_cors_preflight
 
 # Admin Danger Zone wipes (Settings → System → Danger Zone)
 from routes.admin_wipe_routes import setup_admin_wipe_routes
@@ -419,6 +419,15 @@ if AUTH_ENABLED:
     class AuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
+            # A genuine CORS preflight (OPTIONS + Access-Control-Request-Method)
+            # carries no credentials by design and must reach CORSMiddleware to be
+            # answered. AuthMiddleware is the outermost middleware, so gating the
+            # preflight on auth 401s it before CORS can respond -- which blocks
+            # every cross-origin browser/WebView client before the real request
+            # is sent. Let real preflights through (only OPTIONS w/ the ACRM
+            # header; never a credentialed request).
+            if is_cors_preflight(request.method, request.headers):
+                return await call_next(request)
             if _is_auth_exempt(path):
                 return await call_next(request)
             # In-process internal-tool token bypass. Used by the agent
@@ -978,6 +987,8 @@ async def serve_backgrounds(request: Request):
 
 @app.get("/login")
 async def serve_login(request: Request):
+    if not AUTH_ENABLED:
+        return RedirectResponse(url="/", status_code=302)
     return _serve_html_with_nonce(request, abs_join(BASE_DIR, "static/login.html"))
 
 

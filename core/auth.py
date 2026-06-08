@@ -4,13 +4,13 @@ Config stored in data/auth.json. Uses bcrypt directly.
 """
 
 import json
+import logging
 import os
 import secrets
 import threading
 import time
-import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 import bcrypt
 import pyotp
@@ -34,12 +34,13 @@ DEFAULT_PRIVILEGES = {
 }
 
 # Admins get everything
-ADMIN_PRIVILEGES = {k: (True if isinstance(v, bool) else (0 if isinstance(v, int) else [])) for k, v in DEFAULT_PRIVILEGES.items()}
+ADMIN_PRIVILEGES = {
+    k: (True if isinstance(v, bool) else (0 if isinstance(v, int) else []))
+    for k, v in DEFAULT_PRIVILEGES.items()
+}
 ADMIN_PRIVILEGES["allowed_models_restricted"] = False
 
-DEFAULT_AUTH_PATH = os.path.join(
-    Path(__file__).parent.parent, "data", "auth.json"
-)
+DEFAULT_AUTH_PATH = os.path.join(Path(__file__).parent.parent, "data", "auth.json")
 TOKEN_TTL = 60 * 60 * 24 * 7  # 7 days
 
 # Usernames the auth + middleware layer reserve as internal "synthetic owner"
@@ -101,8 +102,7 @@ class AuthManager:
                 # mixed-case keys (e.g. via manual edit or a future migration).
                 if "users" in self._config:
                     self._config["users"] = {
-                        k.strip().lower(): v
-                        for k, v in self._config["users"].items()
+                        k.strip().lower(): v for k, v in self._config["users"].items()
                     }
                 logger.info("Auth config loaded")
             else:
@@ -119,7 +119,9 @@ class AuthManager:
                 with open(self._sessions_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 now = time.time()
-                self._sessions = {k: v for k, v in data.items() if v.get("expiry", 0) > now}
+                self._sessions = {
+                    k: v for k, v in data.items() if v.get("expiry", 0) > now
+                }
                 pruned = len(data) - len(self._sessions)
                 if pruned > 0:
                     self._save_sessions()
@@ -214,7 +216,9 @@ class AuthManager:
                 "password_hash": _hash_password(password),
                 "created": time.time(),
                 "is_admin": is_admin,
-                "privileges": dict(ADMIN_PRIVILEGES if is_admin else DEFAULT_PRIVILEGES),
+                "privileges": dict(
+                    ADMIN_PRIVILEGES if is_admin else DEFAULT_PRIVILEGES
+                ),
             }
             self._save()
         logger.info(f"Created user '{username}' (admin={is_admin})")
@@ -243,8 +247,11 @@ class AuthManager:
         # cookie keeps authenticating.
         revoked = 0
         with self._sessions_lock:
-            to_drop = [tok for tok, sess in self._sessions.items()
-                       if (sess or {}).get("username") == username]
+            to_drop = [
+                tok
+                for tok, sess in self._sessions.items()
+                if (sess or {}).get("username") == username
+            ]
             for tok in to_drop:
                 self._sessions.pop(tok, None)
                 revoked += 1
@@ -255,17 +262,24 @@ class AuthManager:
         # re-checks that the owner still exists, so leaving the rows behind
         # would let a deleted user keep full API access indefinitely.
         try:
-            from core.database import get_db_session, ApiToken
+            from core.database import ApiToken, get_db_session
+
             with get_db_session() as db:
                 removed = db.query(ApiToken).filter(ApiToken.owner == username).delete()
             if removed:
-                logger.info(f"Revoked {removed} API token(s) owned by deleted user '{username}'")
+                logger.info(
+                    f"Revoked {removed} API token(s) owned by deleted user '{username}'"
+                )
         except Exception:
             logger.warning(f"Failed to revoke API tokens for deleted user '{username}'")
-        logger.info(f"Deleted user '{username}' (by {requesting_user}); revoked {revoked} active session(s)")
+        logger.info(
+            f"Deleted user '{username}' (by {requesting_user}); revoked {revoked} active session(s)"
+        )
         return True
 
-    def rename_user(self, old_username: str, new_username: str, requesting_user: str) -> bool:
+    def rename_user(
+        self, old_username: str, new_username: str, requesting_user: str
+    ) -> bool:
         """Rename a user in auth config and active sessions. Admin only."""
         old_username = old_username.strip().lower()
         new_username = new_username.strip().lower()
@@ -273,7 +287,11 @@ class AuthManager:
         if not old_username or not new_username:
             return False
         if new_username in RESERVED_USERNAMES:
-            logger.warning("Refused to rename '%s' into reserved username '%s'", old_username, new_username)
+            logger.warning(
+                "Refused to rename '%s' into reserved username '%s'",
+                old_username,
+                new_username,
+            )
             return False
         with self._config_lock:
             if old_username not in self.users:
@@ -282,7 +300,9 @@ class AuthManager:
                 return False
             if not self.users.get(requesting_user, {}).get("is_admin"):
                 return False
-            self._config.setdefault("users", {})[new_username] = self._config["users"].pop(old_username)
+            self._config.setdefault("users", {})[new_username] = self._config[
+                "users"
+            ].pop(old_username)
             self._save()
 
         renamed_sessions = 0
@@ -296,7 +316,10 @@ class AuthManager:
             self._save_sessions()
         logger.info(
             "Renamed user '%s' -> '%s' (by %s); updated %d active session(s)",
-            old_username, new_username, requesting_user, renamed_sessions,
+            old_username,
+            new_username,
+            requesting_user,
+            renamed_sessions,
         )
         return True
 
@@ -305,7 +328,11 @@ class AuthManager:
 
     def list_users(self) -> List[Dict[str, Any]]:
         return [
-            {"username": u, "is_admin": d.get("is_admin", False), "privileges": self.get_privileges(u)}
+            {
+                "username": u,
+                "is_admin": d.get("is_admin", False),
+                "privileges": self.get_privileges(u),
+            }
             for u, d in self.users.items()
         ]
 
@@ -336,14 +363,20 @@ class AuthManager:
         logger.info(f"Updated privileges for '{username}': {current}")
         return True
 
-    def change_password(self, username: str, current_password: str, new_password: str) -> bool:
+    def change_password(
+        self, username: str, current_password: str, new_password: str
+    ) -> bool:
         username = username.strip().lower()
         if username not in self.users:
             return False
-        if not _verify_password(current_password, self.users[username]["password_hash"]):
+        if not _verify_password(
+            current_password, self.users[username]["password_hash"]
+        ):
             return False
         with self._config_lock:
-            self._config["users"][username]["password_hash"] = _hash_password(new_password)
+            self._config["users"][username]["password_hash"] = _hash_password(
+                new_password
+            )
             self._save()
         return True
 
@@ -447,6 +480,12 @@ class AuthManager:
         username = username.strip().lower()
         if not self.verify_password(username, password):
             return None
+        return self.create_session_trusted(username)
+
+    def create_session_trusted(self, username: str) -> str:
+        """Issue a session token for an already-verified user.
+        Call only after verify_password (and TOTP if enabled) have passed."""
+        username = username.strip().lower()
         token = secrets.token_hex(32)
         with self._sessions_lock:
             self._sessions[token] = {
@@ -511,13 +550,16 @@ class AuthManager:
             self._sessions.pop(token, None)
         self._save_sessions()
 
-    def revoke_user_sessions(self, username: str, except_token: Optional[str] = None) -> int:
+    def revoke_user_sessions(
+        self, username: str, except_token: Optional[str] = None
+    ) -> int:
         """Revoke active browser sessions for a user, optionally preserving one."""
         username = username.strip().lower()
         revoked = 0
         with self._sessions_lock:
             to_drop = [
-                token for token, session in self._sessions.items()
+                token
+                for token, session in self._sessions.items()
                 if token != except_token and (session or {}).get("username") == username
             ]
             for token in to_drop:
