@@ -36,9 +36,12 @@ def create_dirs():
 def init_database():
     """Create all SQLAlchemy tables."""
     sys.path.insert(0, BASE_DIR)
-    os.environ.setdefault("DATABASE_URL", f"sqlite:///{os.path.join(DATA_DIR, 'app.db')}")
+    os.environ.setdefault(
+        "DATABASE_URL", f"sqlite:///{os.path.join(DATA_DIR, 'app.db')}"
+    )
 
     from core.database import Base, engine
+
     Base.metadata.create_all(bind=engine)
     print("  [ok] Database initialized")
 
@@ -78,8 +81,9 @@ def create_default_admin():
         return "exists"
 
     try:
-        import bcrypt
         import json
+
+        import bcrypt
 
         # Priority: env vars > interactive prompt > random password
         username = os.getenv("ODYSSEUS_ADMIN_USER", "").strip().lower()
@@ -115,7 +119,9 @@ def create_default_admin():
             print(f"  [ok] Initial admin user created ({username})")
             if not os.getenv("ODYSSEUS_ADMIN_PASSWORD"):
                 print(f"        Temporary password: {password}")
-                print(f"        ** Change it after first login. Set ODYSSEUS_ADMIN_PASSWORD to choose your own. **")
+                print(
+                    "        ** Change it after first login. Set ODYSSEUS_ADMIN_PASSWORD to choose your own. **"
+                )
         return "created"
     except ImportError:
         print("  [warn] bcrypt not installed — skipping admin user creation")
@@ -132,6 +138,7 @@ def create_env():
         return
     if os.path.exists(example_path):
         import shutil
+
         shutil.copy2(example_path, env_path)
         print("  [ok] .env created from .env.example")
         print("        ** Edit .env with your LLM host and API keys **")
@@ -149,7 +156,7 @@ def check_deps():
             missing.append(mod)
     if missing:
         print(f"\n  [warn] Missing packages: {', '.join(missing)}")
-        print(f"         Run: uv sync")
+        print("         Run: uv sync")
     else:
         print("  [ok] All core dependencies installed")
 
@@ -196,13 +203,13 @@ def main():
         print(f"  [warn] Admin creation failed: {e}")
         admin_status = "failed"
 
-    print("\n=== Setup complete ===")
+    print("\n === Setup complete ===")
     # start-macos.sh launches the server itself (on its own port) right after
     # this, so suppress the manual hint there to avoid a contradictory URL.
     if not os.getenv("ODYSSEUS_SKIP_RUN_HINT"):
-        print(f"\nStart the server with:")
-        print(f"  python -m uvicorn app:app --host 127.0.0.1 --port 7000")
-        print(f"\nThen open http://localhost:7000")
+        print("\n Start the server with:")
+        print("  python -m uvicorn app:app --host 127.0.0.1 --port 7000")
+        print("\n Then open http://localhost:7000")
 
     # Cleaned, action-focused final instruction strings
     if admin_status == "created":
@@ -210,11 +217,17 @@ def main():
     elif admin_status == "exists":
         print("Login with your existing admin credentials.\n")
     elif admin_status == "skipped":
-        print("Admin creation did not happen: dependencies are missing.\nRun 'uv add bcrypt' and rerun setup.\n")
+        print(
+            "Admin creation did not happen: dependencies are missing.\nRun 'uv add bcrypt' and rerun setup.\n"
+        )
     elif admin_status == "failed":
-        print("Admin creation did not happen: a system or file error occurred.\nCheck write permissions for the 'data' directory and rerun setup.\n")
+        print(
+            "Admin creation did not happen: a system or file error occurred.\nCheck write permissions for the 'data' directory and rerun setup.\n"
+        )
     else:  # handling "failed" or any unhandled edge case
-        print("Admin creation did not happen: a system or file error occurred.\nCheck write permissions for the 'data' directory and rerun setup.\n")
+        print(
+            "Admin creation did not happen: a system or file error occurred.\nCheck write permissions for the 'data' directory and rerun setup.\n"
+        )
 
 
 if __name__ == "__main__":

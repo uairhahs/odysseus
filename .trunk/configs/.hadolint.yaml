@@ -1,0 +1,10 @@
+# .hadolint.yaml
+# Hadolint configuration file
+# See: https://github.com/hadolint/hadolint
+
+# Ignore specific rules by their codes
+# Rule list: https://github.com/hadolint/hadolint#rules
+ignored:
+  - DL3003 # Use WORKDIR to switch to a directory
+  - DL3008 # Pin versions in apt-get install
+  - SC2086 # Double quote to prevent globbing and word splitting

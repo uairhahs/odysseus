@@ -2,7 +2,7 @@
 
 > **Branch note:** `dev` is the default branch and contains the latest development changes, but it may be unstable. For the more stable curated branch, use [`main`](https://github.com/pewdiepie-archdaemon/odysseus/tree/main).
 
-```
+```ascii
 ───────────────────────────────────────────────
  ⊹ ࣪ ˖ ૮( ˶ᵔ ᵕ ᵔ˶ )っ  Odysseus vers. 1.0
 ───────────────────────────────────────────────
@@ -14,47 +14,56 @@ A self-hosted AI workspace -- meant to be the self-hosted version of the UI expe
 
 ## Features
 
-- **Chat** -- chat with any local model or API; adding them is super simple.<br>　<sub>vLLM · llama.cpp · Ollama · OpenRouter · OpenAI · GitHub Copilot</sub>
-- **Agent** -- hand it tools and let it run the whole task itself.<br>　<sub>built on [opencode](https://github.com/anomalyco/opencode) · MCP · web · files · shell · skills · memory</sub>
-- **Cookbook** -- Scans your hardware, recommends models, click to download and serve.. easy!<br>　<sub>built on [llmfit](https://github.com/AlexsJones/llmfit) · VRAM-aware · GGUF / FP8 / AWQ · fit scoring · vLLM / llama.cpp serving</sub>
-- **Deep Research** -- multi-step runs that gather, read, and synthesize sources into a nice visual report.<br>　<sub>adapted from [Tongyi DeepResearch](https://github.com/Alibaba-NLP/DeepResearch)</sub>
-- **Compare** -- a fun tool to compare models side by side. Test completely blind, no bias!<br>　<sub>multi-model · blind test · synthesis</sub>
-- **Documents** -- YOU write the text, AI is there to assist, not the opposite.<br>　<sub>multi-tab editor · markdown · HTML · CSV · syntax highlighting · AI edits · suggestions</sub>
-- **Memory / Skills** -- Persistent memory and skills, your agent evolves over time as it better understands you and your tasks!<br>　<sub>ChromaDB · fastembed (ONNX) · vector + keyword retrieval · import/export</sub>
-- **Email** -- IMAP/SMTP inbox with AI triage built in: urgency reminders, auto-tag, auto-summary, auto-reply drafts, auto-spam.<br>　<sub>IMAP · SMTP · per-account routing · CalDAV-aware</sub>
-- **Notes & Tasks** -- Quick notes with reminders, a todo list, and scheduled tasks the agent can act on.<br>　<sub>note pings · checklist · cron-style tasks · ntfy / browser / email channels</sub>
-- **Calendar** -- Local-first calendar with CalDAV sync to Radicale / Nextcloud / Apple / Fastmail.<br>　<sub>CalDAV pull · .ics import/export · per-calendar colors · agent-aware</sub>
-- **Works on mobile** -- looks and runs great on your phone, not just desktop.<br>　<sub>responsive · installable (PWA) · touch gestures</sub>
-- **Extras** -- more to explore, happy if you give it a go!<br>　<sub>image editor · theme editor · file uploads (vision + PDF) · web search · presets · sessions · 2FA</sub>
+- **Chat** -- chat with any local model or API; adding them is super simple.
+  vLLM · llama.cpp · Ollama · OpenRouter · OpenAI · GitHub Copilot
+- **Agent** -- hand it tools and let it run the whole task itself.
+  built on [opencode](https://github.com/anomalyco/opencode) · MCP · web · files · shell · skills · memory
+- **Cookbook** -- Scans your hardware, recommends models, click to download and serve.. easy!
+  built on [llmfit](https://github.com/AlexsJones/llmfit) · VRAM-aware · GGUF / FP8 / AWQ · fit scoring · vLLM / llama.cpp serving
+- **Deep Research** -- multi-step runs that gather, read, and synthesize sources into a nice visual report.
+  adapted from [Tongyi DeepResearch](https://github.com/Alibaba-NLP/DeepResearch)
+- **Compare** -- a fun tool to compare models side by side. Test completely blind, no bias!
+  multi-model · blind test · synthesis
+- **Documents** -- YOU write the text, AI is there to assist, not the opposite.
+  multi-tab editor · markdown · HTML · CSV · syntax highlighting · AI edits · suggestions
+- **Memory / Skills** -- Persistent memory and skills, your agent evolves over time as it better understands you and your tasks!
+  ChromaDB · fastembed (ONNX) · vector + keyword retrieval · import/export
+- **Email** -- IMAP/SMTP inbox with AI triage built in: urgency reminders, auto-tag, auto-summary, auto-reply drafts, auto-spam.
+  IMAP · SMTP · per-account routing · CalDAV-aware
+- **Notes & Tasks** -- Quick notes with reminders, a todo list, and scheduled tasks the agent can act on.
+  note pings · checklist · cron-style tasks · ntfy / browser / email channels
+- **Calendar** -- Local-first calendar with CalDAV sync to Radicale / Nextcloud / Apple / Fastmail.
+  CalDAV pull · .ics import/export · per-calendar colors · agent-aware
+- **Works on mobile** -- looks and runs great on your phone, not just desktop.
+  responsive · installable (PWA) · touch gestures
+- **Extras** -- more to explore, happy if you give it a go!
+  image editor · theme editor · file uploads (vision + PDF) · web search · presets · sessions · 2FA
 
 ## Demo
 
 A full, hover-to-play tour lives on the landing page (`docs/index.html`).
 
-<details>
-<summary>Screenshots / clips</summary>
+### Screenshots / clips
 
-### Chat & Agents
+#### Chat & Agents
 
 ![Chat & Agents](docs/chat.gif)
 
-### Deep Research
+#### Deep Research
 
 ![Deep Research](docs/research.gif)
 
-### Compare
+#### Compare
 
 ![Compare](docs/compare.gif)
 
-### Documents
+#### Documents
 
 ![Documents](docs/document.gif)
 
-### Notes & Tasks
+#### Notes & Tasks
 
 ![Notes & Tasks](docs/notes.gif)
-
-</details>
 
 ## Quick Start
 
@@ -133,8 +142,7 @@ expose this port directly to the public internet. To build a clickable app wrapp
 ./build-macos-app.sh
 ```
 
-<details>
-<summary>Cookbook, GPU, Ollama, and troubleshooting notes</summary>
+### Cookbook, GPU, Ollama, and troubleshooting notes
 
 **Docker bundled services.** Compose starts Odysseus, ChromaDB, SearXNG, and
 ntfy. Odysseus and the bundled service ports bind to `127.0.0.1` by default, so
@@ -278,8 +286,6 @@ runs setup, and starts uvicorn on port `7860` because AirPlay often holds
 `7000`. It uses llama.cpp/Ollama for Metal. vLLM/SGLang are CUDA/ROCm-only and
 do not run on macOS. MLX-only models are not served by Odysseus.
 
-</details>
-
 ### Native Windows
 
 **One-command launcher** (creates the venv, installs deps, runs setup, starts the
@@ -337,14 +343,18 @@ To expose Odysseus on a local network or Tailscale with HTTPS:
 
 1. Change the bind address to `0.0.0.0` in `.env` (`APP_BIND=0.0.0.0` or `ODYSSEUS_HOST=0.0.0.0`).
 2. Generate a locally-trusted cert for your LAN/Tailscale IPs using [mkcert](https://github.com/FiloSottile/mkcert):
+
    ```bash
    mkcert -install
    mkcert -cert-file cert.pem -key-file key.pem 192.168.1.100 tailscale-ip
    ```
+
 3. Run `uvicorn` with the generated certs:
+
    ```bash
    uv run python -m uvicorn app:app --host 0.0.0.0 --port 7000 --ssl-certfile=cert.pem --ssl-keyfile=key.pem
    ```
+
 4. Install the `mkcert` CA on any other device you want to access Odysseus from (e.g., for iOS, email the `rootCA.pem` to yourself, install the profile, and trust it in Certificate Trust Settings).
 
 ### Optional Dependencies
@@ -440,7 +450,7 @@ That installs `@playwright/mcp` plus Playwright (~300MB total). Restart Odysseus
 
 ## Architecture
 
-```
+```text
 app.py                   # FastAPI entry point
 core/      auth, database, middleware, constants
 src/       llm_core, agent_loop, agent_tools, chat_processor, search/
@@ -457,19 +467,13 @@ All user data lives in `data/` (gitignored): `app.db` (sessions, messages, docum
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=pewdiepie-archdaemon%2Fodysseus&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=pewdiepie-archdaemon/odysseus&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=pewdiepie-archdaemon/odysseus&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=pewdiepie-archdaemon/odysseus&type=date&legend=top-left" />
- </picture>
-</a>
+[![Star History Chart](https://api.star-history.com/chart?repos=pewdiepie-archdaemon/odysseus&type=date&legend=top-left)](https://www.star-history.com/?repos=pewdiepie-archdaemon%2Fodysseus&type=date&legend=top-left)
 
 ## License
 
 MIT -- see [LICENSE](LICENSE) and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
 
-```
+```ascii
                                   |
                                  |||
                                 |||||

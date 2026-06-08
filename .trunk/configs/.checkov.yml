@@ -1,0 +1,23 @@
+# Checkov configuration file
+# Place this in your repo root as `.checkov.yml` or `.checkovrc`
+
+directory: .
+download-external-modules: true
+evaluate-variables: true
+
+# Skip specific checks (by check ID)
+skip-check:
+  - CKV_DOCKER_3 # Ensure that a user for the container has been created
+# Run only specific checks (overrides skip-check if set)
+# check:
+#   - CKV_AWS_1
+#   - CKV_AWS_2
+
+# Output format options: cli, json, junitxml, sarif
+#output: cli
+
+# Optional: suppressions file
+#skip-checks-file: .checkov_suppressions.yaml
+
+# Quiet mode (less verbose)
+#quiet: true

@@ -50,5 +50,8 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 7000
 
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 --start-period=40s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7000/api/ready', timeout=5).read()"
+
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7000", "--loop", "asyncio"]

@@ -15,49 +15,49 @@ set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="Odysseus"
-INSTALL_DIR="$REPO_DIR"
+INSTALL_DIR="${REPO_DIR}"
 PORT="${ODYSSEUS_PORT:-7860}"
-DIST="$REPO_DIR/dist"
-APP="$DIST/$APP_NAME.app"
+DIST="${REPO_DIR}/dist"
+APP="${DIST}/${APP_NAME}.app"
 
-echo "Building $APP_NAME.app"
-echo "  install dir: $INSTALL_DIR"
-echo "  port:        $PORT"
+echo "Building ${APP_NAME}.app"
+echo "  install dir: ${INSTALL_DIR}"
+echo "  port:        ${PORT}"
 
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+rm -rf "${APP}"
+mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 
 # ── Icon (best effort) — center-crop docs/odysseus.jpg to a square .icns ──
-if [ -f "$REPO_DIR/docs/odysseus.jpg" ] && command -v sips >/dev/null 2>&1; then
-  TMPIMG="$(mktemp -d)"
-  # Center-crop to a square, scale to 512 (sips' icns encoder caps at 512), and
-  # let sips emit the .icns directly — more robust across macOS versions than
-  # building an .iconset by hand.
-  sips -c 720 720 "$REPO_DIR/docs/odysseus.jpg" --out "$TMPIMG/sq.png" >/dev/null 2>&1 || cp "$REPO_DIR/docs/odysseus.jpg" "$TMPIMG/sq.png"
-  sips -z 512 512 "$TMPIMG/sq.png" --out "$TMPIMG/icon.png" >/dev/null 2>&1
-  if sips -s format icns "$TMPIMG/icon.png" --out "$APP/Contents/Resources/odysseus.icns" >/dev/null 2>&1; then
-    echo "  icon:        odysseus.icns"
-  else
-    echo "  icon:        (skipped — conversion failed)"
-  fi
-  rm -rf "$TMPIMG"
+if [[ -f "${REPO_DIR}/docs/odysseus.jpg" ]] && command -v sips >/dev/null 2>&1; then
+	TMPIMG="$(mktemp -d)"
+	# Center-crop to a square, scale to 512 (sips' icns encoder caps at 512), and
+	# let sips emit the .icns directly — more robust across macOS versions than
+	# building an .iconset by hand.
+	sips -c 720 720 "${REPO_DIR}/docs/odysseus.jpg" --out "${TMPIMG}/sq.png" >/dev/null 2>&1 || cp "${REPO_DIR}/docs/odysseus.jpg" "${TMPIMG}/sq.png"
+	sips -z 512 512 "${TMPIMG}/sq.png" --out "${TMPIMG}/icon.png" >/dev/null 2>&1
+	if sips -s format icns "${TMPIMG}/icon.png" --out "${APP}/Contents/Resources/odysseus.icns" >/dev/null 2>&1; then
+		echo "  icon:        odysseus.icns"
+	else
+		echo "  icon:        (skipped — conversion failed)"
+	fi
+	rm -rf "${TMPIMG}"
 else
-  echo "  icon:        (skipped — no docs/odysseus.jpg)"
+	echo "  icon:        (skipped — no docs/odysseus.jpg)"
 fi
 
 # ── Info.plist ──
-cat > "$APP/Contents/Info.plist" <<PLIST
+cat >"${APP}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>            <string>$APP_NAME</string>
-    <key>CFBundleDisplayName</key>     <string>$APP_NAME</string>
+    <key>CFBundleName</key>            <string>${APP_NAME}</string>
+    <key>CFBundleDisplayName</key>     <string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key>      <string>com.odysseus.launcher</string>
     <key>CFBundleVersion</key>         <string>1.0</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
-    <key>CFBundleExecutable</key>      <string>$APP_NAME</string>
+    <key>CFBundleExecutable</key>      <string>${APP_NAME}</string>
     <key>CFBundleIconFile</key>        <string>odysseus</string>
     <key>LSMinimumSystemVersion</key>  <string>11.0</string>
     <key>NSHighResolutionCapable</key> <true/>
@@ -67,7 +67,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # ── Launcher executable (placeholders filled below) ──
-cat > "$APP/Contents/MacOS/$APP_NAME.tmpl" <<'LAUNCHER'
+cat >"${APP}/Contents/MacOS/${APP_NAME}.tmpl" <<'LAUNCHER'
 #!/bin/bash
 # Odysseus.app — start the local server and open the UI in an app window.
 INSTALL_DIR="__INSTALL_DIR__"
@@ -150,28 +150,28 @@ fi
 wait "$SERVER_PID"
 LAUNCHER
 
-sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__PORT__|$PORT|g" \
-    "$APP/Contents/MacOS/$APP_NAME.tmpl" > "$APP/Contents/MacOS/$APP_NAME"
-rm -f "$APP/Contents/MacOS/$APP_NAME.tmpl"
-chmod +x "$APP/Contents/MacOS/$APP_NAME"
+sed -e "s|__INSTALL_DIR__|${INSTALL_DIR}|g" -e "s|__PORT__|${PORT}|g" \
+	"${APP}/Contents/MacOS/${APP_NAME}.tmpl" >"${APP}/Contents/MacOS/${APP_NAME}"
+rm -f "${APP}/Contents/MacOS/${APP_NAME}.tmpl"
+chmod +x "${APP}/Contents/MacOS/${APP_NAME}"
 
 # Refresh Finder's icon cache for the new bundle.
-touch "$APP"
+touch "${APP}"
 
 # ── .dmg (drag-to-Applications) ──
-echo "Packaging dist/$APP_NAME.dmg"
+echo "Packaging dist/${APP_NAME}.dmg"
 STAGE="$(mktemp -d)/dmg"
-mkdir -p "$STAGE"
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-rm -f "$DIST/$APP_NAME.dmg"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DIST/$APP_NAME.dmg" >/dev/null
-rm -rf "$STAGE"
+mkdir -p "${STAGE}"
+cp -R "${APP}" "${STAGE}/"
+ln -s /Applications "${STAGE}/Applications"
+rm -f "${DIST}/${APP_NAME}.dmg"
+hdiutil create -volname "${APP_NAME}" -srcfolder "${STAGE}" -ov -format UDZO "${DIST}/${APP_NAME}.dmg" >/dev/null
+rm -rf "${STAGE}"
 
 echo ""
 echo "Done:"
-echo "  $APP"
-echo "  $DIST/$APP_NAME.dmg"
+echo "  ${APP}"
+echo "  ${DIST}/${APP_NAME}.dmg"
 echo ""
-echo "Run it:        open '$APP'"
-echo "Install:       open '$DIST/$APP_NAME.dmg'  (drag Odysseus to Applications)"
+echo "Run it:        open '${APP}'"
+echo "Install:       open '${DIST}/${APP_NAME}.dmg'  (drag Odysseus to Applications)"

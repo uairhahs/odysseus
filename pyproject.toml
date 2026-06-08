@@ -3,76 +3,71 @@ name = "odysseus"
 version = "1.0"
 description = "A self-hosted AI workspace — local-first, privacy-first, no trojan"
 readme = "README.md"
-license = {text = "MIT"}
-authors = [
-    {name = "Odysseus Contributors"}
-]
+license = { text = "MIT" }
+authors = [{ name = "Odysseus Contributors" }]
 requires-python = ">=3.11"
 
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "python-multipart",
-    "python-dotenv",
-    "httpx",
-    "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-    "SQLAlchemy",
-    "pypdf",
-    "beautifulsoup4",
-    "charset-normalizer",
-    "numpy",
-    # Vector store + local embeddings for RAG, semantic memory, and tool selection.
-    # Used on core agent paths, so installed by default — the app still degrades
-    # to keyword fallback if they're ever missing.
-    "chromadb-client",
-    "fastembed",
-    "youtube-transcript-api",
-    # Markdown rendering for research reports (src/visual_report.py).
-    "markdown",
-    # HTML sanitizer for rendered research reports (src/visual_report.py).
-    "nh3",
-    # Calendar .ics import/export (routes/calendar_routes.py).
-    "icalendar",
-    # Recurrence rule expansion for calendar events (routes/calendar_routes.py).
-    "python-dateutil",
-    # CalDAV sync (src/caldav_sync.py).
-    "caldav",
-    "cryptography",
-    "bcrypt",
-    "mcp",
-    "pyotp",
-    "qrcode[pil]",
-    "croniter",
+  "fastapi",
+  "uvicorn",
+  "python-multipart",
+  "python-dotenv",
+  "httpx",
+  "pydantic>=2.0",
+  "pydantic-settings>=2.0",
+  "SQLAlchemy",
+  "pypdf",
+  "beautifulsoup4",
+  "charset-normalizer",
+  "numpy",
+  # Vector store + local embeddings for RAG, semantic memory, and tool selection.
+  # Used on core agent paths, so installed by default — the app still degrades
+  # to keyword fallback if they're ever missing.
+  "chromadb-client",
+  "fastembed",
+  "youtube-transcript-api",
+  # Markdown rendering for research reports (src/visual_report.py).
+  "markdown",
+  # HTML sanitizer for rendered research reports (src/visual_report.py).
+  "nh3",
+  # Calendar .ics import/export (routes/calendar_routes.py).
+  "icalendar",
+  # Recurrence rule expansion for calendar events (routes/calendar_routes.py).
+  "python-dateutil",
+  # CalDAV sync (src/caldav_sync.py).
+  "caldav",
+  "cryptography",
+  "bcrypt",
+  "mcp",
+  "pyotp",
+  "qrcode[pil]",
+  "croniter",
 ]
 
 [project.optional-dependencies]
 # Optional features that unlock extra capabilities
 optional = [
-    # Local speech-to-text (microphone -> text) via faster-whisper, for the
-    # "local" STT provider. Runs on CPU out of the box (CTranslate2 backend, no
-    # torch needed). Install if you want to dictate/transcribe with the mic
-    # without sending audio to an external endpoint.
-    "faster-whisper",
-    # DuckDuckGo as a search provider option.
-    # Alternatives: SearXNG, Brave, Tavily, Serper, Google PSE.
-    "duckduckgo-search",
-    # PDF form-filling feature (fillable AcroForm detection, field extraction,
-    # value/annotation/signature stamping, page rendering for the form overlay).
-    # NOTE: PyMuPDF is AGPL-3.0. Installing it brings AGPL obligations for a
-    # network-served app — see ACKNOWLEDGMENTS.md.
-    "PyMuPDF",
-    # Office / EPUB document text extraction.
-    # markitdown (MIT, Microsoft) converts .docx/.xlsx/.pptx/.xls/.epub
-    # to Markdown — more token-efficient and model-legible than a raw dump.
-    "markitdown[docx,pptx,xlsx,xls]==0.1.5",
+  # Local speech-to-text (microphone -> text) via faster-whisper, for the
+  # "local" STT provider. Runs on CPU out of the box (CTranslate2 backend, no
+  # torch needed). Install if you want to dictate/transcribe with the mic
+  # without sending audio to an external endpoint.
+  "faster-whisper",
+  # DuckDuckGo as a search provider option.
+  # Alternatives: SearXNG, Brave, Tavily, Serper, Google PSE.
+  "duckduckgo-search",
+  # PDF form-filling feature (fillable AcroForm detection, field extraction,
+  # value/annotation/signature stamping, page rendering for the form overlay).
+  # NOTE: PyMuPDF is AGPL-3.0. Installing it brings AGPL obligations for a
+  # network-served app — see ACKNOWLEDGMENTS.md.
+  "PyMuPDF",
+  # Office / EPUB document text extraction.
+  # markitdown (MIT, Microsoft) converts .docx/.xlsx/.pptx/.xls/.epub
+  # to Markdown — more token-efficient and model-legible than a raw dump.
+  "markitdown[docx,pptx,xlsx,xls]==0.1.5",
 ]
 
 # Development and test dependencies
-dev = [
-    "pytest",
-    "pytest-asyncio",
-]
+dev = ["pytest", "pytest-asyncio"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,25 @@
+[bandit]
+# .bandit
+# Directories to include in the scan
+targets: .
+# Directories or files to skip
+exclude: tests,venv,.venv,__pycache__,migrations
+
+# Severity levels: LOW, MEDIUM, HIGH
+severity-level: MEDIUM
+
+# Confidence levels: LOW, MEDIUM, HIGH
+confidence-level: MEDIUM
+
+# Output format: json, txt, xml, csv, yaml
+format: json
+
+# Number of worker processes
+number: 4
+
+# Show skipped tests in output
+show-skipped: True
+
+# Tests to skip (comma-separated test IDs)
+# Example: B101,B102
+skips = B101,B603

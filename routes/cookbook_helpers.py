@@ -55,16 +55,25 @@ def _git_bash_path(path: str) -> str:
 
 def _validate_repo_id(v: str | None) -> str:
     if not v or not _REPO_ID_RE.match(v):
-        raise HTTPException(400, "Invalid repo_id — must be <org>/<name> using [A-Za-z0-9._-]")
+        raise HTTPException(
+            400, "Invalid repo_id — must be <org>/<name> using [A-Za-z0-9._-]"
+        )
     return v
 
 
 def _validate_serve_model_id(v: str | None) -> str:
     if not v:
         raise HTTPException(400, "repo_id is required")
-    if _REPO_ID_RE.match(v) or _LOCAL_MODEL_ID_RE.match(v) or _OLLAMA_MODEL_ID_RE.match(v):
+    if (
+        _REPO_ID_RE.match(v)
+        or _LOCAL_MODEL_ID_RE.match(v)
+        or _OLLAMA_MODEL_ID_RE.match(v)
+    ):
         return v
-    raise HTTPException(400, "Invalid repo_id — must be <org>/<name>, an Ollama name:tag, or a cached local model id")
+    raise HTTPException(
+        400,
+        "Invalid repo_id — must be <org>/<name>, an Ollama name:tag, or a cached local model id",
+    )
 
 
 def _validate_include(v: str | None) -> str | None:
@@ -79,7 +88,9 @@ def _validate_remote_host(v: str | None) -> str | None:
     if v is None or v == "":
         return None
     if not _REMOTE_HOST_RE.match(v):
-        raise HTTPException(400, "Invalid remote_host — must be user@host, no SSH option syntax")
+        raise HTTPException(
+            400, "Invalid remote_host — must be user@host, no SSH option syntax"
+        )
     return v
 
 
@@ -96,7 +107,10 @@ def _validate_local_dir(v: str | None) -> str | None:
         return None
     v = v.rstrip("/") or "/"
     if not _LOCAL_DIR_RE.match(v):
-        raise HTTPException(400, "Invalid local_dir — must be an absolute or ~ path with no spaces or shell metacharacters")
+        raise HTTPException(
+            400,
+            "Invalid local_dir — must be an absolute or ~ path with no spaces or shell metacharacters",
+        )
     return v
 
 
@@ -195,7 +209,9 @@ def _pip_install_attempt(pip_cmd: str) -> str:
     )
 
 
-def _pip_install_fallback_chain(package: str, *, python_cmd: str = "uv pip", upgrade: bool = False) -> str:
+def _pip_install_fallback_chain(
+    package: str, *, python_cmd: str = "uv pip", upgrade: bool = False
+) -> str:
     """Build a bash install fallback chain that surfaces errors.
 
     Prefers ``uv pip install`` (uv's pip compatibility layer). For ``uv add``
@@ -210,6 +226,7 @@ def _pip_install_fallback_chain(package: str, *, python_cmd: str = "uv pip", upg
     output appear in the Cookbook log on failure.
     """
     from core.platform_compat import IS_WINDOWS
+
     upgrade_flag = " -U" if upgrade else ""
     # Shell-quote the package spec: an extras spec like ``llama-cpp-python[server]``
     # contains brackets that bash would treat as a glob, so it must be quoted
@@ -235,7 +252,9 @@ def _pip_install_fallback_chain(package: str, *, python_cmd: str = "uv pip", upg
 
     # Traditional pip commands: try plain install, then --user outside a venv.
     base = _pip_install_attempt(f"{python_cmd} install -q{upgrade_flag} {pkg}")
-    user = _pip_install_attempt(f"{python_cmd} install --user --break-system-packages -q{upgrade_flag} {pkg}")
+    user = _pip_install_attempt(
+        f"{python_cmd} install --user --break-system-packages -q{upgrade_flag} {pkg}"
+    )
     # Derive the python executable for the venv detection check.
     # Must use the same interpreter that pip belongs to; hardcoding
     # python3 breaks when pip lives in a venv that only has "python".
@@ -276,9 +295,7 @@ def _venv_safe_local_pip_install_cmd(cmd: str, *, local: bool, in_venv: bool) ->
     except ValueError:
         return cmd
     stripped = [
-        part
-        for part in parts
-        if part not in {"--user", "--break-system-packages"}
+        part for part in parts if part not in {"--user", "--break-system-packages"}
     ]
     return shlex.join(stripped)
 
@@ -289,7 +306,7 @@ def _user_shell_path_bootstrap() -> list[str]:
         'if [ -n "$ODYSSEUS_USER_SHELL" ] && [ -x "$ODYSSEUS_USER_SHELL" ]; then',
         '  ODYSSEUS_USER_PATH="$("$ODYSSEUS_USER_SHELL" -ic \'printf "__ODYSSEUS_PATH__%s\\n" "$PATH"\' 2>/dev/null | sed -n \'s/^__ODYSSEUS_PATH__//p\' | tail -n 1 || true)"',
         '  if [ -n "$ODYSSEUS_USER_PATH" ]; then export PATH="$ODYSSEUS_USER_PATH:$PATH"; fi',
-        'fi',
+        "fi",
         'command -v python3 >/dev/null 2>&1 || python3() { python "$@"; }',
     ]
 
@@ -463,10 +480,17 @@ def _bash_squote(v: str) -> str:
 # Allow-list of binaries permitted as the leading token of `req.cmd` for /api/model/serve.
 # Anything else is rejected before the cmd is interpolated into a tmux/PowerShell wrapper.
 _SERVE_CMD_ALLOWLIST = {
-    "vllm", "llama-server", "llama_server", "llama.cpp", "ollama",
-    "python", "python3",
-    "sglang", "lmdeploy",
-    "node", "npx",
+    "vllm",
+    "llama-server",
+    "llama_server",
+    "llama.cpp",
+    "ollama",
+    "python",
+    "python3",
+    "sglang",
+    "lmdeploy",
+    "node",
+    "npx",
 }
 
 
@@ -477,14 +501,16 @@ _SERVE_CMD_ALLOWLIST = {
 # That legitimately needs $(...)/&&/||, so we recognise this exact shape and
 # validate the serve binaries it guards rather than rejecting it wholesale.
 _GGUF_PRELUDE_RE = re.compile(
-    r'^MODEL_FILE=\$\([^\n]*?\)\s*&&\s*\{[^{}]*\}\s*\|\|\s*\{[^{}]*\}\s*&&\s*'
+    r"^MODEL_FILE=\$\([^\n]*?\)\s*&&\s*\{[^{}]*\}\s*\|\|\s*\{[^{}]*\}\s*&&\s*"
 )
 _OLLAMA_HOST_ASSIGNMENT_RE = re.compile(r"(?:^|\s)OLLAMA_HOST=([^\s]+)")
 _OLLAMA_BIND_RE = re.compile(r"^\[([^\]]+)\]:(\d+)$|^([^:]+):(\d+)$")
 _OLLAMA_BIND_HOST_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 
 
-def _ollama_bind_from_cmd(cmd: str | None, *, default_host: str = "127.0.0.1") -> tuple[str, str]:
+def _ollama_bind_from_cmd(
+    cmd: str | None, *, default_host: str = "127.0.0.1"
+) -> tuple[str, str]:
     """Return the Ollama bind host/port requested by a serve command.
 
     Plain local `ollama serve` defaults to loopback. Remote callers can pass a
@@ -518,8 +544,8 @@ def _check_serve_binary(seg: str) -> None:
     (after skipping leading env-var assignments like `CUDA_VISIBLE_DEVICES=0`)."""
     try:
         tokens = shlex.split(seg) if seg.strip() else []
-    except ValueError:
-        raise HTTPException(400, "Invalid cmd — could not parse")
+    except ValueError as e:
+        raise HTTPException(400, "Invalid cmd — could not parse") from e
     if not tokens:
         return
     env_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -558,7 +584,7 @@ def _validate_serve_cmd(v: str | None) -> str | None:
     # Known GGUF launcher prelude → validate the serve invocation(s) it guards.
     m = _GGUF_PRELUDE_RE.match(v)
     if m:
-        rest = v[m.end():]
+        rest = v[m.end() :]
         # rest is `[ENV=…] python3 -m llama_cpp.server … || [ENV=…] llama-server …`
         for part in rest.split("||"):
             _check_serve_binary(part.strip())
@@ -581,22 +607,26 @@ def _validate_serve_cmd(v: str | None) -> str | None:
     return v
 
 
-def _append_serve_preflight_exit_lines(runner_lines: list[str], *, keep_shell_open: bool) -> None:
+def _append_serve_preflight_exit_lines(
+    runner_lines: list[str], *, keep_shell_open: bool
+) -> None:
     """Append serve-runner lines that surface preflight failures before exit."""
     runner_lines.append('if [ -n "$ODYSSEUS_PREFLIGHT_EXIT" ]; then')
-    runner_lines.append('  echo ""; echo "=== Process exited with code $ODYSSEUS_PREFLIGHT_EXIT ==="')
+    runner_lines.append(
+        '  echo ""; echo "=== Process exited with code $ODYSSEUS_PREFLIGHT_EXIT ==="'
+    )
     if keep_shell_open:
         # Decouple the post-crash interactive shell from the persistent log
         # file. fds 3/4 were saved BEFORE the tee redirect at the top of
         # the runner; restoring them here means the neofetch banner the
         # user's .zshrc prints lands on the tmux pane only, not in the
         # log file the agent's tail_serve_output reads.
-        runner_lines.append('  exec 1>&3 2>&4 3>&- 4>&- 2>/dev/null || true')
-        runner_lines.append('  sleep 0.2  # let tee child flush + exit')
+        runner_lines.append("  exec 1>&3 2>&4 3>&- 4>&- 2>/dev/null || true")
+        runner_lines.append("  sleep 0.2  # let tee child flush + exit")
         runner_lines.append('  exec "${SHELL:-/bin/bash}"')
     else:
         runner_lines.append('  exit "$ODYSSEUS_PREFLIGHT_EXIT"')
-    runner_lines.append('fi')
+    runner_lines.append("fi")
 
 
 def _append_vllm_linux_preflight_lines(runner_lines: list[str]) -> None:
@@ -607,12 +637,17 @@ def _append_vllm_linux_preflight_lines(runner_lines: list[str]) -> None:
     runner_lines.append('ODYSSEUS_VLLM_BIN="$(command -v vllm 2>/dev/null || true)"')
     runner_lines.append('if [ -z "$ODYSSEUS_VLLM_BIN" ]; then')
     runner_lines.append('  echo "ERROR: vLLM is not installed."')
-    runner_lines.append('  ODYSSEUS_PREFLIGHT_EXIT=127')
-    runner_lines.append('else')
+    runner_lines.append("  ODYSSEUS_PREFLIGHT_EXIT=127")
+    runner_lines.append("else")
     runner_lines.append('  echo "[odysseus] vLLM CLI: $ODYSSEUS_VLLM_BIN"')
-    runner_lines.append('  ODYSSEUS_VLLM_VERSION="$("$ODYSSEUS_VLLM_BIN" --version 2>&1 | head -n 1 || true)"')
-    runner_lines.append('  if [ -n "$ODYSSEUS_VLLM_VERSION" ]; then echo "[odysseus] vLLM version: $ODYSSEUS_VLLM_VERSION"; fi')
-    runner_lines.append('fi')
+    runner_lines.append(
+        '  ODYSSEUS_VLLM_VERSION="$("$ODYSSEUS_VLLM_BIN" --version 2>&1 | head -n 1 || true)"'
+    )
+    runner_lines.append(
+        '  if [ -n "$ODYSSEUS_VLLM_VERSION" ]; then echo "[odysseus] vLLM version: $ODYSSEUS_VLLM_VERSION"; fi'
+    )
+    runner_lines.append("fi")
+
 
 def _append_serve_exit_code_lines(
     runner_lines: list[str],
@@ -621,17 +656,23 @@ def _append_serve_exit_code_lines(
     is_pip_install: bool = False,
 ) -> None:
     """Append serve-runner lines that preserve and report the command exit code."""
-    runner_lines.append('ODYSSEUS_CMD_EXIT=$?')
+    runner_lines.append("ODYSSEUS_CMD_EXIT=$?")
     if is_pip_install:
-        runner_lines.append('if [ $ODYSSEUS_CMD_EXIT -eq 0 ]; then echo ""; echo "DOWNLOAD_OK"; fi')
+        runner_lines.append(
+            'if [ $ODYSSEUS_CMD_EXIT -eq 0 ]; then echo ""; echo "DOWNLOAD_OK"; fi'
+        )
     if keep_shell_open:
-        runner_lines.append('echo ""; echo "=== Process exited with code $ODYSSEUS_CMD_EXIT ==="')
+        runner_lines.append(
+            'echo ""; echo "=== Process exited with code $ODYSSEUS_CMD_EXIT ==="'
+        )
         # See preflight branch above for the rationale on restoring fds 3/4.
-        runner_lines.append('exec 1>&3 2>&4 3>&- 4>&- 2>/dev/null || true')
-        runner_lines.append('sleep 0.2  # let tee child flush + exit')
+        runner_lines.append("exec 1>&3 2>&4 3>&- 4>&- 2>/dev/null || true")
+        runner_lines.append("sleep 0.2  # let tee child flush + exit")
         runner_lines.append('exec "${SHELL:-/bin/bash}"')
     else:
-        runner_lines.append('echo ""; echo "=== Process exited with code $ODYSSEUS_CMD_EXIT ==="')
+        runner_lines.append(
+            'echo ""; echo "=== Process exited with code $ODYSSEUS_CMD_EXIT ==="'
+        )
         runner_lines.append('exit "$ODYSSEUS_CMD_EXIT"')
 
 
@@ -646,49 +687,89 @@ def _append_llama_cpp_linux_accel_build_lines(runner_lines: list[str]) -> None:
     # so cmake's CUDA configure can find it. We keep this after the ROCm/HIP
     # check — a machine with both stacks should honor the native HIP toolchain on
     # AMD hosts instead of accidentally preferring a stray nvcc wheel.
-    runner_lines.append('    for _cudir in ~/.local/lib/python*/site-packages/nvidia/cu13 ~/.local/lib/python*/site-packages/nvidia/cu12 ~/.local/lib/python*/site-packages/nvidia/cuda_nvcc; do')
-    runner_lines.append('      [ -x "$_cudir/bin/nvcc" ] && export CUDA_HOME="$_cudir" && export PATH="$_cudir/bin:$PATH" && break')
-    runner_lines.append('    done')
+    runner_lines.append(
+        "    for _cudir in ~/.local/lib/python*/site-packages/nvidia/cu13 ~/.local/lib/python*/site-packages/nvidia/cu12 ~/.local/lib/python*/site-packages/nvidia/cuda_nvcc; do"
+    )
+    runner_lines.append(
+        '      [ -x "$_cudir/bin/nvcc" ] && export CUDA_HOME="$_cudir" && export PATH="$_cudir/bin:$PATH" && break'
+    )
+    runner_lines.append("    done")
     # rm -rf build so a prior poisoned CMakeCache.txt (e.g. from a failed CUDA
     # or HIP attempt) doesn't cause the next configure to reuse stale settings.
-    runner_lines.append('    cd ~/llama.cpp && rm -rf build')
-    runner_lines.append('    if command -v hipconfig &>/dev/null || [ -d /opt/rocm ] || [ -n "$ROCM_PATH" ] || [ -n "$HIP_PATH" ]; then')
-    runner_lines.append('      if command -v hipconfig &>/dev/null; then')
+    runner_lines.append("    cd ~/llama.cpp && rm -rf build")
+    runner_lines.append(
+        '    if command -v hipconfig &>/dev/null || [ -d /opt/rocm ] || [ -n "$ROCM_PATH" ] || [ -n "$HIP_PATH" ]; then'
+    )
+    runner_lines.append("      if command -v hipconfig &>/dev/null; then")
     runner_lines.append('        export HIPCXX="${HIPCXX:-$(hipconfig -l)/clang}"')
     runner_lines.append('        export HIP_PATH="${HIP_PATH:-$(hipconfig -R)}"')
-    runner_lines.append('      fi')
-    runner_lines.append('      echo "[odysseus] ROCm/HIP detected — building llama-server with HIP support..."')
-    runner_lines.append('      cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_HIP=ON && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server')
-    runner_lines.append('    elif command -v nvcc &>/dev/null; then')
+    runner_lines.append("      fi")
+    runner_lines.append(
+        '      echo "[odysseus] ROCm/HIP detected — building llama-server with HIP support..."'
+    )
+    runner_lines.append(
+        '      cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_HIP=ON && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server'
+    )
+    runner_lines.append("    elif command -v nvcc &>/dev/null; then")
     # nvcc alone is not sufficient — pip-installed CUDA wheels or incomplete
     # tooling can expose nvcc without shipping libcudart, causing cmake to fail
     # mid-build with "CUDA runtime library not found". Check cudart explicitly
     # via a small helper so the guard stays readable.
-    runner_lines.append('      _odysseus_has_cudart() {')
-    runner_lines.append('        ldconfig -p 2>/dev/null | grep -q \'libcudart\\.so\' && return 0')
+    runner_lines.append("      _odysseus_has_cudart() {")
+    runner_lines.append(
+        "        ldconfig -p 2>/dev/null | grep -q 'libcudart\\.so' && return 0"
+    )
     runner_lines.append('        local _cuh="${CUDA_HOME:-/usr/local/cuda}"')
-    runner_lines.append('        ls "$_cuh/lib64/libcudart.so"* &>/dev/null && return 0')
+    runner_lines.append(
+        '        ls "$_cuh/lib64/libcudart.so"* &>/dev/null && return 0'
+    )
     runner_lines.append('        ls "$_cuh/lib/libcudart.so"* &>/dev/null && return 0')
-    runner_lines.append('        ls /usr/local/cuda/lib64/libcudart.so* &>/dev/null && return 0')
-    runner_lines.append('        ls /usr/local/cuda/lib/libcudart.so* &>/dev/null && return 0')
-    runner_lines.append('        ls "${_cuh%/cuda_nvcc}/cuda_runtime/lib/libcudart.so"* &>/dev/null && return 0')
-    runner_lines.append('        return 1')
-    runner_lines.append('      }')
-    runner_lines.append('      if _odysseus_has_cudart; then')
-    runner_lines.append('        echo "[odysseus] CUDA nvcc + cudart found — building llama-server with CUDA (GPU) support..."')
-    runner_lines.append('        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server')
-    runner_lines.append('      else')
-    runner_lines.append('        echo "[odysseus] WARNING: nvcc found but CUDA runtime (libcudart.so) is not visible — building llama-server for CPU only."')
-    runner_lines.append('        echo "[odysseus]   GPU inference will not be available for this llama.cpp build."')
-    runner_lines.append('        echo "[odysseus]   Ensure libcudart is installed (e.g. cuda-runtime package) and visible via ldconfig or CUDA_HOME."')
-    runner_lines.append('        cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server')
-    runner_lines.append('      fi')
-    runner_lines.append('    else')
-    runner_lines.append('      echo "[odysseus] WARNING: no HIP/CUDA toolchain found — building llama-server for CPU only."')
-    runner_lines.append('      echo "[odysseus]   GPU inference will not be available for this llama.cpp build."')
-    runner_lines.append('      echo "[odysseus]   Install ROCm for AMD GPUs or vLLM/CUDA tooling for NVIDIA, then re-launch this serve task."')
-    runner_lines.append('      cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server')
-    runner_lines.append('    fi')
+    runner_lines.append(
+        "        ls /usr/local/cuda/lib64/libcudart.so* &>/dev/null && return 0"
+    )
+    runner_lines.append(
+        "        ls /usr/local/cuda/lib/libcudart.so* &>/dev/null && return 0"
+    )
+    runner_lines.append(
+        '        ls "${_cuh%/cuda_nvcc}/cuda_runtime/lib/libcudart.so"* &>/dev/null && return 0'
+    )
+    runner_lines.append("        return 1")
+    runner_lines.append("      }")
+    runner_lines.append("      if _odysseus_has_cudart; then")
+    runner_lines.append(
+        '        echo "[odysseus] CUDA nvcc + cudart found — building llama-server with CUDA (GPU) support..."'
+    )
+    runner_lines.append(
+        '        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server'
+    )
+    runner_lines.append("      else")
+    runner_lines.append(
+        '        echo "[odysseus] WARNING: nvcc found but CUDA runtime (libcudart.so) is not visible — building llama-server for CPU only."'
+    )
+    runner_lines.append(
+        '        echo "[odysseus]   GPU inference will not be available for this llama.cpp build."'
+    )
+    runner_lines.append(
+        '        echo "[odysseus]   Ensure libcudart is installed (e.g. cuda-runtime package) and visible via ldconfig or CUDA_HOME."'
+    )
+    runner_lines.append(
+        '        cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server'
+    )
+    runner_lines.append("      fi")
+    runner_lines.append("    else")
+    runner_lines.append(
+        '      echo "[odysseus] WARNING: no HIP/CUDA toolchain found — building llama-server for CPU only."'
+    )
+    runner_lines.append(
+        '      echo "[odysseus]   GPU inference will not be available for this llama.cpp build."'
+    )
+    runner_lines.append(
+        '      echo "[odysseus]   Install ROCm for AMD GPUs or vLLM/CUDA tooling for NVIDIA, then re-launch this serve task."'
+    )
+    runner_lines.append(
+        '      cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$NPROC" --target llama-server && ln -sf ~/llama.cpp/build/bin/llama-server ~/bin/llama-server'
+    )
+    runner_lines.append("    fi")
 
 
 def _llama_cpp_rebuild_cmd() -> str:
@@ -706,7 +787,7 @@ def _llama_cpp_rebuild_cmd() -> str:
         'rm -f "$HOME/bin/llama-server" && '
         'rm -rf "$HOME/llama.cpp/build" && '
         'echo "[odysseus] Cleared the cached llama.cpp build. '
-        'Re-launch the serve task to rebuild llama-server from source '
+        "Re-launch the serve task to rebuild llama-server from source "
         '(CUDA or HIP will be used if a toolchain is now available)."'
     )
 
@@ -717,10 +798,14 @@ class ModelDownloadRequest(BaseModel):
     hf_token: str | None = None
     env_prefix: str | None = None  # e.g. "source ~/venv/bin/activate"
     remote_host: str | None = None  # e.g. "gpu-box" — run download on this host via SSH
-    ssh_port: str | None = None    # e.g. "8022" for Termux
-    platform: str | None = None    # "linux", "termux", or "windows"
-    local_dir: str | None = None   # base dir to download into (a per-model subfolder is created under it); None = default HF cache
-    disable_hf_transfer: bool = False  # skip the Rust hf_transfer downloader — slower but far more reliable on large files (used by retries)
+    ssh_port: str | None = None  # e.g. "8022" for Termux
+    platform: str | None = None  # "linux", "termux", or "windows"
+    local_dir: str | None = (
+        None  # base dir to download into (a per-model subfolder is created under it); None = default HF cache
+    )
+    disable_hf_transfer: bool = (
+        False  # skip the Rust hf_transfer downloader — slower but far more reliable on large files (used by retries)
+    )
 
 
 class ServeRequest(BaseModel):
@@ -731,7 +816,7 @@ class ServeRequest(BaseModel):
     env_prefix: str | None = None
     hf_token: str | None = None
     gpus: str | None = None
-    platform: str | None = None    # "linux", "termux", or "windows"
+    platform: str | None = None  # "linux", "termux", or "windows"
 
 
 def _parse_serve_phase(snapshot: str, task_type: str = "serve") -> dict:
@@ -742,20 +827,21 @@ def _parse_serve_phase(snapshot: str, task_type: str = "serve") -> dict:
           "reqs": int|None, "pct": int|None }
     """
     import re
+
     if task_type != "serve" or not snapshot:
         return {}
     # Strip newlines so tmux line-wrapping doesn't break regex matching
-    flat = re.sub(r'\s+', ' ', snapshot)
+    flat = re.sub(r"\s+", " ", snapshot)
 
-    load_matches = re.findall(r'Loading safetensors.*?(\d+)%', flat)
+    load_matches = re.findall(r"Loading safetensors.*?(\d+)%", flat)
     # Prefer "Downloading (incomplete total...)" (real aggregate bytes) over
     # "Fetching N files" (whole-file count, lags with hf_transfer's chunked pulls).
-    downloading_matches = re.findall(r'Downloading.*?(\d+)%', flat)
-    fetching_matches = re.findall(r'Fetching.*?(\d+)%', flat)
+    downloading_matches = re.findall(r"Downloading.*?(\d+)%", flat)
+    fetching_matches = re.findall(r"Fetching.*?(\d+)%", flat)
     dl_matches = downloading_matches if downloading_matches else fetching_matches
     # Match "Avg generation throughput: X tokens/s, Running: N reqs" (with line-wrap tolerance)
     tps_matches = re.findall(
-        r'(?:Avg )?generation throughput:\s*([\d.]+)\s*tokens/s.*?Running:\s*(\d+)\s*reqs',
+        r"(?:Avg )?generation throughput:\s*([\d.]+)\s*tokens/s.*?Running:\s*(\d+)\s*reqs",
         flat,
     )
 
@@ -773,7 +859,7 @@ def _parse_serve_phase(snapshot: str, task_type: str = "serve") -> dict:
         }
     if "Application startup complete" in flat:
         return {"phase": "ready", "status": "ready"}
-    if re.search(r'Ollama API ready on port\s+\d+', flat, re.I):
+    if re.search(r"Ollama API ready on port\s+\d+", flat, re.I):
         return {"phase": "ready", "status": "ready"}
     # HTTP access logs (e.g. GET /v1/models 200 OK) mean the server is up and serving
     if re.search(r'(?:GET|POST)\s+/[^\s]*\s+HTTP/[\d.]+"\s*\d{3}', flat):
@@ -808,23 +894,28 @@ def _safe_env_prefix(ep: str | None) -> str | None:
     if not ep:
         return ep
     import shlex
+
     try:
         parts = shlex.split(ep, posix=True)
-    except ValueError:
-        raise HTTPException(400, "Invalid env_prefix")
+    except ValueError as e:
+        raise HTTPException(400, "Invalid env_prefix") from e
     if len(parts) != 2 or parts[0] not in {"source", "."}:
         # Bash conda activation emitted by the frontend:
         #   eval "$(conda shell.bash hook)" && conda activate ENV
-        m = re.fullmatch(r'eval "\$\(conda shell\.bash hook\)" && conda activate (.+)', ep)
+        m = re.fullmatch(
+            r'eval "\$\(conda shell\.bash hook\)" && conda activate (.+)', ep
+        )
         if m:
             env = m.group(1).strip()
             try:
                 env_parts = shlex.split(env, posix=True)
-            except ValueError:
-                raise HTTPException(400, "Invalid env_prefix")
+            except ValueError as e:
+                raise HTTPException(400, "Invalid env_prefix") from e
             if len(env_parts) != 1:
                 raise HTTPException(400, "Invalid env_prefix")
-            return 'eval "$(conda shell.bash hook)" && conda activate ' + shlex.quote(env_parts[0])
+            return 'eval "$(conda shell.bash hook)" && conda activate ' + shlex.quote(
+                env_parts[0]
+            )
 
         # Plain conda activation, used by Windows/PowerShell and some manual callers.
         if len(parts) == 3 and parts[0] == "conda" and parts[1] == "activate":
@@ -876,44 +967,100 @@ def _diagnose_serve_output(text: str) -> dict | None:
             r"No available memory for the cache blocks|Available KV cache memory:.*-",
             "No GPU memory left for KV cache after loading model.",
             [
-                {"label": "retry with GPU memory utilization 0.95", "op": "replace", "flag": "--gpu-memory-utilization", "value": "0.95"},
-                {"label": "retry with context 2048", "op": "replace", "flag": "--max-model-len", "value": "2048"},
+                {
+                    "label": "retry with GPU memory utilization 0.95",
+                    "op": "replace",
+                    "flag": "--gpu-memory-utilization",
+                    "value": "0.95",
+                },
+                {
+                    "label": "retry with context 2048",
+                    "op": "replace",
+                    "flag": "--max-model-len",
+                    "value": "2048",
+                },
             ],
         ),
         (
             r"CUDA out of memory|torch\.cuda\.OutOfMemoryError|CUDA error: out of memory|warming up sampler|max_num_seqs.*gpu_memory_utilization",
             "GPU ran out of memory during startup or warmup.",
             [
-                {"label": "retry with context 4096", "op": "replace", "flag": "--max-model-len", "value": "4096"},
-                {"label": "retry with GPU memory utilization 0.80", "op": "replace", "flag": "--gpu-memory-utilization", "value": "0.80"},
-                {"label": "retry with --enforce-eager", "op": "append", "arg": "--enforce-eager"},
+                {
+                    "label": "retry with context 4096",
+                    "op": "replace",
+                    "flag": "--max-model-len",
+                    "value": "4096",
+                },
+                {
+                    "label": "retry with GPU memory utilization 0.80",
+                    "op": "replace",
+                    "flag": "--gpu-memory-utilization",
+                    "value": "0.80",
+                },
+                {
+                    "label": "retry with --enforce-eager",
+                    "op": "append",
+                    "arg": "--enforce-eager",
+                },
             ],
         ),
         (
             r"not divisib|must be divisible|attention heads.*divisible",
             "Tensor parallel size is incompatible with the model.",
             [
-                {"label": "retry with tensor parallel size 1", "op": "replace", "flag": "--tensor-parallel-size", "value": "1"},
-                {"label": "retry with tensor parallel size 2", "op": "replace", "flag": "--tensor-parallel-size", "value": "2"},
+                {
+                    "label": "retry with tensor parallel size 1",
+                    "op": "replace",
+                    "flag": "--tensor-parallel-size",
+                    "value": "1",
+                },
+                {
+                    "label": "retry with tensor parallel size 2",
+                    "op": "replace",
+                    "flag": "--tensor-parallel-size",
+                    "value": "2",
+                },
             ],
         ),
         (
             r"KV cache.*too (small|large)|max_model_len.*exceeds|maximum.*context",
             "Context length is too large for available GPU memory.",
             [
-                {"label": "retry with context 8192", "op": "replace", "flag": "--max-model-len", "value": "8192"},
-                {"label": "retry with context 4096", "op": "replace", "flag": "--max-model-len", "value": "4096"},
+                {
+                    "label": "retry with context 8192",
+                    "op": "replace",
+                    "flag": "--max-model-len",
+                    "value": "8192",
+                },
+                {
+                    "label": "retry with context 4096",
+                    "op": "replace",
+                    "flag": "--max-model-len",
+                    "value": "4096",
+                },
             ],
         ),
         (
             r"enable-auto-tool-choice requires --tool-call-parser",
             "Auto tool choice requires an explicit tool call parser.",
-            [{"label": "retry with Hermes tool parser", "op": "append", "arg": "--tool-call-parser hermes"}],
+            [
+                {
+                    "label": "retry with Hermes tool parser",
+                    "op": "append",
+                    "arg": "--tool-call-parser hermes",
+                }
+            ],
         ),
         (
             r"Please pass.*trust.remote.code=True|contains custom code which must be executed to correctly load|does not recognize this architecture|model type.*but Transformers does not",
             "Model requires custom code or newer model support.",
-            [{"label": "retry with --trust-remote-code", "op": "append", "arg": "--trust-remote-code"}],
+            [
+                {
+                    "label": "retry with --trust-remote-code",
+                    "op": "append",
+                    "arg": "--trust-remote-code",
+                }
+            ],
         ),
         (
             r"There is no module or parameter named ['\"]lm_head\.input_scale['\"]|lm_head\.input_scale|weight_scale_2",
@@ -928,56 +1075,116 @@ def _diagnose_serve_output(text: str) -> dict | None:
         (
             r"Either a revision or a version must be specified|transformers\.integrations\.hub_kernels|kernels/layer",
             "vLLM/Transformers kernel package mismatch.",
-            [{"label": "update vLLM, Transformers, and kernels on this server", "op": "dependency", "package": "vllm transformers kernels"}],
+            [
+                {
+                    "label": "update vLLM, Transformers, and kernels on this server",
+                    "op": "dependency",
+                    "package": "vllm transformers kernels",
+                }
+            ],
         ),
         (
             r"Address already in use|bind.*address.*in use",
             "Port is already in use.",
-            [{"label": "retry on port 8001", "op": "replace", "flag": "--port", "value": "8001"}],
+            [
+                {
+                    "label": "retry on port 8001",
+                    "op": "replace",
+                    "flag": "--port",
+                    "value": "8001",
+                }
+            ],
         ),
         (
             r"No CUDA GPUs are available|no GPU.*found|CUDA_VISIBLE_DEVICES.*invalid",
             "No GPUs are visible to the serve process.",
-            [{"label": "clear Cookbook GPU selection or choose available GPUs", "op": "settings", "field": "gpus", "value": ""}],
+            [
+                {
+                    "label": "clear Cookbook GPU selection or choose available GPUs",
+                    "op": "settings",
+                    "field": "gpus",
+                    "value": "",
+                }
+            ],
         ),
         (
             r"Failed to infer device type|NVML Shared Library Not Found|No module named 'amdsmi'|platform is not available",
             "vLLM could not find a supported GPU (CUDA or ROCm). "
             "This machine may have integrated or unsupported graphics only.",
             [
-                {"label": "switch to llama.cpp (CPU/Metal, works without a discrete GPU)", "op": "manual"},
-                {"label": "switch to Ollama (CPU/Metal, works without a discrete GPU)", "op": "manual"},
+                {
+                    "label": "switch to llama.cpp (CPU/Metal, works without a discrete GPU)",
+                    "op": "manual",
+                },
+                {
+                    "label": "switch to Ollama (CPU/Metal, works without a discrete GPU)",
+                    "op": "manual",
+                },
             ],
         ),
         (
             r"vllm.*command not found|No module named vllm|ERROR: vLLM is not installed",
             "vLLM is not installed or not in PATH on this server.",
-            [{"label": "install vLLM in Cookbook Dependencies", "op": "dependency", "package": "vllm"}],
+            [
+                {
+                    "label": "install vLLM in Cookbook Dependencies",
+                    "op": "dependency",
+                    "package": "vllm",
+                }
+            ],
         ),
         (
             r"sglang.*command not found|No module named sglang|SGLang is not installed",
             "SGLang is not installed or not in PATH on this server.",
-            [{"label": "install SGLang in Cookbook Dependencies", "op": "dependency", "package": "sglang[all]"}],
+            [
+                {
+                    "label": "install SGLang in Cookbook Dependencies",
+                    "op": "dependency",
+                    "package": "sglang[all]",
+                }
+            ],
         ),
         (
             r"llama-server.*command not found|llama\.cpp.*not found|No module named.*llama_cpp|No module named 'starlette_context'|git: command not found|cmake: command not found",
             "llama.cpp / llama-cpp-python dependencies are missing.",
-            [{"label": "install llama.cpp dependencies or llama-cpp-python[server]", "op": "dependency", "package": "llama-cpp-python[server]"}],
+            [
+                {
+                    "label": "install llama.cpp dependencies or llama-cpp-python[server]",
+                    "op": "dependency",
+                    "package": "llama-cpp-python[server]",
+                }
+            ],
         ),
         (
             r"No GGUF found on this host|no \.gguf file|No GGUF file found",
             "No GGUF file found for this model on this host. The llama.cpp backend needs a .gguf file.",
-            [{"label": "download a GGUF build of this model (repo name usually ends in -GGUF, file like Q4_K_M.gguf)", "op": "manual"}],
+            [
+                {
+                    "label": "download a GGUF build of this model (repo name usually ends in -GGUF, file like Q4_K_M.gguf)",
+                    "op": "manual",
+                }
+            ],
         ),
         (
             r"No module named 'torch'|No module named torch|No module named 'diffusers'|No module named diffusers",
             "Diffusion serving requires PyTorch and diffusers.",
-            [{"label": "install diffusers[torch] in Cookbook Dependencies", "op": "dependency", "package": "diffusers[torch]"}],
+            [
+                {
+                    "label": "install diffusers[torch] in Cookbook Dependencies",
+                    "op": "dependency",
+                    "package": "diffusers[torch]",
+                }
+            ],
         ),
         (
             r"403 Forbidden|401 Unauthorized|Access to model.*is restricted|gated repo|not in the authorized list|awaiting a review",
             "Model access is gated or unauthorized.",
-            [{"label": "set HF token and request model access on HuggingFace", "op": "manual"}],
+            [
+                {
+                    "label": "set HF token and request model access on HuggingFace",
+                    "op": "manual",
+                }
+            ],
         ),
     ]
     for pattern, message, suggestions in patterns:
@@ -988,6 +1195,11 @@ def _diagnose_serve_output(text: str) -> dict | None:
     ):
         return {
             "message": "Python traceback detected during serve startup.",
-            "suggestions": [{"label": "inspect traceback and retry with adjusted backend/settings", "op": "manual"}],
+            "suggestions": [
+                {
+                    "label": "inspect traceback and retry with adjusted backend/settings",
+                    "op": "manual",
+                }
+            ],
         }
     return None

@@ -29,7 +29,7 @@ import logging
 import os
 import socket
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,11 @@ _BLOCKED_HOSTS = {
 
 
 def _private_caldav_allowed() -> bool:
-    return os.environ.get("ODYSSEUS_ALLOW_PRIVATE_CALDAV", "0").lower() in {"1", "true", "yes"}
+    return os.environ.get("ODYSSEUS_ALLOW_PRIVATE_CALDAV", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 def _validate_caldav_address(addr: ipaddress._BaseAddress) -> None:
@@ -94,8 +98,8 @@ def _validate_caldav_hostname(host: str) -> None:
         pass
     try:
         addrs = _resolve_caldav_host_ips(host)
-    except OSError:
-        raise ValueError("CalDAV URL host does not resolve")
+    except OSError as e:
+        raise ValueError("CalDAV URL host does not resolve") from e
     if not addrs:
         raise ValueError("CalDAV URL host does not resolve")
     for addr in addrs:
@@ -113,13 +117,16 @@ def validate_caldav_url(raw_url: str) -> str:
     if not parsed.hostname:
         raise ValueError("CalDAV URL must include a host")
     if parsed.username or parsed.password:
-        raise ValueError("Put CalDAV credentials in the username/password fields, not the URL")
+        raise ValueError(
+            "Put CalDAV credentials in the username/password fields, not the URL"
+        )
     if parsed.fragment:
         raise ValueError("CalDAV URL fragments are not allowed")
     try:
-        parsed.port
-    except ValueError:
-        raise ValueError("CalDAV URL has an invalid port")
+        # odd way of validating the port but `caldav` will raise if it's invalid so we might as well
+        _ = parsed.port
+    except ValueError as e:
+        raise ValueError("CalDAV URL has an invalid port") from e
     host = (parsed.hostname or "").lower()
     if host in _BLOCKED_HOSTS or host.endswith(".localhost"):
         raise ValueError("CalDAV URL host is not allowed")
@@ -164,10 +171,16 @@ def _find_existing_event(db, pending, uid_val, calendar_id):
     instead of hijacking the row. (import_ics was already fixed this way.)
     """
     from core.database import CalendarEvent
-    return pending.get(uid_val) or db.query(CalendarEvent).filter(
-        CalendarEvent.uid == uid_val,
-        CalendarEvent.calendar_id == calendar_id,
-    ).first()
+
+    return (
+        pending.get(uid_val)
+        or db.query(CalendarEvent)
+        .filter(
+            CalendarEvent.uid == uid_val,
+            CalendarEvent.calendar_id == calendar_id,
+        )
+        .first()
+    )
 
 
 def _google_caldav_events_url(url: str) -> str | None:
@@ -195,10 +208,9 @@ def _google_caldav_events_url(url: str) -> str | None:
     path = parts.path.rstrip("/")
     if not path.endswith("/user"):
         return None
-    is_google = (
-        host.endswith("googleusercontent.com")                       # newer /caldav/v2 form
-        or (host in ("www.google.com", "google.com") and "/calendar/dav/" in path)  # legacy form
-    )
+    is_google = host.endswith("googleusercontent.com") or (  # newer /caldav/v2 form
+        host in ("www.google.com", "google.com") and "/calendar/dav/" in path
+    )  # legacy form
     if not is_google:
         return None
     new_path = path[: -len("/user")] + "/events"
@@ -286,11 +298,14 @@ def _iter_vevents_from_ics(ics_data):
                 "uid": str(comp.get("uid", "")) or str(uuid.uuid4()),
                 "dtstart": dtstart_v,
                 "dtend": dtend_v,
-                "is_dtstart_tz_aware": isinstance(dtstart_v, datetime) and dtstart_v.tzinfo is not None,
+                "is_dtstart_tz_aware": isinstance(dtstart_v, datetime)
+                and dtstart_v.tzinfo is not None,
                 "summary": str(comp.get("summary", "")),
                 "description": str(comp.get("description", "")),
                 "location": str(comp.get("location", "")),
-                "rrule": (comp.get("rrule").to_ical().decode() if comp.get("rrule") else ""),
+                "rrule": (
+                    comp.get("rrule").to_ical().decode() if comp.get("rrule") else ""
+                ),
             }
         return
     except ModuleNotFoundError:
@@ -351,7 +366,8 @@ def _iter_vevents_from_ics(ics_data):
                 "uid": str(uid_val),
                 "dtstart": dtstart_v,
                 "dtend": dtend_v,
-                "is_dtstart_tz_aware": isinstance(dtstart_v, datetime) and dtstart_v.tzinfo is not None,
+                "is_dtstart_tz_aware": isinstance(dtstart_v, datetime)
+                and dtstart_v.tzinfo is not None,
                 "summary": _unescape(event_fields.get("SUMMARY", "")),
                 "description": _unescape(event_fields.get("DESCRIPTION", "")),
                 "location": _unescape(event_fields.get("LOCATION", "")),
@@ -367,12 +383,15 @@ def _iter_vevents_from_ics(ics_data):
         event_fields[_field_name(left)] = right.strip()
 
 
-def _sync_blocking(owner: str, url: str, username: str, password: str, account_id: str = "") -> dict:
+def _sync_blocking(
+    owner: str, url: str, username: str, password: str, account_id: str = ""
+) -> dict:
     """The actual sync — synchronous, intended to run in a threadpool.
     Returns counts: {calendars, events, deleted, errors}."""
     # Lazy imports so a missing `caldav` dep doesn't break app startup —
     # the integrations form still works, sync just no-ops with an error.
     from caldav.lib.error import AuthorizationError, NotFoundError
+
     from core.database import CalendarCal, CalendarEvent, SessionLocal
 
     result = {"calendars": 0, "events": 0, "deleted": 0, "errors": []}
@@ -415,10 +434,14 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
                 cal_id = _stable_cal_id(remote_url, owner=owner, account_id=account_id)
                 display_name = (remote_cal.name or "").strip() or "CalDAV"
 
-                local_cal = db.query(CalendarCal).filter(
-                    CalendarCal.id == cal_id,
-                    CalendarCal.owner == owner,
-                ).first()
+                local_cal = (
+                    db.query(CalendarCal)
+                    .filter(
+                        CalendarCal.id == cal_id,
+                        CalendarCal.owner == owner,
+                    )
+                    .first()
+                )
                 if not local_cal:
                     local_cal = CalendarCal(
                         id=cal_id,
@@ -483,9 +506,8 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
 
                         # is_utc reflects whether the source carried a TZ
                         # we converted from. All-day = no TZ semantics.
-                        row_is_utc = (
-                            not all_day
-                            and bool(comp.get("is_dtstart_tz_aware", False))
+                        row_is_utc = not all_day and bool(
+                            comp.get("is_dtstart_tz_aware", False)
                         )
 
                         summary = str(comp.get("summary", ""))
@@ -493,7 +515,9 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
                         location = str(comp.get("location", ""))
                         rrule = str(comp.get("rrule", ""))
 
-                        existing = _find_existing_event(db, pending, uid_val, local_cal.id)
+                        existing = _find_existing_event(
+                            db, pending, uid_val, local_cal.id
+                        )
                         if existing:
                             existing.calendar_id = local_cal.id
                             existing.summary = summary
@@ -531,13 +555,21 @@ def _sync_blocking(owner: str, url: str, username: str, password: str, account_i
                 # are prunable; locally-created events (agent / email triage / a
                 # UI event whose write-back failed) carry origin NULL and must
                 # never be deleted just because the server didn't return them.
-                stale = db.query(CalendarEvent).filter(
-                    CalendarEvent.calendar_id == local_cal.id,
-                    CalendarEvent.origin == "caldav",
-                    CalendarEvent.dtstart >= start,
-                    CalendarEvent.dtstart <= end,
-                    ~CalendarEvent.uid.in_(seen_uids) if seen_uids else CalendarEvent.uid.isnot(None),
-                ).all()
+                stale = (
+                    db.query(CalendarEvent)
+                    .filter(
+                        CalendarEvent.calendar_id == local_cal.id,
+                        CalendarEvent.origin == "caldav",
+                        CalendarEvent.dtstart >= start,
+                        CalendarEvent.dtstart <= end,
+                        (
+                            ~CalendarEvent.uid.in_(seen_uids)
+                            if seen_uids
+                            else CalendarEvent.uid.isnot(None)
+                        ),
+                    )
+                    .all()
+                )
                 for ev in stale:
                     db.delete(ev)
                 result["deleted"] += len(stale)
@@ -561,6 +593,7 @@ def _load_caldav_accounts(owner: str) -> list:
     next real call will just re-run the cheap migration again.
     """
     import uuid as _uuid
+
     from routes.prefs_routes import _load_for_user
 
     prefs = _load_for_user(owner) or {}
@@ -569,17 +602,20 @@ def _load_caldav_accounts(owner: str) -> list:
     # Migrate legacy single-account config to the list format.
     legacy = prefs.get("caldav", {}) or {}
     if legacy.get("url"):
-        accounts = [{
-            "id": str(_uuid.uuid4()),
-            "label": "CalDAV",
-            "url": legacy["url"],
-            "username": legacy.get("username", ""),
-            "password": legacy.get("password", ""),
-        }]
+        accounts = [
+            {
+                "id": str(_uuid.uuid4()),
+                "label": "CalDAV",
+                "url": legacy["url"],
+                "username": legacy.get("username", ""),
+                "password": legacy.get("password", ""),
+            }
+        ]
         prefs["caldav_accounts"] = accounts
         prefs.pop("caldav", None)
         try:
             from routes.prefs_routes import _save_for_user
+
             _save_for_user(owner, prefs)
         except (ImportError, AttributeError):
             pass  # best-effort; next call re-migrates from the still-present legacy key
@@ -595,7 +631,9 @@ async def sync_caldav(owner: str) -> dict:
     accounts = _load_caldav_accounts(owner)
     if not accounts:
         return {
-            "calendars": 0, "events": 0, "deleted": 0,
+            "calendars": 0,
+            "events": 0,
+            "deleted": 0,
             "errors": ["CalDAV is not configured"],
         }
 
@@ -609,18 +647,27 @@ async def sync_caldav(owner: str) -> dict:
         try:
             pw = decrypt(pw)
         except Exception:
-            pass
+            logger.exception("Failed to decrypt CalDAV password for account %s", label)
+            totals["errors"].append(f"{label}: failed to decrypt password")
+            continue
         if not (url and user and pw):
             totals["errors"].append(f"{label}: missing URL, username, or password")
             continue
         try:
             url = validate_caldav_url(url)
-            result = await asyncio.to_thread(_sync_blocking, owner, url, user, pw, account_id)
+            result = await asyncio.to_thread(
+                _sync_blocking, owner, url, user, pw, account_id
+            )
         except ValueError as e:
             result = {"calendars": 0, "events": 0, "deleted": 0, "errors": [str(e)]}
         except Exception as e:
             logger.exception("CalDAV sync raised for account %s", label)
-            result = {"calendars": 0, "events": 0, "deleted": 0, "errors": [str(e)[:200]]}
+            result = {
+                "calendars": 0,
+                "events": 0,
+                "deleted": 0,
+                "errors": [str(e)[:200]],
+            }
         totals["calendars"] += result.get("calendars", 0)
         totals["events"] += result.get("events", 0)
         totals["deleted"] += result.get("deleted", 0)
