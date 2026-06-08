@@ -93,12 +93,21 @@ function _depInstallSucceeded(output) {
   if (!text) return false;
   const exitMatch = text.match(/=== Process exited with code (-?\d+) ===/);
   if (exitMatch) return Number(exitMatch[1]) === 0;
-  return (
-    /\b(?:Successfully installed|Requirement already satisfied)\b/.test(text) &&
-    !/\bERROR\b|No matching distribution|Could not find a version|Traceback \(most recent call last\)/.test(
+  const hasInstallError =
+    /\bERROR\b|error:|No matching distribution|Could not find a version|Traceback \(most recent call last\)|\bfailed\b|\bexception\b/i.test(
       text,
-    )
-  );
+    );
+  if (hasInstallError) return false;
+  const pipSuccess =
+    /\b(?:Successfully installed|Requirement already (?:satisfied|up-to-date))\b/i.test(
+      text,
+    );
+  const uvSuccess =
+    /\bInstalled\s+\d+\s+packages?\b/i.test(text) ||
+    (/\bPrepared\s+\d+\s+packages?\b/i.test(text) &&
+      (/\bUninstalled\s+\d+\s+packages?\b/i.test(text) ||
+        /\bDownloaded\s+\S+/i.test(text)));
+  return pipSuccess || uvSuccess;
 }
 
 // Pip "Preparing packages" and install progress are progress signals that change per tick.

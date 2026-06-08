@@ -32,7 +32,7 @@ _INCLUDE_RE = re.compile(r"^[A-Za-z0-9._\-*?/\[\]]+$")
 _REMOTE_HOST_RE = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$")
 # HF tokens and API tokens are url-safe base64-like.
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
-# Session IDs we mint look like "cookbook-deadbeef" or "serve-deadbeef".
+# Session IDs we mint look like "cookbook-<uuid>" or "serve-<uuid>".
 # Anything beyond plain alphanumerics + dash + underscore could break out
 # of the shell/PowerShell contexts the value lands in.
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -613,6 +613,9 @@ def _append_serve_preflight_exit_lines(
     """Append serve-runner lines that surface preflight failures before exit."""
     runner_lines.append('if [ -n "$ODYSSEUS_PREFLIGHT_EXIT" ]; then')
     runner_lines.append(
+        '  if [ -n "$ODYSSEUS_EXIT_FILE" ]; then printf "%s\\n" "$ODYSSEUS_PREFLIGHT_EXIT" > "$ODYSSEUS_EXIT_FILE"; fi'
+    )
+    runner_lines.append(
         '  echo ""; echo "=== Process exited with code $ODYSSEUS_PREFLIGHT_EXIT ==="'
     )
     if keep_shell_open:
@@ -657,6 +660,9 @@ def _append_serve_exit_code_lines(
 ) -> None:
     """Append serve-runner lines that preserve and report the command exit code."""
     runner_lines.append("ODYSSEUS_CMD_EXIT=$?")
+    runner_lines.append(
+        'if [ -n "$ODYSSEUS_EXIT_FILE" ]; then printf "%s\\n" "$ODYSSEUS_CMD_EXIT" > "$ODYSSEUS_EXIT_FILE"; fi'
+    )
     if is_pip_install:
         runner_lines.append(
             'if [ $ODYSSEUS_CMD_EXIT -eq 0 ]; then echo ""; echo "DOWNLOAD_OK"; fi'

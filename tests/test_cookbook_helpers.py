@@ -333,6 +333,10 @@ def test_serve_runner_preserves_command_exit_code():
     script = "\n".join(runner_lines)
 
     assert "ODYSSEUS_CMD_EXIT=$?" in script
+    assert (
+        'if [ -n "$ODYSSEUS_EXIT_FILE" ]; then printf "%s\\n" "$ODYSSEUS_CMD_EXIT" > "$ODYSSEUS_EXIT_FILE"; fi'
+        in script
+    )
     assert 'echo "=== Process exited with code $ODYSSEUS_CMD_EXIT ==="' in script
     assert 'echo "=== Process exited with code $? ==="' not in script
 

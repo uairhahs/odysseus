@@ -349,7 +349,7 @@ def setup_cookbook_routes() -> APIRouter:
         req.hf_token = req.hf_token or _load_stored_hf_token()
         _validate_token(req.hf_token)
         TMUX_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        session_id = f"cookbook-{uuid.uuid4().hex[:8]}"
+        session_id = f"cookbook-{uuid.uuid4()}"
         wrapper_script = TMUX_LOG_DIR / f"{session_id}.sh"
 
         # When a download directory is set, target a per-model subfolder under it
@@ -440,6 +440,10 @@ def setup_cookbook_routes() -> APIRouter:
             ps_lines.append(
                 "New-Item -ItemType Directory -Force -Path $sessionDir | Out-Null"
             )
+            ps_lines.append(f'$exitPath = "$sessionDir\\{session_id}.exit"')
+            ps_lines.append(
+                "Remove-Item -Force $exitPath -ErrorAction SilentlyContinue"
+            )
             ps_lines.append('$env:PYTHONIOENCODING = "utf-8"')
             ps_lines.append('$env:PYTHONUTF8 = "1"')
             if req.hf_token:
@@ -480,8 +484,10 @@ def setup_cookbook_routes() -> APIRouter:
             ps_lines.append(
                 '  else {{ Write-Host ""; Write-Host "DOWNLOAD_FAILED (exit $LASTEXITCODE)" }}'
             )
+            ps_lines.append('  "$LASTEXITCODE" | Out-File -Encoding ascii $exitPath')
             ps_lines.append("}} catch {{")
             ps_lines.append('  Write-Host ""; Write-Host "DOWNLOAD_FAILED ($_)"')
+            ps_lines.append('  "1" | Out-File -Encoding ascii $exitPath')
             ps_lines.append("}}")
             ps_lines.append(
                 f'Remove-Item -Force "$HOME\\{remote_runner}" -ErrorAction SilentlyContinue'
@@ -511,6 +517,11 @@ def setup_cookbook_routes() -> APIRouter:
             remote_runner = f".{session_id}_run.sh"
             runner_lines = ["#!/bin/bash"]
             runner_lines.extend(_user_shell_path_bootstrap())
+            runner_lines.append(
+                'ODYSSEUS_EXIT_FILE="/tmp/odysseus-tmux/%s.exit"' % session_id
+            )
+            runner_lines.append("mkdir -p /tmp/odysseus-tmux 2>/dev/null || true")
+            runner_lines.append('rm -f "$ODYSSEUS_EXIT_FILE" 2>/dev/null || true')
             runner_lines.append("# Auto-detect environment")
             runner_lines.append("deactivate 2>/dev/null; hash -r")
             if req.hf_token:
@@ -587,6 +598,7 @@ def setup_cookbook_routes() -> APIRouter:
             runner_lines.append(
                 '_ec=$?; if [ $_ec -eq 0 ]; then echo ""; echo "DOWNLOAD_OK"; else echo ""; echo "DOWNLOAD_FAILED (exit $_ec)"; fi'
             )
+            runner_lines.append('printf "%s\\n" "$_ec" > "$ODYSSEUS_EXIT_FILE"')
             runner_lines.append(f"rm -f {remote_runner}")
             runner_lines.append('exec "${SHELL:-/bin/bash}"')
             runner_path = TMUX_LOG_DIR / f"{session_id}_run.sh"
@@ -610,6 +622,9 @@ def setup_cookbook_routes() -> APIRouter:
                 lines.append(_safe_env_prefix(req.env_prefix))
             else:
                 lines.append("deactivate 2>/dev/null; hash -r")
+            lines.append('ODYSSEUS_EXIT_FILE="/tmp/odysseus-tmux/%s.exit"' % session_id)
+            lines.append("mkdir -p /tmp/odysseus-tmux 2>/dev/null || true")
+            lines.append('rm -f "$ODYSSEUS_EXIT_FILE" 2>/dev/null || true')
             # Show whether the HF token reached this run (masked) — tells a gated
             # "not authorized" failure apart from a missing token.
             lines.append(_HF_TOKEN_STATUS_SNIPPET)
@@ -620,12 +635,14 @@ def setup_cookbook_routes() -> APIRouter:
                 lines.append(
                     '_ec=$?; if [ $_ec -eq 0 ]; then echo ""; echo "DOWNLOAD_OK"; else echo ""; echo "DOWNLOAD_FAILED (exit $_ec)"; fi'
                 )
+                lines.append('printf "%s\\n" "$_ec" > "$ODYSSEUS_EXIT_FILE"')
             else:
                 # < /dev/null suppresses interactive "update available? [Y/n]" prompt
                 lines.append(f"{hf_cmd} < /dev/null")
                 lines.append(
                     '_ec=$?; if [ $_ec -eq 0 ]; then echo ""; echo "DOWNLOAD_OK"; else echo ""; echo "DOWNLOAD_FAILED (exit $_ec)"; fi'
                 )
+                lines.append('printf "%s\\n" "$_ec" > "$ODYSSEUS_EXIT_FILE"')
                 lines.append(f"rm -f '{wrapper_script}'")
                 lines.append('exec "${SHELL:-/bin/bash}"')
                 wrapper_script.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1060,7 +1077,7 @@ def setup_cookbook_routes() -> APIRouter:
         else:
             _validate_serve_model_id(req.repo_id)
         TMUX_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        session_id = f"serve-{uuid.uuid4().hex[:8]}"
+        session_id = f"serve-{uuid.uuid4()}"
         remote = req.remote_host
         is_windows = req.platform == "windows"
 
@@ -1112,6 +1129,10 @@ def setup_cookbook_routes() -> APIRouter:
             ps_lines.append(
                 "New-Item -ItemType Directory -Force -Path $sessionDir | Out-Null"
             )
+            ps_lines.append(f'$exitPath = "$sessionDir\\{session_id}.exit"')
+            ps_lines.append(
+                "Remove-Item -Force $exitPath -ErrorAction SilentlyContinue"
+            )
             ps_lines.append('$env:PYTHONIOENCODING = "utf-8"')
             ps_lines.append('$env:PYTHONUTF8 = "1"')
             if req.hf_token:
@@ -1129,6 +1150,9 @@ def setup_cookbook_routes() -> APIRouter:
                 ps_lines.append(
                     '  Write-Host "Ollama not found. Please install from https://ollama.com/download/windows"'
                 )
+                ps_lines.append('  Write-Host ""')
+                ps_lines.append('  Write-Host "=== Process exited with code 1 ==="')
+                ps_lines.append('  "1" | Out-File -Encoding ascii $exitPath')
                 ps_lines.append("  exit 1")
                 ps_lines.append("}")
             elif "llama_cpp" in req.cmd or "llama-server" in req.cmd:
@@ -1144,6 +1168,9 @@ def setup_cookbook_routes() -> APIRouter:
                 ps_lines.append(
                     'Write-Host "ERROR: vLLM is not supported on Windows. Use Ollama or llama.cpp instead."'
                 )
+                ps_lines.append('Write-Host ""')
+                ps_lines.append('Write-Host "=== Process exited with code 1 ==="')
+                ps_lines.append('"1" | Out-File -Encoding ascii $exitPath')
                 ps_lines.append("exit 1")
             ps_lines.append(req.cmd)
             if is_pip_install:
@@ -1154,6 +1181,7 @@ def setup_cookbook_routes() -> APIRouter:
             ps_lines.append(
                 'Write-Host "=== Process exited with code $LASTEXITCODE ==="'
             )
+            ps_lines.append('"$LASTEXITCODE" | Out-File -Encoding ascii $exitPath')
             runner_path = TMUX_LOG_DIR / f"{session_id}_run.ps1"
             runner_path.write_text("\r\n".join(ps_lines) + "\r\n", encoding="utf-8")
 
@@ -1185,6 +1213,10 @@ def setup_cookbook_routes() -> APIRouter:
             # teed into the log file and `tail -N` returns ONLY the banner —
             # the actual traceback ends up earlier than the tail window.
             runner_lines.append("mkdir -p /tmp/odysseus-tmux 2>/dev/null || true")
+            runner_lines.append(
+                'ODYSSEUS_EXIT_FILE="/tmp/odysseus-tmux/%s.exit"' % session_id
+            )
+            runner_lines.append('rm -f "$ODYSSEUS_EXIT_FILE" 2>/dev/null || true')
             runner_lines.append("exec 3>&1 4>&2")
             runner_lines.append(
                 f"exec > >(tee -a /tmp/odysseus-tmux/{session_id}.log) 2>&1"
@@ -1390,12 +1422,7 @@ def setup_cookbook_routes() -> APIRouter:
                 if local_windows:
                     _append_serve_exit_code_lines(runner_lines, keep_shell_open=False)
                 else:
-                    runner_lines.append("_ody_exit=$?")
-                    runner_lines.append("echo")
-                    runner_lines.append(
-                        'echo "=== Process exited with code ${_ody_exit} ==="'
-                    )
-                    runner_lines.append("exec bash -i")
+                    _append_serve_exit_code_lines(runner_lines, keep_shell_open=True)
             elif "vllm serve" in req.cmd:
                 # vLLM is CUDA/ROCm-only and does not run on macOS at all.
                 runner_lines.append('if [ "$(uname -s)" = "Darwin" ]; then')
@@ -2587,6 +2614,63 @@ def setup_cookbook_routes() -> APIRouter:
 
     def _cookbook_tasks_status_sync():
 
+        def _read_exit_code(
+            session_id: str, remote_host: str, ssh_port: str, task_platform: str
+        ) -> int | None:
+            """Best-effort read of persisted task exit code.
+
+            Runners write a per-session `<session>.exit` file when the wrapped
+            command ends. This survives tmux pane wrap/eviction and lets status
+            checks classify completion without regexing stale pane text.
+            """
+            try:
+                if task_platform == "windows" and remote_host:
+                    ssh_base = ["ssh"]
+                    if ssh_port and ssh_port != "22":
+                        ssh_base.extend(["-p", str(ssh_port)])
+                    cmd = ssh_base + [
+                        remote_host,
+                        "powershell",
+                        "-Command",
+                        f'Get-Content "$env:TEMP\\odysseus-sessions\\{session_id}.exit" -ErrorAction SilentlyContinue',
+                    ]
+                    out = subprocess.run(
+                        cmd, timeout=8, capture_output=True, text=True
+                    ).stdout.strip()
+                    return int(out) if re.fullmatch(r"-?\d+", out or "") else None
+
+                if remote_host:
+                    remote_exit_path = (
+                        f"/tmp/odysseus-tmux/{session_id}.exit"  # nosec B108
+                    )
+                    ssh_base = ["ssh"]
+                    if ssh_port and ssh_port != "22":
+                        ssh_base.extend(["-p", str(ssh_port)])
+                    cmd = ssh_base + [
+                        remote_host,
+                        "cat",
+                        remote_exit_path,
+                    ]
+                    out = subprocess.run(
+                        cmd, timeout=8, capture_output=True, text=True
+                    ).stdout.strip()
+                    return int(out) if re.fullmatch(r"-?\d+", out or "") else None
+
+                if IS_WINDOWS:
+                    ep = TMUX_LOG_DIR / f"{session_id}.exit"
+                    if ep.exists():
+                        out = ep.read_text(encoding="utf-8", errors="replace").strip()
+                        return int(out) if re.fullmatch(r"-?\d+", out or "") else None
+                    return None
+
+                ep = Path(f"/tmp/odysseus-tmux/{session_id}.exit")  # nosec B108
+                if not ep.exists():
+                    return None
+                out = ep.read_text(encoding="utf-8", errors="replace").strip()
+                return int(out) if re.fullmatch(r"-?\d+", out or "") else None
+            except Exception:
+                return None
+
         def _download_cache_complete(
             repo_id: str, remote_host: str = "", ssh_port: str = ""
         ) -> bool:
@@ -2764,6 +2848,9 @@ def setup_cookbook_routes() -> APIRouter:
 
             progress_text = ""
             full_snapshot = ""
+            file_exit_code = _read_exit_code(
+                session_id, remote, str(_tport or ""), task_platform
+            )
 
             if local_win_task:
                 # File-based liveness + output for the detached-process model.
@@ -2844,8 +2931,11 @@ def setup_cookbook_routes() -> APIRouter:
                 exit_match = re.search(
                     r"=== process exited with code\s+(-?\d+)", full_snapshot, re.I
                 )
-                has_exit = exit_match is not None
-                exit_code = int(exit_match.group(1)) if exit_match else None
+                snap_exit_code = int(exit_match.group(1)) if exit_match else None
+                exit_code = (
+                    file_exit_code if file_exit_code is not None else snap_exit_code
+                )
+                has_exit = exit_code is not None
                 has_error = (
                     "error" in lower or "failed" in lower or "traceback" in lower
                 )
@@ -2880,7 +2970,12 @@ def setup_cookbook_routes() -> APIRouter:
                     status = "running"
             else:
                 # Session is dead — check if it completed or crashed
-                if task_type == "download" and _download_cache_complete(
+                if file_exit_code is not None:
+                    if task_type == "download":
+                        status = "completed" if file_exit_code == 0 else "error"
+                    else:
+                        status = "error"
+                elif task_type == "download" and _download_cache_complete(
                     _payload.get("repo_id") or model, remote, str(_tport or "")
                 ):
                     status = "completed"
