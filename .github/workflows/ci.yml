@@ -19,8 +19,8 @@ jobs:
     name: Python syntax (compileall)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       # Byte-compile sources — catches syntax errors without installing deps.
@@ -30,8 +30,8 @@ jobs:
     name: JS syntax (node --check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
       # Syntax-check our own JS (skip vendored libs in static/lib).
@@ -50,7 +50,7 @@ jobs:
     # ROADMAP "fresh install smoke tests" item; make this required once green.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -76,15 +76,15 @@ jobs:
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         if: steps.docs-check.outputs.docs_only != 'true'
         with:
           python-version: "3.11"
-      - uses: astral-sh/setup-uv@v1
+      - uses: astral-sh/setup-uv@162b8acf397cb069dec09a3f5a9847cf71cfa46a # v1
         if: steps.docs-check.outputs.docs_only != 'true'
-      - run: uv pip install -r pyproject.toml
+      - run: uv sync
         if: steps.docs-check.outputs.docs_only != 'true'
-      - run: mkdir -p data  # sqlite DB lives at ./data/app.db
+      - run: mkdir -p data # sqlite DB lives at ./data/app.db
         if: steps.docs-check.outputs.docs_only != 'true'
       - run: python -m pytest -q
         if: steps.docs-check.outputs.docs_only != 'true'
