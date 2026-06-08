@@ -15,6 +15,8 @@ from core.database import Session as DBSession
 from core.database import SessionLocal
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 SEARCH_ROLES = ("user", "assistant")
 
@@ -73,7 +75,11 @@ def _snippet(content: str, query: str, radius: int = 60) -> str:
 
     start = max(0, idx - radius)
     end = min(len(content), idx + len(query) + radius)
-    return ("..." if start > 0 else "") + content[start:end] + ("..." if end < len(content) else "")
+    return (
+        ("..." if start > 0 else "")
+        + content[start:end]
+        + ("..." if end < len(content) else "")
+    )
 
 
 def _sanitize_fts_query(query: str) -> str | None:
@@ -118,7 +124,9 @@ def _has_fts_table(db) -> bool:
         return False
     try:
         row = db.execute(
-            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='chat_messages_fts' LIMIT 1")
+            text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chat_messages_fts' LIMIT 1"
+            )
         ).first()
         return row is not None
     except Exception as e:
@@ -134,7 +142,9 @@ def _owner_filter(query, owner: str | None, include_legacy_owner: bool):
     return query.filter((DBSession.owner == owner) | (DBSession.owner.is_(None)))
 
 
-def _context_for_message(db, msg: DBChatMessage, count: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _context_for_message(
+    db, msg: DBChatMessage, count: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if count <= 0 or not msg.timestamp:
         return [], []
 
@@ -165,7 +175,12 @@ def _context_for_message(db, msg: DBChatMessage, count: int) -> tuple[list[dict[
     return before, after
 
 
-def _rows_to_results(db, rows: Iterable[tuple[DBChatMessage, str, str]], query: str, context_messages: int) -> list[SessionSearchResult]:
+def _rows_to_results(
+    db,
+    rows: Iterable[tuple[DBChatMessage, str, str]],
+    query: str,
+    context_messages: int,
+) -> list[SessionSearchResult]:
     results: list[SessionSearchResult] = []
     for msg, session_name, snippet in rows:
         before, after = _context_for_message(db, msg, context_messages)
@@ -206,11 +221,14 @@ def _search_like(
         )
     )
     if not include_archived:
-        q = q.filter(DBSession.archived == False)
+        q = q.filter(not DBSession.archived)
     if restrict_owner:
         q = _owner_filter(q, owner, include_legacy_owner)
     rows = q.order_by(DBChatMessage.timestamp.desc()).limit(limit).all()
-    shaped = ((msg, session_name, _snippet(msg.content or "", query)) for msg, session_name in rows)
+    shaped = (
+        (msg, session_name, _snippet(msg.content or "", query))
+        for msg, session_name in rows
+    )
     return _rows_to_results(db, shaped, query, context_messages)
 
 
@@ -242,10 +260,7 @@ def _search_fts(
         params["owner"] = owner
 
     sql = text(
-        f"""
-        SELECT
-            m.id AS message_id,
-            snippet(chat_messages_fts, 0, '', '', '...', 24) AS content_snippet
+        f"""SELECT m.id AS message_id, snippet(chat_messages_fts, 0, '', '', '...', 24) AS content_snippet
         FROM chat_messages_fts
         JOIN chat_messages m ON m.id = chat_messages_fts.message_id
         JOIN sessions s ON s.id = m.session_id
@@ -255,7 +270,7 @@ def _search_fts(
           AND m.role IN ('user', 'assistant')
         ORDER BY bm25(chat_messages_fts), m.timestamp DESC
         LIMIT :limit
-        """
+        """  # noqa: S608
     )
 
     try:

@@ -1,64 +1,44 @@
 #!/usr/bin/env python3
-"""odysseus-calendar — Unix-style CLI for the calendar feature.
+# odysseus-calendar — Unix-style CLI for the calendar feature.
 
-Reads the same SQLite the web UI uses (`data/app.db`). Output is JSON on
-stdout, errors on stderr, non-zero exit on failure. Composable:
+# Reads the same SQLite the web UI uses (`data/app.db`). Output is JSON on
+# stdout, errors on stderr, non-zero exit on failure. Composable:
 
-    odysseus-calendar list --start 2026-05-01 --end 2026-05-31 \\
-      | jq -r '.[] | .dtstart + "\\t" + .summary'
+#    odysseus-calendar list --start 2026-05-01 --end 2026-05-31 \\
+#      | jq -r '.[] | .dtstart + "\\t" + .summary'
 
-    odysseus-calendar calendars | jq -r '.[].name'
+#   odysseus-calendar calendars | jq -r '.[].name'
 
-Subcommands:
-    list       List events in a date range (optionally per-calendar)
-    show       Show one event by UID
-    calendars  List configured calendars
-    create     Create a new event
-    delete     Delete an event by UID
-"""
+# Subcommands:
+#     list       List events in a date range (optionally per-calendar)
+#     show       Show one event by UID
+#     calendars  List configured calendars
+#     create     Create a new event
+#     delete     Delete an event by UID
 
 
 from __future__ import annotations
-import sys
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
-from cli import quiet_logs, emit, fail, common_parser, run, REPO_ROOT as _REPO_ROOT
-quiet_logs()
-
 
 import argparse
-import json
-import logging
 import os
 import sys
 import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
 
-def quiet_logs() -> None:
-    level_name = os.environ.get("LOG_LEVEL", "WARNING").upper()
-    level = getattr(logging, level_name, logging.WARNING)
-    root = logging.getLogger()
-    root.setLevel(level)
-    for handler in root.handlers:
-        handler.setLevel(level)
+from cli import emit, fail, quiet_logs, run  # , common_parser, REPO_ROOT as _REPO_ROOT
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
 
 
 quiet_logs()
 
 try:
-    from core.database import SessionLocal, CalendarCal, CalendarEvent
+    from core.database import CalendarCal, CalendarEvent, SessionLocal
+
     quiet_logs()
 except ModuleNotFoundError as e:
-    sys.stderr.write(
-        f"error: {e}\nhint: run from repo root with venv active.\n"
-    )
+    sys.stderr.write(f"error: {e}\nhint: run from repo root with venv active.\n")
     sys.exit(2)
-
-
-def fail(msg: str, code: int = 1) -> None:
-    sys.stderr.write(f"error: {msg}\n")
-    sys.exit(code)
 
 
 def _parse_dt(s: str) -> datetime:
@@ -83,19 +63,22 @@ def _serialize_event(ev: "CalendarEvent") -> dict:
         "summary": ev.summary,
         "description": ev.description or "",
         "location": ev.location or "",
-        "dtstart": ev.dtstart.isoformat() + ("Z" if ev.is_utc else "") if ev.dtstart else "",
-        "dtend":   ev.dtend.isoformat()   + ("Z" if ev.is_utc else "") if ev.dtend else "",
+        "dtstart": (
+            ev.dtstart.isoformat() + ("Z" if ev.is_utc else "") if ev.dtstart else ""
+        ),
+        "dtend": ev.dtend.isoformat() + ("Z" if ev.is_utc else "") if ev.dtend else "",
         "all_day": bool(ev.all_day),
-        "is_utc":  bool(ev.is_utc),
-        "rrule":   ev.rrule or "",
-        "color":   ev.color or "",
-        "status":  ev.status or "",
+        "is_utc": bool(ev.is_utc),
+        "rrule": ev.rrule or "",
+        "color": ev.color or "",
+        "status": ev.status or "",
         "importance": ev.importance or "",
         "event_type": ev.event_type or "",
     }
 
 
 # ─── list ────────────────────────────────────────────────────────────
+
 
 def cmd_list(args) -> None:
     """List events in a date range. Defaults to next 30 days from today."""
@@ -108,7 +91,9 @@ def cmd_list(args) -> None:
             CalendarEvent.dtstart < end,
         )
         if args.calendar:
-            cal = db.query(CalendarCal).filter(CalendarCal.name == args.calendar).first()
+            cal = (
+                db.query(CalendarCal).filter(CalendarCal.name == args.calendar).first()
+            )
             if not cal:
                 fail(f"no calendar named {args.calendar!r}")
             q = q.filter(CalendarEvent.calendar_id == cal.id)
@@ -119,6 +104,7 @@ def cmd_list(args) -> None:
 
 
 # ─── show ────────────────────────────────────────────────────────────
+
 
 def cmd_show(args) -> None:
     db = SessionLocal()
@@ -133,24 +119,30 @@ def cmd_show(args) -> None:
 
 # ─── calendars ───────────────────────────────────────────────────────
 
+
 def cmd_calendars(args) -> None:
     db = SessionLocal()
     try:
         cals = db.query(CalendarCal).order_by(CalendarCal.name.asc()).all()
-        emit([
-            {
-                "id": c.id,
-                "name": c.name,
-                "color": c.color or "",
-                "source": c.source or "local",
-                "event_count": len(c.events),
-            } for c in cals
-        ], args)
+        emit(
+            [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "color": c.color or "",
+                    "source": c.source or "local",
+                    "event_count": len(c.events),
+                }
+                for c in cals
+            ],
+            args,
+        )
     finally:
         db.close()
 
 
 # ─── create ──────────────────────────────────────────────────────────
+
 
 def cmd_create(args) -> None:
     """Create an event. --start/--end accept YYYY-MM-DD or ISO 8601.
@@ -191,6 +183,7 @@ def cmd_create(args) -> None:
 
 # ─── delete ──────────────────────────────────────────────────────────
 
+
 def cmd_delete(args) -> None:
     db = SessionLocal()
     try:
@@ -207,6 +200,7 @@ def cmd_delete(args) -> None:
 
 # ─── argparse ────────────────────────────────────────────────────────
 
+
 def _build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--pretty", action="store_true", help="Pretty-print JSON")
@@ -220,7 +214,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("list", help="list events in a date range", parents=[common])
     pl.add_argument("--start", help="YYYY-MM-DD or ISO datetime (default: today)")
-    pl.add_argument("--end", help="YYYY-MM-DD or ISO datetime (default: start + 30 days)")
+    pl.add_argument(
+        "--end", help="YYYY-MM-DD or ISO datetime (default: start + 30 days)"
+    )
     pl.add_argument("--calendar", help="filter by calendar name")
     pl.add_argument("--limit", type=int, default=100)
     pl.set_defaults(func=cmd_list)
@@ -240,8 +236,22 @@ def _build_parser() -> argparse.ArgumentParser:
     pcr.add_argument("--description", default="")
     pcr.add_argument("--location", default="")
     pcr.add_argument("--all-day", action="store_true")
-    pcr.add_argument("--importance", choices=["low", "normal", "high", "critical"], default="normal")
-    pcr.add_argument("--event-type", choices=["work", "personal", "health", "travel", "meal", "social", "admin", "other"])
+    pcr.add_argument(
+        "--importance", choices=["low", "normal", "high", "critical"], default="normal"
+    )
+    pcr.add_argument(
+        "--event-type",
+        choices=[
+            "work",
+            "personal",
+            "health",
+            "travel",
+            "meal",
+            "social",
+            "admin",
+            "other",
+        ],
+    )
     pcr.set_defaults(func=cmd_create)
 
     pd = sub.add_parser("delete", help="delete an event by UID", parents=[common])

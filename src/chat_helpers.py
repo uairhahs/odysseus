@@ -16,6 +16,8 @@ from fastapi import HTTPException, UploadFile
 from src.upload_limits import format_byte_limit, get_chat_upload_max_bytes
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def extract_urls(text: str) -> List[str]:
@@ -247,7 +249,7 @@ def validate_file_upload(file: UploadFile) -> UploadFile:
                 "error": "FILE_READ_ERROR",
                 "message": "Error reading uploaded file",
             },
-        )
+        ) from e
 
     allowed_extensions = {
         ".txt",
@@ -326,14 +328,14 @@ def coerce_message_and_session(
             )
         try:
             session_manager.get_session(session)
-        except KeyError:
+        except KeyError as e:
             raise HTTPException(
                 status_code=404,
                 detail={
                     "error": "SESSION_NOT_FOUND",
                     "message": f"Session '{session}' not found",
                 },
-            )
+            ) from e
 
         return message, session
     except HTTPException:
@@ -343,7 +345,7 @@ def coerce_message_and_session(
         raise HTTPException(
             status_code=400,
             detail={"error": "INVALID_JSON", "message": "Invalid JSON in request body"},
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Unexpected error in coerce_message_and_session: {e}")
         raise HTTPException(
@@ -352,4 +354,4 @@ def coerce_message_and_session(
                 "error": "REQUEST_PROCESSING_ERROR",
                 "message": "Error processing request",
             },
-        )
+        ) from e

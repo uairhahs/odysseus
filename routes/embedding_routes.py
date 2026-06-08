@@ -1,16 +1,21 @@
 # routes/embedding_routes.py
 """Routes for managing local fastembed embedding models and custom endpoints."""
-import os
-import json
-import shutil
-import logging
+
 import asyncio
+import json
+import logging
+import os
+import shutil
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Form, Depends
+
+from fastapi import APIRouter, Depends, Form, HTTPException
+
 from core.constants import BASE_DIR
 from core.middleware import require_admin
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _ENDPOINT_FILE = os.path.join(BASE_DIR, "data", "embedding_endpoint.json")
 
@@ -19,12 +24,12 @@ _downloading: dict = {}
 
 # Curated recommendations — good coverage of size/quality tiers
 RECOMMENDED_MODELS = {
-    "sentence-transformers/all-MiniLM-L6-v2",     # 384d, 90MB  — fast & tiny, good default
-    "BAAI/bge-small-en-v1.5",                      # 384d, 67MB  — smallest, solid quality
-    "nomic-ai/nomic-embed-text-v1.5-Q",            # 768d, 130MB — quantized, great bang/buck
-    "BAAI/bge-base-en-v1.5",                       # 768d, 210MB — balanced mid-range
-    "snowflake/snowflake-arctic-embed-m",          # 768d, 430MB — strong performer
-    "BAAI/bge-large-en-v1.5",                      # 1024d, 1.2GB — highest quality
+    "sentence-transformers/all-MiniLM-L6-v2",  # 384d, 90MB  — fast & tiny, good default
+    "BAAI/bge-small-en-v1.5",  # 384d, 67MB  — smallest, solid quality
+    "nomic-ai/nomic-embed-text-v1.5-Q",  # 768d, 130MB — quantized, great bang/buck
+    "BAAI/bge-base-en-v1.5",  # 768d, 210MB — balanced mid-range
+    "snowflake/snowflake-arctic-embed-m",  # 768d, 430MB — strong performer
+    "BAAI/bge-large-en-v1.5",  # 1024d, 1.2GB — highest quality
 }
 
 
@@ -40,7 +45,8 @@ def _cache_dir() -> str:
         return env
     return os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "fastembed_cache",
+        "data",
+        "fastembed_cache",
     )
 
 
@@ -58,8 +64,8 @@ def _model_cache_path(hf_source: str) -> Path:
     path = raw_path.resolve(strict=False)
     try:
         path.relative_to(root)
-    except ValueError:
-        raise ValueError("Model cache path escapes cache root")
+    except ValueError as e:
+        raise ValueError("Model cache path escapes cache root") from e
     return path
 
 
@@ -67,7 +73,8 @@ def _is_downloaded(hf_source: str) -> bool:
     """Check if a model is already cached."""
     try:
         model_dir = _model_cache_path(hf_source)
-    except ValueError:
+    except ValueError as e:
+        logger.warning(f"Invalid model cache path for {hf_source}: {e}")
         return False
     if not model_dir.is_dir():
         return False
@@ -104,8 +111,8 @@ def _load_custom_endpoint() -> dict:
         if os.path.exists(_ENDPOINT_FILE):
             data = json.loads(Path(_ENDPOINT_FILE).read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to load custom endpoint config: {e}")
     return {}
 
 
@@ -122,8 +129,8 @@ def setup_embedding_routes():
         """List all available fastembed models with download status."""
         try:
             from fastembed import TextEmbedding
-        except ImportError:
-            raise HTTPException(503, "fastembed is not installed")
+        except ImportError as e:
+            raise HTTPException(503, "fastembed is not installed") from e
 
         active = _active_model()
         catalog = TextEmbedding.list_supported_models()
@@ -140,17 +147,19 @@ def setup_embedding_routes():
                 except ValueError:
                     cached_size = None
 
-            result.append({
-                "model": m["model"],
-                "dim": m.get("dim"),
-                "size_gb": m.get("size_in_GB", 0),
-                "description": m.get("description", ""),
-                "downloaded": downloaded,
-                "downloading": m["model"] in _downloading,
-                "active": m["model"] == active,
-                "recommended": m["model"] in RECOMMENDED_MODELS,
-                "cached_size_mb": cached_size,
-            })
+            result.append(
+                {
+                    "model": m["model"],
+                    "dim": m.get("dim"),
+                    "size_gb": m.get("size_in_GB", 0),
+                    "description": m.get("description", ""),
+                    "downloaded": downloaded,
+                    "downloading": m["model"] in _downloading,
+                    "active": m["model"] == active,
+                    "recommended": m["model"] in RECOMMENDED_MODELS,
+                    "cached_size_mb": cached_size,
+                }
+            )
 
         # Sort: active first, then downloaded, then by size
         result.sort(key=lambda x: (not x["active"], not x["downloaded"], x["size_gb"]))
@@ -161,8 +170,8 @@ def setup_embedding_routes():
         """Download a fastembed model. Returns when complete."""
         try:
             from fastembed import TextEmbedding
-        except ImportError:
-            raise HTTPException(503, "fastembed is not installed")
+        except ImportError as e:
+            raise HTTPException(503, "fastembed is not installed") from e
 
         # Validate model exists
         catalog = {m["model"]: m for m in TextEmbedding.list_supported_models()}
@@ -188,7 +197,7 @@ def setup_embedding_routes():
             return {"status": "downloaded", "model": model_name}
         except Exception as e:
             logger.error(f"Failed to download {model_name}: {e}")
-            raise HTTPException(500, f"Download failed: {str(e)}")
+            raise HTTPException(500, f"Download failed: {str(e)}") from e
         finally:
             _downloading.pop(model_name, None)
 
@@ -197,8 +206,8 @@ def setup_embedding_routes():
         """Check download status of a model."""
         try:
             from fastembed import TextEmbedding
-        except ImportError:
-            raise HTTPException(503, "fastembed is not installed")
+        except ImportError as e:
+            raise HTTPException(503, "fastembed is not installed") from e
 
         catalog = {m["model"]: m for m in TextEmbedding.list_supported_models()}
         if model_name not in catalog:
@@ -224,8 +233,8 @@ def setup_embedding_routes():
 
         try:
             from fastembed import TextEmbedding
-        except ImportError:
-            raise HTTPException(503, "fastembed is not installed")
+        except ImportError as e:
+            raise HTTPException(503, "fastembed is not installed") from e
 
         catalog = {m["model"]: m for m in TextEmbedding.list_supported_models()}
         if model_name not in catalog:
@@ -238,7 +247,7 @@ def setup_embedding_routes():
         try:
             model_path = _model_cache_path(hf_src)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         if not model_path.is_dir():
             return {"deleted": False, "message": "Model not cached"}
 
@@ -258,7 +267,9 @@ def setup_embedding_routes():
         }
 
     @router.post("/endpoint")
-    def set_endpoint(url: str = Form(...), model: str = Form(""), api_key: str = Form("")):
+    def set_endpoint(
+        url: str = Form(...), model: str = Form(""), api_key: str = Form("")
+    ):
         """Save a custom embedding endpoint URL."""
         url = url.strip()
         if not url:
@@ -269,9 +280,11 @@ def setup_embedding_routes():
         # default; non-HTTP(S) schemes and the cloud metadata range are always
         # rejected. Set EMBEDDING_BLOCK_PRIVATE_IPS=true for full lockdown.
         from src.url_safety import check_outbound_url
+
         ok, reason = check_outbound_url(
             url,
-            block_private=os.getenv("EMBEDDING_BLOCK_PRIVATE_IPS", "false").lower() == "true",
+            block_private=os.getenv("EMBEDDING_BLOCK_PRIVATE_IPS", "false").lower()
+            == "true",
         )
         if not ok:
             raise HTTPException(400, f"Rejected endpoint URL: {reason}")
@@ -279,6 +292,7 @@ def setup_embedding_routes():
         # Quick health check
         try:
             import httpx
+
             resp = httpx.post(
                 url,
                 json={"input": ["test"], "model": model or "test"},
@@ -287,7 +301,7 @@ def setup_embedding_routes():
             )
             resp.raise_for_status()
         except Exception as e:
-            raise HTTPException(400, f"Endpoint unreachable: {e}")
+            raise HTTPException(400, f"Endpoint unreachable: {e}") from e
 
         # Persist and set in environment for immediate use
         data = {"url": url}
@@ -295,6 +309,7 @@ def setup_embedding_routes():
             data["model"] = model
         if api_key:
             from src.secret_storage import encrypt
+
             data["api_key"] = encrypt(api_key)
 
         _save_custom_endpoint(data)
@@ -306,6 +321,7 @@ def setup_embedding_routes():
 
         # Reset the RAG singleton so it picks up the new endpoint
         import src.rag_singleton as _rs
+
         _rs.rag_instance = None
         _rs._last_attempt = 0
 
@@ -313,26 +329,30 @@ def setup_embedding_routes():
         # instead of staying on the FastEmbed fallback for the process lifetime.
         try:
             from src.embeddings import reset_http_embed_state
+
             reset_http_embed_state()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset HTTP embed state: {e}")
         try:
             from src.embedding_lanes import reset_embedding_lane_state
+
             reset_embedding_lane_state()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset embedding lane state: {e}")
         try:
             from src.tool_index import reset_tool_index
+
             reset_tool_index()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset tool index: {e}")
 
         # Reset ChromaDB client (collections will be recreated with new embeddings)
         try:
             from src.chroma_client import reset_client
+
             reset_client()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset ChromaDB client: {e}")
 
         logger.info(f"Custom embedding endpoint set: {url}")
         return {"success": True, "url": url, "model": model}
@@ -350,30 +370,35 @@ def setup_embedding_routes():
 
         # Reset the RAG singleton so it falls back to fastembed
         import src.rag_singleton as _rs
+
         _rs.rag_instance = None
         _rs._last_attempt = 0
         try:
             from src.embeddings import reset_http_embed_state
+
             reset_http_embed_state()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset HTTP embed state: {e}")
         try:
             from src.embedding_lanes import reset_embedding_lane_state
+
             reset_embedding_lane_state()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset embedding lane state: {e}")
         try:
             from src.tool_index import reset_tool_index
+
             reset_tool_index()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset tool index: {e}")
 
         # Reset ChromaDB client
         try:
             from src.chroma_client import reset_client
+
             reset_client()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to reset ChromaDB client: {e}")
 
         logger.info("Custom embedding endpoint cleared, reverting to local fastembed")
         return {"success": True}

@@ -37,6 +37,8 @@ from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _load_mcp_disabled_map() -> Dict[str, set]:
@@ -565,7 +567,10 @@ def _endpoint_lookup_keys(endpoint_url: str) -> List[str]:
         from src.endpoint_resolver import normalize_base
 
         add(normalize_base(raw))
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "Endpoint URL normalization failed; falling back to raw URL: %s", e, raw
+        )
         pass
     return keys
 
@@ -775,7 +780,12 @@ def _build_system_prompt(
         from src.user_time import current_datetime_prompt
 
         agent_prompt = current_datetime_prompt() + agent_prompt
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "Failed to get current datetime for prompt: %s \n using fallback",
+            e,
+            exc_info=True,
+        )
         pass
 
     # Document context is kept as a SEPARATE message (not merged into the tool
@@ -826,7 +836,12 @@ def _build_system_prompt(
                 _is_form_backed = bool(
                     find_source_upload_id(active_document.current_content or "")
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "PDF form detection failed; treating as regular document: %s",
+                    e,
+                    exc_info=True,
+                )
                 pass
 
             if _is_form_backed:
@@ -980,7 +995,12 @@ def _build_system_prompt(
                     "For English emails, default to Hi [Name] or Hiya from the saved style rather than Hey. "
                     "If the saved style specifies Best/newline/name, use that sign-off when a sign-off is natural."
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Failed to load email writing style for prompt injection: %s",
+                e,
+                exc_info=True,
+            )
             pass
 
     # When creating email documents, instruct the AI on the format
@@ -1020,7 +1040,13 @@ def _build_system_prompt(
 
                 _prefs = _load_prefs(owner) or {}
                 _skills_on = _prefs.get("skills_enabled", True)
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "Failed to load user preferences for %s: %s",
+                    owner,
+                    e,
+                    exc_info=True,
+                )
                 pass
             if last_user and _skills_on:
                 from services.memory.skills import SkillsManager
@@ -1071,7 +1097,13 @@ def _build_system_prompt(
                     for _sk in relevant_skills:
                         try:
                             sm.record_use(_sk.get("name", ""), owner=owner)
-                        except Exception:
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to record skill use for %s: %s",
+                                _sk.get("name", ""),
+                                e,
+                                exc_info=True,
+                            )
                             pass
                     lines.append("## Relevant skills for this request")
                     lines.append(
@@ -2747,7 +2779,7 @@ async def stream_agent_loop(
         tool_results = []
         tool_result_texts = []  # plain text for native tool role messages
         budget_hit = False
-        for i, block in enumerate(tool_blocks):
+        for _i, block in enumerate(tool_blocks):
             # --- Tool budget check ---
             if max_tool_calls > 0 and total_tool_calls >= max_tool_calls:
                 yield f'data: {json.dumps({"type": "budget_exceeded", "limit": max_tool_calls, "used": total_tool_calls})}\n\n'
@@ -2788,13 +2820,13 @@ async def stream_agent_loop(
                 # the UI can render live elapsed-time + tail-of-output.
                 _progress_q: asyncio.Queue = asyncio.Queue()
 
-                async def _push_progress(payload):
-                    await _progress_q.put(payload)
+                async def _push_progress(payload, _q=_progress_q):
+                    await _q.put(payload)
 
-                async def _run_tool():
+                async def _run_tool(_block=block, _q=_progress_q):
                     try:
                         return await execute_tool_block(
-                            block,
+                            _block,
                             session_id=session_id,
                             disabled_tools=disabled_tools,
                             tool_policy=tool_policy,
@@ -2803,8 +2835,7 @@ async def stream_agent_loop(
                             workspace=workspace,
                         )
                     finally:
-                        # Sentinel so the drainer knows to stop.
-                        await _progress_q.put(None)
+                        await _q.put(None)
 
                 _tool_task = asyncio.create_task(_run_tool())
                 # Drain progress events as they arrive — block until the
@@ -2847,8 +2878,8 @@ async def stream_agent_loop(
                                 result["results"] = _clean
                             elif "stdout" in result:
                                 result["stdout"] = _clean
-                        except (json.JSONDecodeError, Exception):
-                            pass
+                        except (json.JSONDecodeError, Exception) as e:
+                            logger.debug(f"Failed to extract web sources: {e}")
 
             # Emit doc-specific event for document tools — the frontend
             # document panel handles this; no need to show content in chat.

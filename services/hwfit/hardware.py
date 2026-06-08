@@ -1,3 +1,4 @@
+import logging
 import os
 import platform
 import re
@@ -11,6 +12,10 @@ from core.platform_compat import (
     SSH_PATH_OVERRIDE,
     run_ssh_command,
 )
+
+logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 CACHE_TTL = (
     24 * 3600
@@ -50,7 +55,8 @@ def _run(cmd):
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
             return r.stdout.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Command failed: {cmd} — {e}")
         pass
     return None
 
@@ -451,7 +457,8 @@ def _get_ram_gb():
             page_size = os.sysconf("SC_PAGE_SIZE")
             if pages and page_size:
                 return (pages * page_size) / (1024**3)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"os.sysconf failed: {e}")
             pass
 
     # macOS has no /proc/meminfo — fall back to sysctl (works locally and over

@@ -22,7 +22,9 @@ import logging
 import mimetypes
 import os
 import re
+import re as _re_reply
 import smtplib
+from contextlib import contextmanager
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -36,6 +38,8 @@ from src.auth_helpers import _auth_disabled, get_current_user
 from src.secret_storage import decrypt as _decrypt
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _smtp_security_mode(cfg: dict) -> str:
@@ -102,8 +106,6 @@ def _strip_think(text: str) -> str:
     )
     return _central(text, prose=had_think, prompt_echo=True)
 
-
-import re as _re_reply
 
 # Accept REPLY / SUMMARY / OUTPUT as the opening fence so the same extractor
 # serves replies and summaries (any fenced final-output block).
@@ -222,11 +224,11 @@ def _assert_owns_account(account_id: str, owner: str) -> None:
         # Fail closed — a DB hiccup must not let cross-tenant access slip
         # through. 503 tells the caller to retry; logs preserve detail.
         logger.error(f"Account-owner check failed: {e}")
-        raise HTTPException(503, "Account check failed")
+        raise HTTPException(503, "Account check failed") from e
 
 
 def _q(name: str) -> str:
-    """Quote an IMAP mailbox name. Defensive: escapes `\\` and `"` and wraps
+    r"""Quote an IMAP mailbox name. Defensive: escapes `\` and `"` and wraps
     in double quotes so user-supplied folder names with spaces or quotes can't
     confuse `SELECT` / `COPY`. imaplib already rejects CRLF, but quoting also
     handles `[Gmail]/Sent Mail`-style names that need wrapping anyway."""
@@ -267,8 +269,8 @@ def _cleanup_compose_uploads(tokens) -> None:
     for token in tokens:
         try:
             (COMPOSE_UPLOADS_DIR / Path(token).name).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to cleanup compose upload {token}: {e}")
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -304,9 +306,17 @@ def _ensure_owner_scoped_email_cache_table(
     conn, table: str, create_sql: str, columns: list[str]
 ):
     """Rebuild legacy Message-ID-only cache tables with owner in the PK."""
+    _allowed_tables = {
+        "email_summaries",
+        "email_ai_replies",
+        "email_calendar_extractions",
+        "email_urgency_alerts",
+    }
+    if table not in _allowed_tables:
+        raise ValueError(f"Unexpected table name: {table!r}")
     conn.execute(create_sql)
     try:
-        info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        info = conn.execute(f"PRAGMA table_info({table})").fetchall()  # nosec B608
         cols = [r[1] for r in info]
         pk_cols = [r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])]
         if "owner" in cols and pk_cols == ["message_id", "owner"]:
@@ -315,17 +325,20 @@ def _ensure_owner_scoped_email_cache_table(
         conn.execute(f"ALTER TABLE {table} RENAME TO {table}__old")
         conn.execute(create_sql)
         old_cols = [
-            r[1] for r in conn.execute(f"PRAGMA table_info({table}__old)").fetchall()
+            r[1]
+            for r in conn.execute(
+                f"PRAGMA table_info({table}__old)"
+            ).fetchall()  # nosec B608
         ]
         copy_cols = [c for c in columns if c != "owner" and c in old_cols]
         source_owner = "COALESCE(owner, '')" if "owner" in old_cols else "''"
         target_cols = ["owner", *copy_cols]
         select_exprs = [source_owner, *copy_cols]
         conn.execute(
-            f"INSERT OR IGNORE INTO {table} ({', '.join(target_cols)}) "
-            f"SELECT {', '.join(select_exprs)} FROM {table}__old"
+            f"INSERT OR IGNORE INTO {table} ({', '.join(target_cols)}) "  # noqa: S608
+            f"SELECT {', '.join(select_exprs)} FROM {table}__old"  # noqa: S608
         )
-        conn.execute(f"DROP TABLE {table}__old")
+        conn.execute(f"DROP TABLE {table}__old")  # noqa: S608
     except Exception as _mig_e:
         import logging as _lg
 
@@ -589,10 +602,10 @@ def _init_scheduled_db():
                             )
                 finally:
                     _db.close()
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:
+                logger.warning(f"Failed to backfill owner for legacy accounts: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to perform lazy migration for scheduled_emails: {e}")
     # Lazy migration: add turns_json to email_boundaries for server-side
     # thread parsing cache (talon-style precomputed reply chain).
     try:
@@ -601,8 +614,8 @@ def _init_scheduled_db():
         ]
         if "turns_json" not in cols:
             conn.execute("ALTER TABLE email_boundaries ADD COLUMN turns_json TEXT")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to perform lazy migration for email_boundaries: {e}")
     # Per-sender signature cache. Populated by `learn_sender_signatures`
     # action: the LLM extracts the common trailing block across N emails
     # from each sender; the renderer folds it consistently for every
@@ -827,8 +840,8 @@ def _open_imap_connection(
         conn = imaplib.IMAP4(host, port, timeout=timeout)
     try:
         conn.sock.settimeout(timeout)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to set IMAP socket timeout: {e}")
     # Raise the IMAP line-length limit from the default 1 MB to 50 MB so that
     # large mailboxes (tens of thousands of messages) don't crash with
     # "got more than 1000000 bytes" on UID SEARCH ALL.  (#2883)
@@ -857,8 +870,6 @@ def _imap_connect(account_id: str | None = None, owner: str = ""):
     conn.login(cfg["imap_user"], cfg["imap_password"])
     return conn
 
-
-from contextlib import contextmanager
 
 # Filled in by setup_email_routes() once its closure-scoped pool helpers are
 # defined. Keyed so we can swap them out in tests.
@@ -900,8 +911,8 @@ def _imap(account_id: str | None = None, owner: str = ""):
                     pool_release(account_id, conn, ok=ok, owner=owner)
                 except TypeError:
                     pool_release(account_id, conn, ok=ok)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to release IMAP connection: {e}")
         return
     # Fallback: plain connect+logout. Used pre-setup or in tests.
     conn = _imap_connect(account_id, owner=owner)
@@ -910,8 +921,8 @@ def _imap(account_id: str | None = None, owner: str = ""):
     finally:
         try:
             conn.logout()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to logout IMAP connection: {e}")
 
 
 def _decode_header(raw):
@@ -924,7 +935,8 @@ def _decode_header(raw):
         # dropped. The old " ".join produced "Re:  Jose"-style double spaces on
         # every non-ASCII subject or sender.
         return str(email.header.make_header(email.header.decode_header(raw)))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to decode header: {e}")
         # Malformed header or unknown/invalid MIME charset (e.g. a spam header
         # like =?x-unknown-charset?B?...?=) makes make_header raise LookupError;
         # fall back to a lossy per-part decode. errors="replace" only covers
@@ -971,8 +983,8 @@ def _detect_sent_folder(conn):
         for c in candidates:
             if c in names:
                 return c
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to detect sent folder: {e}")
     return "Sent"
 
 
@@ -999,8 +1011,8 @@ def _detect_drafts_folder(conn):
         for c in candidates:
             if c in names:
                 return c
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to detect drafts folder: {e}")
     return "Drafts"
 
 
@@ -1029,7 +1041,8 @@ def _detect_spam_folder(conn):
             ):
                 fallback = fallback or name
         return preferred or fallback
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to detect spam folder: {e}")
         return None
 
 
@@ -1052,14 +1065,14 @@ def _imap_move(uid, dest, src="INBOX", account_id: str | None = None, owner: str
         if c:
             try:
                 c.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to logout from IMAP: {e}")
 
 
 def _extract_attachment_text(msg, max_chars: int = 6000) -> str:
-    """Pull readable text out of an email's attachments — PDF (via PyMuPDF),
+    r"""Pull readable text out of an email's attachments — PDF (via PyMuPDF),
     plain text, markdown, csv, log. Caps total at `max_chars`. Returns a
-    formatted string with `[Attachment: filename]\\n<content>` blocks
+    formatted string with `[Attachment: filename]\n<content>` blocks
     separated by `---`. Empty string if there's nothing useful.
 
     Used by the summarize/reply pipeline so an email like "see attached
@@ -1083,8 +1096,8 @@ def _extract_attachment_text(msg, max_chars: int = 6000) -> str:
         if filename:
             try:
                 filename = _decode_header(filename)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to decode attachment filename: {e}")
         fname_lower = (filename or "").lower()
         payload = part.get_payload(decode=True)
         if not payload:
@@ -1105,8 +1118,8 @@ def _extract_attachment_text(msg, max_chars: int = 6000) -> str:
                 finally:
                     try:
                         _os.unlink(tmp.name)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to delete temporary PDF file: {e}")
             elif ct.startswith("text/") or fname_lower.endswith(
                 (".txt", ".md", ".csv", ".log", ".json")
             ):
@@ -1285,7 +1298,8 @@ def _fetch_sender_thread_context(
                 st_sel, _ = conn.select(_q(folder), readonly=True)
                 if st_sel != "OK":
                     continue
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to select folder {folder}: {e}")
                 continue
             try:
                 addr_escaped = sender_addr.replace('"', '\\"')
@@ -1295,7 +1309,8 @@ def _fetch_sender_thread_context(
                 uids = sdata[0].split()
                 # Most recent first.
                 uids = list(reversed(uids))
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to search emails in folder {folder}: {e}")
                 continue
 
             for raw_uid in uids:
@@ -1352,12 +1367,12 @@ def _fetch_sender_thread_context(
         if conn:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to close IMAP connection: {e}")
             try:
                 conn.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to logout from IMAP: {e}")
 
     if not blocks:
         return ""
@@ -1445,8 +1460,8 @@ def _pre_retrieve_context(
                     ):
                         is_known = True
                         break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to fetch contacts: {e}")
         if not is_known and sender_addr:
             try:
                 with _imap(account_id, owner=owner) as _ck:
@@ -1454,8 +1469,8 @@ def _pre_retrieve_context(
                     st_known, dk = _ck.search(None, f'(FROM "{sender_addr}")')
                     if st_known == "OK" and dk and dk[0]:
                         is_known = True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to search emails for sender {sender_addr}: {e}")
         if not is_known:
             logger.info(f"Pre-retrieval skipped — unknown sender {sender_addr}")
             return [], []
@@ -1494,7 +1509,8 @@ def _pre_retrieve_context(
                     st_sel, _sd = ctx_conn.select(_q(folder), readonly=True)
                     if st_sel != "OK":
                         continue
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Failed to select folder {folder}: {e}")
                     continue
                 for term in terms_list:
                     try:
@@ -1518,19 +1534,22 @@ def _pre_retrieve_context(
                                 context_snippets.append(
                                     f'[{folder} match for "{term}"]\nFrom: {hfrom}\nDate: {hdate}\nSubject: {hsubj}\n{hbody}'
                                 )
-                            except Exception:
+                            except Exception as e:
+                                logger.warning(
+                                    f"  failed to fetch email {huid} in folder {folder}: {e}"
+                                )
                                 continue
-                    except Exception as _e:
-                        logger.warning(f"  search {folder} {term!r} failed: {_e}")
+                    except Exception as e:
+                        logger.warning(f"  search {folder} {term!r} failed: {e}")
                         continue
-        except Exception as _e:
-            logger.warning(f"IMAP context search failed: {_e}")
+        except Exception as e:
+            logger.warning(f"IMAP context search failed: {e}")
         finally:
             if ctx_conn:
                 try:
                     ctx_conn.logout()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to logout from IMAP: {e}")
 
         try:
             from routes.contacts_routes import _fetch_contacts
@@ -1555,8 +1574,8 @@ def _pre_retrieve_context(
                     context_snippets.append(
                         f'[Contact match for "{term}"] ' + ", ".join(parts)
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch contacts: {e}")
     except Exception as e:
         logger.warning(f"Pre-retrieval failed: {e}")
     logger.info(f"Pre-retrieval snippets={len(context_snippets)}")

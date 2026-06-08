@@ -33,6 +33,8 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Pull window: 90 days back, 1 year forward. Keeps the REPORT cheap and
 # matches what the calendar UI typically renders. Far-future recurring

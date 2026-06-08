@@ -35,6 +35,8 @@ from src.settings import save_settings as _save_settings
 from src.tls_overrides import llm_verify
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _SPEECH_ENDPOINT_SETTINGS = (
     ("tts_provider", "tts_model", "tts-1", "Text to Speech"),
@@ -685,7 +687,8 @@ def _probe_single_model(
                         error_msg = err.get("message", error_msg)[:120]
                     elif isinstance(err, str):
                         error_msg = err[:120]
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to parse error response from {target_url}: {e}")
                 pass
             return {"status": "fail", "latency_ms": latency, "error": error_msg}
     except httpx.TimeoutException:
@@ -740,8 +743,8 @@ def _classify_endpoint(base_url: str, endpoint_kind: str = "auto") -> str:
             return "local"
         if _TAILSCALE_RE.match(host):
             return "local"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to classify endpoint {base_url}: {e}")
     return "api"
 
 
@@ -755,8 +758,8 @@ def _effective_endpoint_kind(ep: Any, base_url: str) -> str:
             path = (urlparse(base_url).path or "").rstrip("/")
             if path.endswith("/v1") or "/openai" in path:
                 return "proxy"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to determine endpoint kind for {base_url}: {e}")
     return "auto"
 
 
@@ -941,7 +944,8 @@ def _ping_endpoint(
                     last_error = result.get("error")
                 except Exception as e:
                     last_error = str(e)[:120]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error during APFEL/Ollama-specific probe for {base}: {e}")
         pass
 
     try:
@@ -965,7 +969,10 @@ def _ping_endpoint(
                 result2 = _result_from_response(r2)
                 if result2["reachable"]:
                     return result2
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Error during fallback /models probe for {models_url}: {e}"
+                )
                 pass
         return result
     except Exception as e:
@@ -1178,9 +1185,7 @@ def setup_model_routes(model_discovery):
                 changed = False
                 try:
                     endpoints = (
-                        db.query(ModelEndpoint)
-                        .filter(ModelEndpoint.is_enabled == True)
-                        .all()
+                        db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
                     )
                     now = _time.time()
                     groups: Dict[str, Dict[str, Any]] = {}
@@ -1273,7 +1278,7 @@ def setup_model_routes(model_discovery):
 
         db = SessionLocal()
         try:
-            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
             if owner and not is_admin:
                 # Regular users see: their own endpoints + null-owner
                 # (legacy / shared). Admins see everything.
@@ -1284,7 +1289,7 @@ def setup_model_routes(model_discovery):
 
         for ep in endpoints:
             base = _normalize_base(ep.base_url)
-            provider = _detect_provider(base)
+            _provider = _detect_provider(base)
             # Merge cached + pinned models, then filter out hidden ones
             ep_model_type = getattr(ep, "model_type", None) or "llm"
             model_ids = _visible_models(
@@ -1355,8 +1360,20 @@ def setup_model_routes(model_discovery):
             from src.auth_helpers import get_current_user as _gcu
 
             owner = _gcu(request) or ""
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error determining current user for /models: {e}")
             owner = ""
+            if not owner:
+                from src.auth_helpers import get_current_user_sync as _gcus
+
+                try:
+                    owner = _gcus(request) or ""
+                except Exception as e2:
+                    logger.warning(
+                        f"Error determining current user (sync) for /models: {e2}"
+                    )
+            # fallback to unconfigured mode on error
+            # but log the heck out of it since that should never happen
         # Reject anonymous in configured deployments — no leaking the model
         # list to unauthenticated callers.
         try:
@@ -1370,7 +1387,8 @@ def setup_model_routes(model_discovery):
                 raise HTTPException(401, "Not authenticated")
         except HTTPException:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error checking auth for /models: {e}")
             pass
         # Admins see every endpoint (they manage the global pool); regular
         # users get the owner-scoped view.
@@ -1422,9 +1440,7 @@ def setup_model_routes(model_discovery):
 
         db = SessionLocal()
         try:
-            endpoints = (
-                db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
-            )
+            endpoints = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
             local_eps = []
             for ep in endpoints:
                 base = _normalize_base(ep.base_url)
@@ -1471,7 +1487,7 @@ def setup_model_routes(model_discovery):
             return_exceptions=False,
         )
         results: Dict[str, Any] = {}
-        for data, r in zip(grouped.values(), results_list):
+        for data, r in zip(grouped.values(), results_list, strict=False):
             for eid in data["endpoint_ids"]:
                 results[eid] = r
 
@@ -1485,9 +1501,7 @@ def setup_model_routes(model_discovery):
         require_admin(request)
         db = SessionLocal()
         try:
-            endpoints = (
-                db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
-            )
+            endpoints = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
         finally:
             db.close()
 
@@ -1604,7 +1618,7 @@ def setup_model_routes(model_discovery):
         require_admin(request)
         db = SessionLocal()
         try:
-            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
             if endpoint_id:
                 q = q.filter(ModelEndpoint.id == endpoint_id)
             endpoints = q.all()
@@ -2265,7 +2279,7 @@ def setup_model_routes(model_discovery):
             ep = None
             if ep_id:
                 ep_q = db.query(ModelEndpoint).filter(
-                    ModelEndpoint.id == ep_id, ModelEndpoint.is_enabled == True
+                    ModelEndpoint.id == ep_id, ModelEndpoint.is_enabled
                 )
                 # Honor the same owner-scope rule as /api/models — a per-user
                 # default that points at an endpoint owned by a different user
@@ -2288,7 +2302,7 @@ def setup_model_routes(model_discovery):
                     if not fid:
                         continue
                     cand_q = db.query(ModelEndpoint).filter(
-                        ModelEndpoint.id == fid, ModelEndpoint.is_enabled == True
+                        ModelEndpoint.id == fid, ModelEndpoint.is_enabled
                     )
                     if _user and not _is_admin:
                         cand_q = owner_filter(cand_q, ModelEndpoint, _user)
@@ -2307,9 +2321,7 @@ def setup_model_routes(model_discovery):
             # existing shared/admin endpoint. Shared endpoints remain visible
             # in the picker and still work when explicitly selected/saved.
             if not ep:
-                _last_q = db.query(ModelEndpoint).filter(
-                    ModelEndpoint.is_enabled == True
-                )
+                _last_q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
                 if _user and not _is_admin:
                     _last_q = owner_filter(
                         _last_q, ModelEndpoint, _user, include_shared=False
@@ -2330,8 +2342,10 @@ def setup_model_routes(model_discovery):
                     )
                     if visible:
                         model = visible[0]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Error determining visible models for endpoint {ep.id}: {e}"
+                    )
             return {"endpoint_id": ep.id, "endpoint_url": chat_url, "model": model}
         finally:
             db.close()
@@ -2361,8 +2375,6 @@ def setup_model_routes(model_discovery):
                         False: False,
                         "true": True,
                         "false": False,
-                        1: True,
-                        0: False,
                     }.get(v)
                 if "is_enabled" in body:
                     v_ie = body["is_enabled"]

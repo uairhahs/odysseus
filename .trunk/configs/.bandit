@@ -21,5 +21,17 @@ number: 4
 show-skipped: True
 
 # Tests to skip (comma-separated test IDs)
-# Example: B101,B102
-skips = B101,B603
+# B008 - Do not perform function call `Body` in argument defaults;
+#        instead, perform the call within the function,
+#        or read the default from a module-level singleton variable
+# B101 - assert statements (required by pytest)
+# B104 - binding to all interfaces (intentional for remote serves)
+# B311 - pseudo-random generators (used for non-security purposes
+#        e.g. pagination shuffle)
+# B404 - Possible security implications associated with the subprocess module
+# B603 - subprocess call with untrusted input (inputs are validated upstream)
+# B604 - Function call with shell=True parameter identified, possible security issue
+# B607 - Starting a process with a partial executable path
+# B608 - Probable insecure usage of temp file/directory
+# B615 - incomplete URL schemes
+skips = B008,B101,B104,B108,B311,B404,B603,B604,B607,B608,B615

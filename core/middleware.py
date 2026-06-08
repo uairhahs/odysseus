@@ -1,6 +1,7 @@
 # src/middleware.py
 # Shared middleware, decorators, and request helpers
 
+import logging
 import os
 import secrets
 
@@ -8,6 +9,9 @@ from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 # Per-process token that lets the in-app tool layer hit admin-gated
 # routes via HTTP loopback (the agent's tool calls don't carry the
 # admin user's session cookie). Set once at import; tools read the
@@ -40,7 +44,8 @@ def require_admin(request: Request):
             return
         if getattr(request.state, "current_user", None) == "internal-tool":
             return
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Error checking internal tool token: {e}")
         pass
 
     auth_mgr = getattr(request.app.state, "auth_manager", None)

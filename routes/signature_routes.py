@@ -19,9 +19,13 @@ from core.database import SessionLocal, Signature
 from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
-_DATA_URL_RE = re.compile(r"^data:image/png;base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
+_DATA_URL_RE = re.compile(
+    r"^data:image/png;base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL
+)
 _ANY_IMAGE_DATA_URL_RE = re.compile(r"^data:image/[^;]+;base64,", re.IGNORECASE)
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _MAX_SIGNATURE_BYTES = 2 * 1024 * 1024
@@ -42,8 +46,10 @@ def _normalize_signature_png(raw: str) -> str:
         raise HTTPException(400, "Signature PNG is too large")
     try:
         payload = base64.b64decode(b64, validate=True)
-    except Exception:
-        raise HTTPException(400, "Signature data must be base64-encoded PNG bytes")
+    except Exception as e:
+        raise HTTPException(
+            400, "Signature data must be base64-encoded PNG bytes"
+        ) from e
     if not payload:
         raise HTTPException(400, "Signature PNG is empty")
     if len(payload) > _MAX_SIGNATURE_BYTES:
@@ -99,7 +105,9 @@ def setup_signature_routes() -> APIRouter:
             db.close()
 
     @router.post("/api/signatures")
-    async def create_signature(request: Request, req: SignatureCreate) -> Dict[str, Any]:
+    async def create_signature(
+        request: Request, req: SignatureCreate
+    ) -> Dict[str, Any]:
         user = get_current_user(request)
         b64 = _normalize_signature_png(req.data)
         width = _signature_dimension(req.width)
@@ -123,7 +131,7 @@ def setup_signature_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error(f"Failed to save signature: {e}")
-            raise HTTPException(500, f"Failed to save signature: {e}")
+            raise HTTPException(500, f"Failed to save signature: {e}") from e
         finally:
             db.close()
 
@@ -144,7 +152,7 @@ def setup_signature_routes() -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, f"Failed to delete signature: {e}")
+            raise HTTPException(500, f"Failed to delete signature: {e}") from e
         finally:
             db.close()
 

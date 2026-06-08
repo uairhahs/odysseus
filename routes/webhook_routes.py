@@ -10,11 +10,14 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core.database import ModelEndpoint, SessionLocal, Webhook
+from core.middleware import require_admin as _require_admin
 from src.auth_helpers import owner_filter
 from src.url_security import validate_public_http_url
 from src.webhook_manager import WebhookManager, validate_events, validate_webhook_url
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 router = APIRouter(prefix="/api", tags=["webhooks"])
 
@@ -23,9 +26,6 @@ MAX_NAME_LEN = 100
 MAX_URL_LEN = 2048
 MAX_SECRET_LEN = 256
 MAX_MESSAGE_LEN = 32_000
-
-
-from core.middleware import require_admin as _require_admin
 
 
 def _select_api_chat_fallback_endpoint(db, token_owner: Optional[str]):
@@ -116,11 +116,11 @@ def setup_webhook_routes(
         try:
             url = validate_webhook_url(url)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         try:
             events = validate_events(events)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
 
         secret_val = secret.strip()[:MAX_SECRET_LEN] or None
         # Encrypt the secret at rest using the same Fernet key as API keys
@@ -272,8 +272,8 @@ def setup_webhook_routes(
         if session_id and session_manager:
             try:
                 sess = session_manager.get_session(session_id)
-            except (KeyError, Exception):
-                raise HTTPException(404, "Session not found")
+            except (KeyError, Exception) as e:
+                raise HTTPException(404, "Session not found") from e
             # SECURITY: verify the API-token's user owns this session — without
             # this any token holder could resume any user's chat by passing its
             # ID. The token's user is on request.state.user (set by API-token
@@ -308,7 +308,7 @@ def setup_webhook_routes(
                     base_url = validate_public_http_url(direct_base_url)
                 except ValueError as e:
                     detail = str(e).replace("URL", "base_url", 1)
-                    raise HTTPException(400, detail)
+                    raise HTTPException(400, detail) from e
             else:
                 base_url = _resolve_base_url(model, body.provider)
             if not base_url:
@@ -373,8 +373,10 @@ def setup_webhook_routes(
                                 if m.get("name") or m.get("model")
                             ]
                         model = ids[0] if ids else "auto"
-                except Exception:
-                    raise HTTPException(500, "Could not discover models from endpoint")
+                except Exception as e:
+                    raise HTTPException(
+                        500, "Could not discover models from endpoint"
+                    ) from e
 
             if not session_manager:
                 raise HTTPException(500, "Session manager not available")

@@ -34,8 +34,8 @@ fi
 # values (APP_PORT / APP_BIND), then built-in defaults.
 PORT="${ODYSSEUS_PORT:-${APP_PORT:-7860}}"      # 7860, not 7000 — macOS AirPlay Receiver holds 7000.
 HOST="${ODYSSEUS_HOST:-${APP_BIND:-127.0.0.1}}" # Set APP_BIND=0.0.0.0 in .env for LAN/Tailscale access.
-PROBE_HOST="$HOST"
-if [ "$PROBE_HOST" = "0.0.0.0" ] || [ "$PROBE_HOST" = "::" ]; then
+PROBE_HOST="${HOST}"
+if [[ ${PROBE_HOST} == "0.0.0.0" ]] || [[ ${PROBE_HOST} == "::" ]]; then
 	PROBE_HOST="127.0.0.1"
 fi
 

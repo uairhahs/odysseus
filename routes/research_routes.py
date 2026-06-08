@@ -1,4 +1,4 @@
-"""Research background task routes — /api/research/*."""
+# Research background task routes — /api/research/*
 
 import asyncio
 import json
@@ -19,6 +19,8 @@ from src.endpoint_resolver import resolve_endpoint
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9-]{1,128}$")
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Model-name substrings that are NOT chat/generation models — research must
 # never pick these as its model. An OpenAI-style endpoint often lists
@@ -181,8 +183,8 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             raise HTTPException(404, "Research not found")
         try:
             owner = json.loads(path.read_text(encoding="utf-8")).get("owner")
-        except Exception:
-            raise HTTPException(404, "Research not found")
+        except Exception as e:
+            raise HTTPException(404, "Research not found") from e
         if owner != user:
             raise HTTPException(404, "Research not found")
 
@@ -197,7 +199,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             html_content = research_handler.get_report_html(session_id)
         except Exception as e:
             logger.error(f"Visual report generation error: {e}", exc_info=True)
-            raise HTTPException(500, f"Report generation failed: {e}")
+            raise HTTPException(500, f"Report generation failed: {e}") from e
         if html_content is None:
             logger.warning(f"No report data found for session {session_id}")
             raise HTTPException(404, "No visual report available for this session")
@@ -272,7 +274,8 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                         "archived": bool(d.get("archived")),
                     }
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to parse research item {p.stem}: {e}")
                 continue
 
         # Sort
@@ -299,7 +302,8 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception as e:
-            raise HTTPException(500, f"Failed to read research: {e}")
+            logger.warning(f"Failed to read research item {session_id}: {e}")
+            raise HTTPException(500, f"Failed to read research: {e}") from e
         # SECURITY: 404 (not 403) so we don't leak that the report exists.
         if data.get("owner") != user:
             raise HTTPException(404, "Research not found")
@@ -324,7 +328,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(500, f"Failed to update research: {e}")
+            raise HTTPException(500, f"Failed to update research: {e}") from e
         return {"ok": True, "id": session_id, "archived": bool(archived)}
 
     @router.delete("/api/research/{session_id}")
@@ -343,8 +347,8 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                     raise HTTPException(404, "Research not found")
             except HTTPException:
                 raise
-            except Exception:
-                raise HTTPException(404, "Research not found")
+            except Exception as e:
+                raise HTTPException(404, "Research not found") from e
             json_path.unlink()
             deleted = True
         return {"deleted": deleted}
@@ -385,12 +389,15 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                         privs = auth_mgr.get_privileges(tool_owner) or {}
                         if not privs.get("can_use_research", True):
                             raise HTTPException(
-                                403, f"Your account is not allowed to can use research."
+                                403,
+                                "Your account is not allowed to use the research feature",
                             )
                     except HTTPException:
                         raise
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to get privileges for tool owner {tool_owner}: {e}"
+                        )
                 user = tool_owner
         session_id = f"rp-{uuid.uuid4().hex[:12]}"
 
@@ -423,8 +430,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                         )
                         if models:
                             ep_model = _first_chat_model(models)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to parse cached models for endpoint {ep.id}: {e}"
+                        )
             finally:
                 db.close()
         else:
@@ -466,8 +475,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                                 models = _json.loads(ep.cached_models)
                                 if models:
                                     ep_model = _first_chat_model(models)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to parse cached models for endpoint {ep.id}: {e}"
+                                )
                 finally:
                     db.close()
             if not ep_url:
@@ -649,8 +660,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                             models = json.loads(ep.cached_models)
                             if models:
                                 fallback_model = _first_chat_model(models)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to parse cached models for endpoint {ep.id}: {e}"
+                            )
                     _merge(fallback_url, fallback_model, fallback_headers)
             finally:
                 db.close()

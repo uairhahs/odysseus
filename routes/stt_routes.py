@@ -1,12 +1,15 @@
 # routes/stt_routes.py
 """STT API routes — multi-provider (local Whisper, API endpoint, browser)."""
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
 import logging
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from src.upload_limits import read_upload_limited
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 STT_MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
@@ -22,7 +25,7 @@ def setup_stt_routes(stt_service):
             return stt_service.get_stats()
         except Exception as e:
             logger.error(f"Failed to get STT stats: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     @router.post("/transcribe")
     async def transcribe_audio(file: UploadFile = File(...)):
@@ -31,18 +34,23 @@ def setup_stt_routes(stt_service):
             if not stt_service.available:
                 raise HTTPException(
                     status_code=503,
-                    detail={"message": "STT service not available or set to browser mode"}
+                    detail={
+                        "message": "STT service not available or set to browser mode"
+                    },
                 )
 
-            audio_bytes = await read_upload_limited(file, STT_MAX_AUDIO_BYTES, "Audio file")
+            audio_bytes = await read_upload_limited(
+                file, STT_MAX_AUDIO_BYTES, "Audio file"
+            )
             if not audio_bytes:
-                raise HTTPException(status_code=400, detail={"message": "Empty audio file"})
+                raise HTTPException(
+                    status_code=400, detail={"message": "Empty audio file"}
+                )
 
             text = stt_service.transcribe(audio_bytes)
             if text is None:
                 raise HTTPException(
-                    status_code=500,
-                    detail={"message": "Transcription failed"}
+                    status_code=500, detail={"message": "Transcription failed"}
                 )
 
             return {"text": text}
@@ -52,8 +60,7 @@ def setup_stt_routes(stt_service):
         except Exception as e:
             logger.error(f"Transcription error: {e}", exc_info=True)
             raise HTTPException(
-                status_code=500,
-                detail={"message": f"Transcription failed: {str(e)}"}
-            )
+                status_code=500, detail={"message": f"Transcription failed: {str(e)}"}
+            ) from e
 
     return router

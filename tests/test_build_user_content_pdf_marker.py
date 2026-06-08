@@ -1,15 +1,15 @@
-"""Regression: build_user_content must strip the '[PDF content]:' wrapper with
-the prefix-safe helper, not str.lstrip(chars).
+# Regression: build_user_content must strip the '[PDF content]:' wrapper with
+# the prefix-safe helper, not str.lstrip(chars).
 
-The PDF-attach path at build_user_content used
-`_process_pdf(path).lstrip("\\n[PDF content]:")`, which treats the argument as a
-set of characters and keeps eating leading body characters (so a page that
-begins "Page 1 text]: to the board" lost its "P"/"to"). The other call sites
-were switched to `strip_pdf_content_marker` (str.removeprefix); this one wasn't.
-"""
+# The PDF-attach path at build_user_content used
+# `_process_pdf(path).lstrip("\\n[PDF content]:")`, which treats the argument as a
+# set of characters and keeps eating leading body characters (so a page that
+# begins "Page 1 text]: to the board" lost its "P"/"to"). The other call sites
+# were switched to `strip_pdf_content_marker` (str.removeprefix); this one wasn't.
 
-import os
-import tempfile
+
+# import os
+# import tempfile
 
 import src.document_processor as dp
 import src.pdf_form_doc as pdf_form_doc

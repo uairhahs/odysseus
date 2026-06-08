@@ -6,13 +6,14 @@ Features: persistent storage, hybrid search (vector + keyword), sentence-aware c
 configurable embedding endpoint via EMBEDDING_URL env var.
 """
 
-import os
 import hashlib
-import re
 import logging
-import numpy as np
-from typing import List, Dict, Any, Optional, Set
+import os
+import re
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+
+import numpy as np
 
 from src.embedding_lanes import (
     LANE_CUSTOM,
@@ -26,10 +27,21 @@ from src.embedding_lanes import (
 )
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 DEFAULT_FILE_EXTENSIONS: Set[str] = {
-    '.txt', '.md', '.py', '.json', '.yaml', '.yml',
-    '.csv', '.html', '.css', '.js', '.pdf'
+    ".txt",
+    ".md",
+    ".py",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".csv",
+    ".html",
+    ".css",
+    ".js",
+    ".pdf",
 }
 
 VECTOR_WEIGHT = 0.7
@@ -71,7 +83,11 @@ class VectorRAG:
             if not self._lanes:
                 raise RuntimeError("No embedding lanes available")
             self._collection = next(
-                (lane.collection for lane in self._lanes if lane.name == LANE_FASTEMBED),
+                (
+                    lane.collection
+                    for lane in self._lanes
+                    if lane.name == LANE_FASTEMBED
+                ),
                 self._lanes[0].collection,
             )
             self._model = self._lanes[0].client
@@ -139,15 +155,24 @@ class VectorRAG:
                 client = get_chroma_client()
                 try:
                     add("legacy", client.get_collection(COLLECTION_NAME))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to get legacy collection: {e}", exc_info=True
+                    )
                 for lane_name in (LANE_CUSTOM, LANE_FASTEMBED):
                     try:
-                        add(lane_name, client.get_collection(collection_name(COLLECTION_NAME, lane_name)))
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                        add(
+                            lane_name,
+                            client.get_collection(
+                                collection_name(COLLECTION_NAME, lane_name)
+                            ),
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to get collection {lane_name}: {e}", exc_info=True
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to get Chroma client: {e}", exc_info=True)
 
         return collections
 
@@ -180,7 +205,9 @@ class VectorRAG:
                 )
                 wrote = True
             except Exception as e:
-                logger.warning("add_document failed in %s lane: %s", lane.name, e)
+                logger.warning(
+                    "add_document failed in %s lane: %s", lane.name, e, exc_info=True
+                )
         return wrote
 
     def add_documents_batch(self, docs: List[tuple]) -> Dict[str, Any]:
@@ -190,7 +217,8 @@ class VectorRAG:
             return {"success": False, "message": "Empty document list"}
 
         valid = [
-            (t, m) for t, m in docs
+            (t, m)
+            for t, m in docs
             if t and isinstance(t, str) and m and isinstance(m, dict)
         ]
         if not valid:
@@ -204,13 +232,19 @@ class VectorRAG:
             try:
                 existing = lane.collection.get(ids=all_ids)
                 existing_ids = set(existing.get("ids") or [])
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "Failed to get existing documents in %s lane: %s",
+                    lane.name,
+                    e,
+                    exc_info=True,
+                )
                 existing_ids = set()
 
             new_texts = []
             new_metas = []
             new_ids = []
-            for (text, meta), doc_id in zip(valid, all_ids):
+            for (text, meta), doc_id in zip(valid, all_ids, strict=False):
                 if doc_id not in existing_ids:
                     new_texts.append(text)
                     new_metas.append(meta)
@@ -220,9 +254,9 @@ class VectorRAG:
                 attempted_new = True
                 lane_failed = False
                 for i in range(0, len(new_texts), 100):
-                    batch_texts = new_texts[i:i + 100]
-                    batch_ids = new_ids[i:i + 100]
-                    batch_metas = new_metas[i:i + 100]
+                    batch_texts = new_texts[i : i + 100]
+                    batch_ids = new_ids[i : i + 100]
+                    batch_metas = new_metas[i : i + 100]
                     try:
                         lane.collection.add(
                             ids=batch_ids,
@@ -233,7 +267,12 @@ class VectorRAG:
                     except Exception as e:
                         lane_failed = True
                         write_failed = True
-                        logger.warning("add_documents_batch failed in %s lane: %s", lane.name, e)
+                        logger.warning(
+                            "add_documents_batch failed in %s lane: %s",
+                            lane.name,
+                            e,
+                            exc_info=True,
+                        )
                         break
                 if not lane_failed:
                     added_ids.update(new_ids)
@@ -252,7 +291,9 @@ class VectorRAG:
     # Search — hybrid: vector similarity + keyword overlap
     # ------------------------------------------------------------------
 
-    def search(self, query: str, k: int = 5, owner: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search(
+        self, query: str, k: int = 5, owner: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         if not self.healthy:
             return []
         if not query or not isinstance(query, str):
@@ -287,18 +328,22 @@ class VectorRAG:
                     doc_words = set(doc_text.lower().split())
                     overlap = len(query_words & doc_words)
                     keyword_score = overlap / len(query_words) if query_words else 0.0
-                    hybrid_score = (VECTOR_WEIGHT * vector_sim) + (KEYWORD_WEIGHT * keyword_score)
+                    hybrid_score = (VECTOR_WEIGHT * vector_sim) + (
+                        KEYWORD_WEIGHT * keyword_score
+                    )
 
-                    candidates.append({
-                        "id": doc_id,
-                        "document": doc_text,
-                        "metadata": meta,
-                        "distance": round(distance, 4),
-                        "similarity": round(hybrid_score, 4),
-                        "vector_similarity": round(vector_sim, 4),
-                        "keyword_score": round(keyword_score, 4),
-                        "embedding_lane": lane.name,
-                    })
+                    candidates.append(
+                        {
+                            "id": doc_id,
+                            "document": doc_text,
+                            "metadata": meta,
+                            "distance": round(distance, 4),
+                            "similarity": round(hybrid_score, 4),
+                            "vector_similarity": round(vector_sim, 4),
+                            "keyword_score": round(keyword_score, 4),
+                            "embedding_lane": lane.name,
+                        }
+                    )
 
             candidates.sort(key=lambda c: c["similarity"], reverse=True)
             top = dedupe_results(candidates, limit=k)
@@ -306,10 +351,12 @@ class VectorRAG:
             return top
 
         except Exception as e:
-            logger.error(f"search failed: {e}")
+            logger.error(f"search failed: {e}", exc_info=True)
             return self._keyword_search_fallback(query, k, owner=owner)
 
-    def _keyword_search_fallback(self, query: str, k: int = 5, owner: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _keyword_search_fallback(
+        self, query: str, k: int = 5, owner: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         try:
             if not self._active_collections():
                 return []
@@ -329,20 +376,22 @@ class VectorRAG:
                     doc_lower = doc.lower()
                     score = sum(1 for w in query_words if w in doc_lower)
                     if score > 0:
-                        scored.append({
-                            "id": all_docs["ids"][i],
-                            "document": doc,
-                            "metadata": meta,
-                            "distance": 0,
-                            "similarity": score,
-                            "search_type": "keyword_fallback",
-                            "embedding_lane": lane_name,
-                        })
+                        scored.append(
+                            {
+                                "id": all_docs["ids"][i],
+                                "document": doc,
+                                "metadata": meta,
+                                "distance": 0,
+                                "similarity": score,
+                                "search_type": "keyword_fallback",
+                                "embedding_lane": lane_name,
+                            }
+                        )
 
             scored.sort(key=lambda x: x["similarity"], reverse=True)
             return dedupe_results(scored, limit=k)
         except Exception as e:
-            logger.error(f"keyword fallback failed: {e}")
+            logger.error(f"keyword fallback failed: {e}", exc_info=True)
             return []
 
     # ------------------------------------------------------------------
@@ -352,30 +401,39 @@ class VectorRAG:
     def rebuild_index(self) -> bool:
         try:
             from src.chroma_client import get_chroma_client
+
             client = get_chroma_client()
             try:
                 client.delete_collection(COLLECTION_NAME)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Failed to delete legacy collection: {e}", exc_info=True
+                )
             for name in (
                 collection_name(COLLECTION_NAME, LANE_CUSTOM),
                 collection_name(COLLECTION_NAME, LANE_FASTEMBED),
             ):
                 try:
                     client.delete_collection(name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete collection {name}: {e}", exc_info=True
+                    )
             # Rebuild means empty current lanes. Clear the legacy unsuffixed
             # collection too so startup migration cannot resurrect stale docs.
             self._lanes = build_embedding_lanes(COLLECTION_NAME)
             self._collection = next(
-                (lane.collection for lane in self._lanes if lane.name == LANE_FASTEMBED),
+                (
+                    lane.collection
+                    for lane in self._lanes
+                    if lane.name == LANE_FASTEMBED
+                ),
                 self._lanes[0].collection if self._lanes else None,
             )
             self._healthy = True
             return True
         except Exception as e:
-            logger.error(f"rebuild_index failed: {e}")
+            logger.error(f"rebuild_index failed: {e}", exc_info=True)
             self._healthy = False
             return False
 
@@ -385,14 +443,18 @@ class VectorRAG:
         try:
             return {
                 "document_count": lane_count(self._lanes),
-                "embedding_model": f"{self._lanes[0].model} @ {self._lanes[0].url}" if self._lanes else "N/A",
+                "embedding_model": (
+                    f"{self._lanes[0].model} @ {self._lanes[0].url}"
+                    if self._lanes
+                    else "N/A"
+                ),
                 "persist_directory": self.persist_directory,
                 "collection_name": COLLECTION_NAME,
                 "embedding_lanes": [lane.stats() for lane in self._lanes],
                 "healthy": True,
             }
         except Exception as e:
-            logger.error(f"get_stats failed: {e}")
+            logger.error(f"get_stats failed: {e}", exc_info=True)
             return {"error": str(e), "healthy": False}
 
     # ------------------------------------------------------------------
@@ -400,7 +462,10 @@ class VectorRAG:
     # ------------------------------------------------------------------
 
     def index_personal_documents(
-        self, directory: str, file_extensions: Optional[set] = None, owner: Optional[str] = None
+        self,
+        directory: str,
+        file_extensions: Optional[set] = None,
+        owner: Optional[str] = None,
     ) -> Dict[str, Any]:
         if file_extensions is None:
             file_extensions = DEFAULT_FILE_EXTENSIONS
@@ -417,43 +482,49 @@ class VectorRAG:
                         continue
 
                     try:
-                        if ext == '.pdf':
+                        if ext == ".pdf":
                             from src.personal_docs import extract_pdf_text
+
                             content = extract_pdf_text(fpath)
                         else:
-                            with open(fpath, 'r', encoding='utf-8') as f:
+                            with open(fpath, "r", encoding="utf-8") as f:
                                 content = f.read()
 
                         if not content or not content.strip():
                             continue
 
                         meta = {
-                            'source': fpath,
-                            'filename': fname,
-                            'directory': root,
-                            'type': ext,
+                            "source": fpath,
+                            "filename": fname,
+                            "directory": root,
+                            "type": ext,
                         }
                         if owner:
-                            meta['owner'] = owner
+                            meta["owner"] = owner
 
                         for i, chunk in enumerate(self._split_into_chunks(content)):
-                            if self.add_document(chunk, {**meta, 'chunk_id': i}):
+                            if self.add_document(chunk, {**meta, "chunk_id": i}):
                                 indexed += 1
                             else:
                                 failed += 1
                     except Exception as e:
-                        logger.error(f"index {fpath}: {e}")
+                        logger.error(f"index {fpath}: {e}", exc_info=True)
                         failed += 1
 
             return {
-                'success': True,
-                'indexed_count': indexed,
-                'failed_count': failed,
-                'message': f'Indexed {indexed} chunks from {directory}',
+                "success": True,
+                "indexed_count": indexed,
+                "failed_count": failed,
+                "message": f"Indexed {indexed} chunks from {directory}",
             }
         except Exception as e:
-            logger.error(f"index_personal_documents {directory}: {e}")
-            return {'success': False, 'indexed_count': indexed, 'failed_count': failed, 'message': str(e)}
+            logger.error(f"index_personal_documents {directory}: {e}", exc_info=True)
+            return {
+                "success": False,
+                "indexed_count": indexed,
+                "failed_count": failed,
+                "message": str(e),
+            }
 
     def remove_directory(self, directory: str) -> Dict[str, Any]:
         """Remove all chunks under ``directory`` (recursively), and nothing else.
@@ -481,7 +552,10 @@ class VectorRAG:
                     for i, m in enumerate(results["metadatas"])
                     if isinstance(m, dict)
                     and isinstance(m.get("source"), str)
-                    and (m["source"] == directory or m["source"].startswith(directory + os.sep))
+                    and (
+                        m["source"] == directory
+                        or m["source"].startswith(directory + os.sep)
+                    )
                 ]
                 if ids:
                     collection.delete(ids=ids)
@@ -491,9 +565,13 @@ class VectorRAG:
 
             n = len(removed_ids)
             logger.info(f"Removed {n} chunks from {directory}")
-            return {"success": True, "removed_count": n, "message": f"Removed {n} chunks"}
+            return {
+                "success": True,
+                "removed_count": n,
+                "message": f"Removed {n} chunks",
+            }
         except Exception as e:
-            logger.error(f"remove_directory {directory}: {e}")
+            logger.error(f"remove_directory {directory}: {e}", exc_info=True)
             return {"success": False, "message": str(e)}
 
     def reindex_directory(
@@ -527,7 +605,7 @@ class VectorRAG:
             return [text]
 
         # Split into sentences first
-        sentences = re.split(r'(?<=[.!?])\s+|\n{2,}', text)
+        sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
         sentences = [s.strip() for s in sentences if s.strip()]
 
         chunks: List[str] = []
@@ -541,17 +619,17 @@ class VectorRAG:
             if sent_len > chunk_size:
                 # Flush current chunk first
                 if current_chunk:
-                    chunks.append(' '.join(current_chunk))
+                    chunks.append(" ".join(current_chunk))
                     current_chunk = []
                     current_len = 0
 
                 # Hard-split the long sentence
                 for start in range(0, sent_len, chunk_size - overlap):
-                    chunks.append(sentence[start:start + chunk_size])
+                    chunks.append(sentence[start : start + chunk_size])
                 continue
 
             if current_len + sent_len + 1 > chunk_size and current_chunk:
-                chunks.append(' '.join(current_chunk))
+                chunks.append(" ".join(current_chunk))
                 # Keep last few sentences for overlap
                 overlap_sentences: List[str] = []
                 overlap_len = 0
@@ -561,13 +639,15 @@ class VectorRAG:
                     overlap_sentences.insert(0, s)
                     overlap_len += len(s) + 1
                 current_chunk = overlap_sentences
-                current_len = sum(len(s) for s in current_chunk) + max(0, len(current_chunk) - 1)
+                current_len = sum(len(s) for s in current_chunk) + max(
+                    0, len(current_chunk) - 1
+                )
 
             current_chunk.append(sentence)
             current_len += sent_len + (1 if current_len > 0 else 0)
 
         if current_chunk:
-            chunks.append(' '.join(current_chunk))
+            chunks.append(" ".join(current_chunk))
 
         return chunks if chunks else [text]
 
@@ -594,7 +674,7 @@ class VectorRAG:
             logger.info(f"Deleted {len(removed_ids)} chunks for source={source}")
             return len(removed_ids)
         except Exception as e:
-            logger.error(f"delete_by_source failed: {e}")
+            logger.error(f"delete_by_source failed: {e}", exc_info=True)
             return 0
 
     # ------------------------------------------------------------------
@@ -602,4 +682,4 @@ class VectorRAG:
     # ------------------------------------------------------------------
 
     def retrieve(self, query: str, k: int = 5) -> List[str]:
-        return [r['document'] for r in self.search(query, k)]
+        return [r["document"] for r in self.search(query, k)]

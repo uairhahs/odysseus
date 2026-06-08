@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Tuple
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _utcnow() -> datetime:
@@ -212,7 +214,8 @@ def _resolve_task_timezone(db, task) -> str | None:
         cm = db.query(CrewMember).filter(CrewMember.id == task.crew_member_id).first()
         if cm and cm.timezone:
             return cm.timezone
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to resolve timezone for task {task.id}: {e}")
         pass
     return None
 
@@ -544,7 +547,7 @@ class TaskScheduler:
                 groups = (
                     db.query(CrewMember.owner, func.count(CrewMember.id).label("n"))
                     .filter(
-                        CrewMember.is_default_assistant == True,  # noqa: E712
+                        CrewMember.is_default_assistant,  # noqa: E712
                     )
                     .group_by(CrewMember.owner)
                     .having(func.count(CrewMember.id) > 1)
@@ -555,7 +558,7 @@ class TaskScheduler:
                         db.query(CrewMember)
                         .filter(
                             CrewMember.owner == owner,
-                            CrewMember.is_default_assistant == True,  # noqa: E712
+                            CrewMember.is_default_assistant,  # noqa: E712
                         )
                         .order_by(CrewMember.created_at.asc())
                         .all()
@@ -764,8 +767,8 @@ class TaskScheduler:
                         sleep_for = max(1.0, min(60.0, delta))
                 finally:
                     _db.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to fetch next run for scheduled tasks: {e}")
             await asyncio.sleep(sleep_for)
 
     async def _check_due_tasks(self):
@@ -1079,8 +1082,8 @@ class TaskScheduler:
             try:
                 _t = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
                 _owner = _t.owner if _t else None
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to fetch task owner for task {task_id}: {e}")
             _should_notify_error = False
             try:
                 _t_for_notify = (
@@ -1120,8 +1123,10 @@ class TaskScheduler:
                             cron_expression=task_obj.cron_expression,
                             tz_name=_resolve_task_timezone(db, task_obj),
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to compute next run for task {task_id}: {e}"
+                        )
                 try:
                     db.commit()
                 except Exception as commit_err:
@@ -1136,7 +1141,8 @@ class TaskScheduler:
                     )
                     try:
                         db.rollback()
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Rollback also failed: {e}")
                         pass
                     from datetime import timedelta as _td
 
@@ -1387,22 +1393,19 @@ class TaskScheduler:
         tz_name = _resolve_task_timezone(db, task)
         try:
             if tz_name:
-                from datetime import timedelta, timezone
+                from datetime import timezone
                 from zoneinfo import ZoneInfo
 
                 now = (
                     _utcnow().replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz_name))
                 )
             else:
-                from datetime import timedelta
-
                 now = _utcnow()
             time_str = now.strftime("%A, %B %d %Y, %H:%M")
-        except Exception:
-            from datetime import timedelta
-
+        except Exception as e:
             now = _utcnow()
             time_str = now.strftime("%H:%M UTC")
+            logger.warning(f"Failed to format time for task {task.id}: {e}")
 
         raw = {}
 
@@ -1490,7 +1493,8 @@ class TaskScheduler:
                 # Miniflux: fetch unread entries (cached 3 min across tasks)
                 if preset == "miniflux":
 
-                    async def _fetch_miniflux(_base=base_url, _headers=dict(headers)):
+                    async def _fetch_miniflux(_base=base_url, _headers=headers):
+                        _headers = dict(_headers)
                         async with httpx.AsyncClient(timeout=10) as client:
                             resp = await client.get(
                                 f"{_base}/v1/entries",
@@ -1570,7 +1574,8 @@ class TaskScheduler:
                         content = result.get("stdout") or result.get("output") or ""
                         if content.strip():
                             raw[label] = content[:3000]
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"MCP tool {qualified} failed: {e}")
                         pass
 
         # Build the data dump and hand it to the LLM
@@ -1603,7 +1608,7 @@ class TaskScheduler:
 
     async def _execute_llm_task(self, task, db) -> str:
         """Execute an LLM task with full tool access via the agent loop."""
-        from core.database import ChatMessage, CrewMember
+        from core.database import CrewMember  # , ChatMessage
         from core.database import Session as DbSession
 
         # If this task is wired to a CrewMember (personal assistant, custom
@@ -1656,8 +1661,10 @@ class TaskScheduler:
                     self._session_manager.sessions[session_id] = (
                         self._session_manager._db_to_session(sess)
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to add session {session_id} to session manager: {e}"
+                    )
 
         # For assistant check-ins: call each tool directly and post results
         # as separate messages. More reliable than hoping the model calls tools.
@@ -1704,8 +1711,10 @@ class TaskScheduler:
 
                     all_tools = set(BUILTIN_TOOL_DESCRIPTIONS.keys())
                     disabled_tools = all_tools - set(enabled)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Failed to compute disabled tools for task {task.id}: {e}"
+                )
 
         # RAG-select relevant tools for this prompt + always-available assistant tools.
         # Without this, all 40+ tools get sent and models hit their tool limit.
@@ -1761,8 +1770,8 @@ class TaskScheduler:
                 strip_think(result or "", prose=True, prompt_echo=True).strip()
                 or result
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to strip chain-of-thought for task {task.id}: {e}")
 
         return result
 
@@ -1804,7 +1813,8 @@ class TaskScheduler:
                     .filter(CrewMember.id == task.crew_member_id)
                     .first()
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to fetch crew member for task {task.id}: {e}")
                 crew = None
         if (not endpoint_url or not model_name) and crew:
             endpoint_url = endpoint_url or crew.endpoint_url
@@ -1814,8 +1824,8 @@ class TaskScheduler:
                 resolved_url, resolved_model = self._resolve_defaults(db, task.owner)
                 endpoint_url = endpoint_url or resolved_url
                 model_name = model_name or resolved_model
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to resolve defaults for task {task.id}: {e}")
 
         session_id = task.session_id
         if not session_id:
@@ -1838,8 +1848,10 @@ class TaskScheduler:
                     self._session_manager.sessions[session_id] = (
                         self._session_manager._db_to_session(sess)
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to add session {session_id} to session manager: {e}"
+                    )
 
         meta = {}
         if model_name:
@@ -1881,8 +1893,10 @@ class TaskScheduler:
                         role="assistant", content=assistant_msg.content, metadata=meta
                     )
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Failed to update session history for task {task.id}: {e}"
+                )
 
     @staticmethod
     def _is_email_output_target(output: str) -> bool:
@@ -1971,7 +1985,7 @@ class TaskScheduler:
 
             db2 = SessionLocal()
             try:
-                ep_q = db2.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+                ep_q = db2.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
                 ep_q = owner_filter(ep_q, ModelEndpoint, task.owner or None)
                 eps = ep_q.all()
                 for ep in eps:
@@ -1982,8 +1996,8 @@ class TaskScheduler:
                         break
             finally:
                 db2.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to resolve headers for task {task.id}: {e}")
         full_text = ""
         tool_results = []
 
@@ -2077,7 +2091,6 @@ class TaskScheduler:
 
     async def _execute_research_task(self, task, db) -> str:
         """Execute a deep research task using DeepResearcher."""
-        from core.database import ChatMessage
         from core.database import Session as DbSession
         from src.deep_research import DeepResearcher
         from src.research_handler import RESEARCH_DATA_DIR, ResearchHandler
@@ -2106,8 +2119,8 @@ class TaskScheduler:
                 if ep_headers is not None:
                     headers = ep_headers
                     headers_from_resolver = True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to resolve endpoint for task {task.id}: {e}")
 
         if not endpoint_url or not model:
             endpoint_url, model = self._resolve_defaults(db, task.owner)
@@ -2124,7 +2137,7 @@ class TaskScheduler:
 
             db2 = db
             if not headers_from_resolver:
-                ep_q = db2.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+                ep_q = db2.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
                 ep_q = owner_filter(ep_q, ModelEndpoint, task.owner or None)
                 eps = ep_q.all()
                 for ep in eps:
@@ -2133,8 +2146,8 @@ class TaskScheduler:
                     ) in endpoint_url or endpoint_url in normalize_base(ep.base_url):
                         headers = build_headers(ep.api_key, normalize_base(ep.base_url))
                         break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to resolve headers for task {task.id}: {e}")
 
         max_tokens = int(get_setting("research_max_tokens", 8192))
         extraction_timeout = int(
@@ -2185,8 +2198,10 @@ class TaskScheduler:
                     self._session_manager.sessions[session_id] = (
                         self._session_manager._db_to_session(sess)
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to add session {session_id} to session manager: {e}"
+                    )
 
         # Persist scheduled research in the same on-disk shape used by the
         # Research panel. Without this, task research had Markdown output but
@@ -2216,8 +2231,10 @@ class TaskScheduler:
                 from src.event_bus import fire_event
 
                 fire_event("research_completed", task.owner or None)
-            except Exception:
-                logger.debug("research_completed event dispatch failed", exc_info=True)
+            except Exception as e:
+                logger.debug(
+                    "research_completed event dispatch failed: %s", e, exc_info=True
+                )
         except Exception as e:
             logger.warning(
                 "Failed to persist task research report %s: %s", session_id, e
@@ -2272,8 +2289,8 @@ class TaskScheduler:
             )
             if recent:
                 return recent.endpoint_url, recent.model
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to resolve defaults for owner {owner}: {e}")
         return None, None
 
     async def _deliver_via_mcp(self, tool_name: str, task, result: str):
@@ -2455,8 +2472,10 @@ class TaskScheduler:
                     db.query(TaskRun).filter(
                         ~TaskRun.task_id.in_(list(live_ids))
                     ).delete(synchronize_session=False)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Failed to sweep orphan TaskRun rows for owner {owner}: {e}"
+                )
             existing_actions = {
                 row[0]
                 for row in db.query(ScheduledTask.action)
@@ -2488,18 +2507,18 @@ class TaskScheduler:
                     continue
                 desired_trigger = defs.get("trigger_type", "schedule")
 
-                def _score(candidate):
+                def _score(candidate, _desired=desired_trigger, _defs=defs):
                     matches_default = (
-                        (candidate.trigger_type or "schedule") == desired_trigger
+                        (candidate.trigger_type or "schedule") == _desired
                         and (candidate.trigger_event or None)
-                        == defs.get("trigger_event")
+                        == _defs.get("trigger_event")
                         and (candidate.trigger_count or 1)
-                        == (defs.get("trigger_count") or 1)
-                        and (candidate.schedule or None) == defs.get("schedule")
+                        == (_defs.get("trigger_count") or 1)
+                        and (candidate.schedule or None) == _defs.get("schedule")
                         and (candidate.scheduled_time or None)
-                        == defs.get("scheduled_time")
+                        == _defs.get("scheduled_time")
                         and (candidate.cron_expression or None)
-                        == defs.get("cron_expression")
+                        == _defs.get("cron_expression")
                     )
                     created = candidate.created_at or datetime.min
                     created_key = (
@@ -2666,7 +2685,7 @@ class TaskScheduler:
         if not owner or owner in {"internal-tool", "api", "demo", "system"}:
             logger.info(f"ensure_assistant_defaults: skip synthetic owner {owner!r}")
             return
-        from core.database import CrewMember, ScheduledTask
+        from core.database import CrewMember  # , ScheduledTask
         from core.database import Session as DbSession
         from core.database import SessionLocal
 
@@ -2676,7 +2695,7 @@ class TaskScheduler:
                 db.query(CrewMember)
                 .filter(
                     CrewMember.owner == owner,
-                    CrewMember.is_default_assistant == True,  # noqa: E712
+                    CrewMember.is_default_assistant,  # noqa: E712
                 )
                 .first()
             )
@@ -2818,7 +2837,10 @@ class TaskScheduler:
             logger.exception(f"ensure_assistant_defaults({owner}) failed: {e}")
             try:
                 db.rollback()
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Failed to rollback DB session after assistant seeding failure: {e}"
+                )
                 pass
         finally:
             db.close()

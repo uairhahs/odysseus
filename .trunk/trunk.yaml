@@ -17,6 +17,8 @@ runtimes:
     - python@3.14.4
 # This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
 lint:
+  disabled:
+    - bandit
   ignore:
     - linters: [ALL]
       paths:
@@ -25,7 +27,6 @@ lint:
         - build/**
   enabled:
     - actionlint@1.7.12
-    - bandit@1.9.4
     - black@26.5.1
     - checkov@3.2.533
     - git-diff-check
@@ -42,15 +43,6 @@ lint:
     - taplo@0.10.0
     - trufflehog@3.95.5
     - yamllint@1.38.0
-  definitions:
-    - name: bandit
-      direct_configs:
-        - .trunk/configs/.bandit
-      commands:
-        - name: lint
-          run: bandit --ini ${workspace}/.trunk/configs/.bandit --format json --output ${tmpfile} ${target}
-          # Tell trunk that exit code 1 just means issues were detected
-          success_codes: [0, 1]
 actions:
   enabled:
     - trunk-announce

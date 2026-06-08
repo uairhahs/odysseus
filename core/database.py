@@ -1,7 +1,9 @@
 import logging
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Generator
 
 from sqlalchemy import (
     JSON,
@@ -24,6 +26,8 @@ from sqlalchemy.orm import backref, relationship, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Create base class for declarative models
 Base = declarative_base()
@@ -1232,23 +1236,29 @@ def _migrate_add_owner_to_table(table_name: str, index_name: str):
     """Generic helper: add owner TEXT column + index to a table if missing."""
     import sqlite3
 
+    from sqlalchemy import inspect as sa_inspect
+
     db_path = DATABASE_URL.replace("sqlite:///", "")
     if not os.path.exists(db_path):
         return
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute(f"PRAGMA table_info({table_name})")
-        columns = [row[1] for row in cursor.fetchall()]
+        insp = sa_inspect(engine)
+        if not insp.has_table(table_name):
+            return
+        columns = [c["name"] for c in insp.get_columns(table_name)]
         if "owner" not in columns:
-            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN owner TEXT")
+            conn = sqlite3.connect(db_path)
             conn.execute(
-                f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}(owner)"
+                f"ALTER TABLE {table_name} ADD COLUMN owner TEXT"
+            )  # nosec B608
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}(owner)"  # nosec B608
             )
             conn.commit()
+            conn.close()
             logging.getLogger(__name__).info(
                 f"Migrated: added 'owner' column to {table_name}"
             )
-        conn.close()
     except Exception as e:
         logging.getLogger(__name__).warning(
             f"Migration owner column for {table_name} failed: {e}"
@@ -1331,7 +1341,10 @@ def _migrate_assign_legacy_owner():
                     break
             if not admin_user:
                 admin_user = next(iter(users))
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "Failed to read auth.json for legacy owner migration: %s", e
+        )
         pass
 
     if not admin_user:
@@ -1341,7 +1354,6 @@ def _migrate_assign_legacy_owner():
     if not os.path.exists(db_path):
         return
 
-    logger = logging.getLogger(__name__)
     try:
         conn = sqlite3.connect(db_path)
         # Every table with an `owner` column. New tables added later will be
@@ -1368,13 +1380,22 @@ def _migrate_assign_legacy_owner():
             "api_tokens",
             "webhooks",
         ]
+        _allowed_tables = set(tables)
         for table in tables:
+            if table not in _allowed_tables:
+                continue
             try:
-                cursor = conn.execute(f"PRAGMA table_info({table})")
-                columns = [row[1] for row in cursor.fetchall()]
+                from sqlalchemy import inspect as sa_inspect
+
+                insp = sa_inspect(engine)
+                columns = (
+                    [c["name"] for c in insp.get_columns(table)]
+                    if insp.has_table(table)
+                    else []
+                )
                 if "owner" in columns:
                     res = conn.execute(
-                        f"UPDATE {table} SET owner = ? WHERE owner IS NULL",
+                        f"UPDATE {table} SET owner = ? WHERE owner IS NULL",  # noqa S608
                         (admin_user,),
                     )
                     if res.rowcount > 0:
@@ -2101,7 +2122,8 @@ def _migrate_chat_messages_fts():
     finally:
         try:
             conn.close()
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).debug("Error closing DB connection: %s", e)
             pass
 
 
@@ -2192,9 +2214,14 @@ def _migrate_encrypt_signatures():
                 if svg and not is_encrypted(svg):
                     updates["svg"] = encrypt(svg)
                 if updates:
+                    _sig_allowed = {"data_png", "svg"}
+                    if not updates.keys() <= _sig_allowed:
+                        continue
                     sets = ", ".join(f"{k} = :{k}" for k in updates)
                     conn.execute(
-                        text(f"UPDATE signatures SET {sets} WHERE id = :id"),
+                        text(
+                            f"UPDATE signatures SET {sets} WHERE id = :id"  # noqa S608
+                        ),
                         {**updates, "id": rid},
                     )
                     migrated += 1
@@ -2230,10 +2257,16 @@ def _migrate_encrypt_email_passwords():
                 if smtp_pw and not is_encrypted(smtp_pw):
                     updates["smtp_password"] = encrypt(smtp_pw)
                 if updates:
+                    _email_allowed = {"imap_password", "smtp_password"}
+                    if not updates.keys() <= _email_allowed:
+                        continue
                     sets = ", ".join(f"{k} = :{k}" for k in updates)
                     params = {**updates, "id": rid}
                     conn.execute(
-                        text(f"UPDATE email_accounts SET {sets} WHERE id = :id"), params
+                        text(
+                            f"UPDATE email_accounts SET {sets} WHERE id = :id"  # noqa S608
+                        ),
+                        params,
                     )
                     migrated += 1
             if migrated:
@@ -2365,10 +2398,6 @@ def get_db():
         db.close()
 
 
-from contextlib import contextmanager
-from typing import Generator
-
-
 @contextmanager
 def get_db_session() -> Generator:
     """Context manager for database sessions"""
@@ -2410,9 +2439,9 @@ def cleanup_old_sessions(days: int = 30):
         deleted_count = (
             db.query(Session)
             .filter(
-                Session.archived == True,
+                Session.archived,
                 Session.last_accessed < cutoff_date,
-                Session.is_important == False,
+                not Session.is_important,
             )
             .delete()
         )
@@ -2425,12 +2454,8 @@ def get_session_stats():
     with get_db_session() as db:
         stats = {
             "total_sessions": db.query(Session).count(),
-            "active_sessions": db.query(Session)
-            .filter(Session.archived == False)
-            .count(),
-            "archived_sessions": db.query(Session)
-            .filter(Session.archived == True)
-            .count(),
+            "active_sessions": db.query(Session).filter(not Session.archived).count(),
+            "archived_sessions": db.query(Session).filter(Session.archived).count(),
             "total_messages": db.query(ChatMessage).count(),
             "total_memories": db.query(Memory).count(),
         }

@@ -121,7 +121,7 @@ def _install_core_middleware_stub(monkeypatch):
     core_mod.__path__ = []
     middleware_mod = types.ModuleType("core.middleware")
     middleware_mod.INTERNAL_TOOL_HEADER = "X-Internal-Tool"
-    middleware_mod.INTERNAL_TOOL_TOKEN = "test-token"
+    middleware_mod.INTERNAL_TOOL_TOKEN = "test-token"  # noqa: S105
     core_mod.middleware = middleware_mod
     monkeypatch.setitem(sys.modules, "core", core_mod)
     monkeypatch.setitem(sys.modules, "core.middleware", middleware_mod)
@@ -751,7 +751,7 @@ async def test_webhook_tool_reuses_private_url_validation():
                 if hasattr(_src_pkg, "webhook_manager"):
                     delattr(_src_pkg, "webhook_manager")
             else:
-                setattr(_src_pkg, "webhook_manager", _wm_saved_attr)
+                _src_pkg.webhook_manager = _wm_saved_attr
 
     assert result["exit_code"] == 1
     assert "private/internal" in result["error"]

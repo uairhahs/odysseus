@@ -1,4 +1,6 @@
-# Cookbook routes — model download, serve, cache scanning, and cookbook state sync
+# Cookbook routes
+
+#  model download, serve, cache scanning, and cookbook state sync
 
 import asyncio
 import json
@@ -8,9 +10,6 @@ import re
 import shlex
 import shutil
 import socket
-
-# ignore for now will evaluate the need for subprocess later
-# trunk-ignore(bandit/B404)
 import subprocess
 import sys
 import time as _time
@@ -71,17 +70,19 @@ from routes.cookbook_helpers import (
     _validate_ssh_port,
     _validate_token,
     _venv_safe_local_pip_install_cmd,
-    run_ssh_command_async
+    run_ssh_command_async,
 )
 from routes.model_routes import _docker_host_gateway_reachable
 from routes.shell_routes import TMUX_LOG_DIR
 from src.auth_helpers import require_user
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Not hardcoded (you scared bandit)
-_HF_TOKEN_STATUS_SNIPPET = (  # nosec B105
-    'if [ -n "${HF_TOKEN}" ]; then '
+_HF_TOKEN_STATUS_SNIPPET = (
+    'if [ -n "${HF_TOKEN}" ]; then '  # noqa: S105
     'echo "[odysseus] HF token: applied"; '
     "else "
     'echo "[odysseus] HF token: NOT SET — gated/private models will be denied. '
@@ -610,7 +611,7 @@ def setup_cookbook_routes() -> APIRouter:
             runner_path.write_text("\n".join(runner_lines) + "\n", encoding="utf-8")
             # Local temp file is scp'd then chmod'd on the remote; the local bit
             # is irrelevant (no-op on Windows).
-            safe_chmod(runner_path, 0o755)  # nosec B103
+            safe_chmod(runner_path, 0o755)  # noqa: S103
 
             # scp the runner script, then create tmux session on the remote
             _port = req.ssh_port
@@ -1122,7 +1123,7 @@ def setup_cookbook_routes() -> APIRouter:
         # below still registers the stale 11434 default — which on a host with
         # a systemd ollama lands on the wrong (unreachable-from-docker) service.
         if "ollama" in req.cmd and "OLLAMA_HOST=" not in req.cmd:
-            _ollama_bind_host = "0.0.0.0" if remote else "127.0.0.1"  # nosec B104
+            _ollama_bind_host = "0.0.0.0" if remote else "127.0.0.1"  # noqa: S104
             _ollama_chosen_port = _pick_free_port_for_ollama(
                 remote,
                 req.ssh_port,
@@ -1388,7 +1389,7 @@ def setup_cookbook_routes() -> APIRouter:
             elif "ollama" in req.cmd:
                 handled_ollama_serve = True
                 _ollama_default_host = (
-                    "0.0.0.0" if remote else "127.0.0.1"  # nosec B104
+                    "0.0.0.0" if remote else "127.0.0.1"  # noqa: S104
                 )
                 _ollama_host, _ollama_port = _ollama_bind_from_cmd(
                     req.cmd,
@@ -1441,7 +1442,7 @@ def setup_cookbook_routes() -> APIRouter:
                 runner_lines.append(
                     'ODYSSEUS_OLLAMA_URL="http://${ODYSSEUS_OLLAMA_HOST}:${ODYSSEUS_OLLAMA_PORT}"'
                 )
-                if remote and _ollama_host in ("0.0.0.0", "::"):  # nosec B104
+                if remote and _ollama_host in ("0.0.0.0", "::"):  # noqa: S104
                     runner_lines.append(
                         'echo "[odysseus] WARNING: remote Ollama will bind to ${ODYSSEUS_OLLAMA_HOST}:${ODYSSEUS_OLLAMA_PORT} so Odysseus can reach it from this host."'
                     )
@@ -1524,7 +1525,7 @@ def setup_cookbook_routes() -> APIRouter:
             runner_path.write_text("\n".join(runner_lines) + "\n", encoding="utf-8")
             # chmod is a no-op on Windows; bash on Windows runs the script
             # regardless of the executable bit.
-            safe_chmod(runner_path, 0o755)  # nosec B103
+            safe_chmod(runner_path, 0o755)  # noqa: S103
 
             if local_windows:
                 # LOCAL Windows: launch the bash runner detached (tmux replacement).
@@ -2700,7 +2701,7 @@ def setup_cookbook_routes() -> APIRouter:
 
                 if remote_host:
                     remote_exit_path = (
-                        f"/tmp/odysseus-tmux/{session_id}.exit"  # nosec B108
+                        f"/tmp/odysseus-tmux/{session_id}.exit"  # noqa: S108
                     )
                     ssh_base = ["ssh"]
                     if ssh_port and ssh_port != "22":
@@ -2722,7 +2723,7 @@ def setup_cookbook_routes() -> APIRouter:
                         return int(out) if re.fullmatch(r"-?\d+", out or "") else None
                     return None
 
-                ep = Path(f"/tmp/odysseus-tmux/{session_id}.exit")  # nosec B108
+                ep = Path(f"/tmp/odysseus-tmux/{session_id}.exit")  # noqa: S108
                 if not ep.exists():
                     return None
                 out = ep.read_text(encoding="utf-8", errors="replace").strip()

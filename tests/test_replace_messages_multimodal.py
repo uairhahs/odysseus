@@ -1,15 +1,14 @@
-"""replace_messages must JSON-serialize multimodal (list) content.
+# replace_messages must JSON-serialize multimodal (list) content.
 
-A chat with an image/audio attachment carries list content. When such a
-chat is compacted, the manual-compaction path calls replace_messages with
-the retained messages. replace_messages wrote message.content straight into
-the Text column, so SQLAlchemy bound the list\'s single-quoted repr. On
-reload _parse_msg_content only de-serializes a string that contains the
-double-quoted "type", so the repr failed the check and the message came
-back as a corrupted string blob - the attachment was destroyed. The
-sibling _persist_message json.dumps-es list content; replace_messages did
-not.
-"""
+# A chat with an image/audio attachment carries list content. When such a
+# chat is compacted, the manual-compaction path calls replace_messages with
+# the retained messages. replace_messages wrote message.content straight into
+# the Text column, so SQLAlchemy bound the list\'s single-quoted repr. On
+# reload _parse_msg_content only de-serializes a string that contains the
+# double-quoted "type", so the repr failed the check and the message came
+# back as a corrupted string blob - the attachment was destroyed. The
+# sibling _persist_message json.dumps-es list content; replace_messages did
+# not.
 
 import uuid
 

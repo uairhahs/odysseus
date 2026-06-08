@@ -1,21 +1,27 @@
-"""gallery_helpers.py — extracted helpers, models, and small utilities.
+# gallery_helpers.py
+# extracted helpers, models, and small utilities.
 
-Imported by gallery_routes.py."""
+# Imported by gallery_routes.py.
 
-"""Gallery routes — browsable library for photos and AI-generated images."""
+# Gallery routes
+
+# browsable library for photos and AI-generated images."""
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
 from core.database import GalleryImage
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 # ---- Request schemas ----
+
 
 class GalleryPatch(BaseModel):
     tags: Optional[str] = None
@@ -25,25 +31,29 @@ class GalleryPatch(BaseModel):
 
 # ---- EXIF extraction ----
 
+
 def _extract_exif(content: bytes) -> dict:
     """Extract EXIF metadata from image bytes. Returns dict of fields."""
     result = {"width": None, "height": None}
     try:
-        from PIL import Image
         from io import BytesIO
+
+        from PIL import Image
+
         img = Image.open(BytesIO(content))
         # Read the raw EXIF before any transpose: exif_transpose strips the
         # orientation tag and with it the parsed EXIF view.
-        exif = img._getexif() if hasattr(img, '_getexif') else None
+        exif = img._getexif() if hasattr(img, "_getexif") else None
 
         # Record DISPLAY dimensions (EXIF-rotated), matching upload_handler.
         # A phone photo with Orientation 6/8 is stored landscape but shown
         # portrait, so the raw width/height swap the aspect ratio.
         try:
             from PIL import ImageOps
+
             img = ImageOps.exif_transpose(img) or img
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"EXIF transpose failed: {e}")
         result["width"] = img.width
         result["height"] = img.height
 
@@ -57,11 +67,17 @@ def _extract_exif(content: bytes) -> dict:
         result["camera_model"] = str(exif.get(272, "")).strip() or None
 
         # Date taken
-        for tag_id in (36867, 36868, 306):  # DateTimeOriginal, DateTimeDigitized, DateTime
+        for tag_id in (
+            36867,
+            36868,
+            306,
+        ):  # DateTimeOriginal, DateTimeDigitized, DateTime
             raw = exif.get(tag_id)
             if raw:
                 try:
-                    result["taken_at"] = datetime.strptime(str(raw).strip(), "%Y:%m:%d %H:%M:%S")
+                    result["taken_at"] = datetime.strptime(
+                        str(raw).strip(), "%Y:%m:%d %H:%M:%S"
+                    )
                     break
                 except (ValueError, TypeError):
                     pass
@@ -70,18 +86,22 @@ def _extract_exif(content: bytes) -> dict:
         gps_info = exif.get(34853)
         if gps_info and isinstance(gps_info, dict):
             try:
+
                 def _to_deg(vals):
                     d, m, s = [float(v) for v in vals]
                     return d + m / 60 + s / 3600
+
                 if 2 in gps_info and 4 in gps_info:
                     lat = _to_deg(gps_info[2])
                     lng = _to_deg(gps_info[4])
-                    if gps_info.get(1) == 'S': lat = -lat
-                    if gps_info.get(3) == 'W': lng = -lng
+                    if gps_info.get(1) == "S":
+                        lat = -lat
+                    if gps_info.get(3) == "W":
+                        lng = -lng
                     result["gps_lat"] = f"{lat:.6f}"
                     result["gps_lng"] = f"{lng:.6f}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"EXIF GPS extraction failed: {e}")
     except Exception as e:
         # User-visible failure (photo loses metadata): surface at WARNING
         # and record on the result so the upload endpoint can pass it back.
@@ -91,6 +111,7 @@ def _extract_exif(content: bytes) -> dict:
 
 
 # ---- Helpers ----
+
 
 def _image_to_dict(img: GalleryImage, session_name: str = None) -> Dict[str, Any]:
     return {
@@ -135,9 +156,8 @@ def _owner_filter(q, user):
     return q.filter(GalleryImage.owner == user)
 
 
-
 def _human_size(nbytes):
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
         if abs(nbytes) < 1024:
             return f"{nbytes:.1f} {unit}"
         nbytes /= 1024

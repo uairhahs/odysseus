@@ -1,19 +1,22 @@
-"""mcp_oauth.py — generic OAuth for remote (Streamable HTTP) MCP servers.
+# mcp_oauth.py
+# generic OAuth for remote (Streamable HTTP) MCP servers.
 
-Bridges the mcp SDK's OAuthClientProvider (RFC 9728 discovery, Dynamic Client
-Registration, authorization-code + PKCE, token refresh) to Odysseus's web
-callback route. Tokens and the dynamic registration persist per-server,
-encrypted, so the interactive flow runs only once.
-"""
+# Bridges the mcp SDK's OAuthClientProvider (RFC 9728 discovery, Dynamic Client
+# Registration, authorization-code + PKCE, token refresh) to Odysseus's web
+# callback route. Tokens and the dynamic registration persist per-server,
+# encrypted, so the interactive flow runs only once.
+
 import asyncio
 import json
 import logging
 import os
 import time
 from typing import Dict, Optional, Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # OAuth redirect URI registered with every authorization server via DCR. Loopback
 # is allowed for native/desktop clients (RFC 8252); remote users finish via the
@@ -32,9 +35,9 @@ REDIRECT_URI = f"{_REDIRECT_BASE}/api/mcp/oauth/callback"
 # How long the background connect waits for the user to authorize before giving up.
 AUTH_WAIT_SECONDS = 300
 
-_pending: Dict[str, asyncio.Future] = {}   # state -> Future[(code, state)]
-_pending_ts: Dict[str, float] = {}         # state -> monotonic timestamp, for pruning
-_auth_urls: Dict[str, str] = {}            # server_id -> authorization URL
+_pending: Dict[str, asyncio.Future] = {}  # state -> Future[(code, state)]
+_pending_ts: Dict[str, float] = {}  # state -> monotonic timestamp, for pruning
+_auth_urls: Dict[str, str] = {}  # server_id -> authorization URL
 
 
 def _prune_stale() -> None:
@@ -87,11 +90,13 @@ class DbTokenStorage:
         self.server_id = server_id
         if session_factory is None:
             from core.database import SessionLocal
+
             session_factory = SessionLocal
         self._sf = session_factory
 
     def _load(self) -> dict:
         from core.database import McpServer
+
         db = self._sf()
         try:
             srv = db.query(McpServer).filter(McpServer.id == self.server_id).first()
@@ -105,6 +110,7 @@ class DbTokenStorage:
         """Load, set one key, and persist the oauth_tokens JSON in a single
         session/commit (avoids the load+save double round-trip per write)."""
         from core.database import McpServer
+
         db = self._sf()
         try:
             srv = db.query(McpServer).filter(McpServer.id == self.server_id).first()
@@ -119,6 +125,7 @@ class DbTokenStorage:
 
     async def get_tokens(self):
         from mcp.shared.auth import OAuthToken
+
         data = self._load().get("tokens")
         return OAuthToken.model_validate(data) if data else None
 
@@ -127,6 +134,7 @@ class DbTokenStorage:
 
     async def get_client_info(self):
         from mcp.shared.auth import OAuthClientInformationFull
+
         data = self._load().get("client_info")
         return OAuthClientInformationFull.model_validate(data) if data else None
 
@@ -156,7 +164,7 @@ def build_provider(server_id: str, url: str, on_redirect=None):
         # metadata before building the auth URL. Hardcoding an OIDC scope here
         # would break the many MCP servers that are not OpenID providers.
         scope=None,
-        token_endpoint_auth_method="none",
+        token_endpoint_auth_method="none",  # noqa: S106
     )
 
     async def redirect_handler(authorization_url: str) -> None:
@@ -169,11 +177,17 @@ def build_provider(server_id: str, url: str, on_redirect=None):
                 on_redirect(authorization_url)
             except Exception as e:
                 logger.warning(f"MCP OAuth on_redirect callback failed: {e}")
-        logger.info(f"MCP OAuth: server {server_id} awaiting authorization (state={state})")
+        logger.info(
+            f"MCP OAuth: server {server_id} awaiting authorization (state={state})"
+        )
 
     async def callback_handler() -> Tuple[str, Optional[str]]:
         auth_url = _auth_urls.get(server_id)
-        state = (parse_qs(urlparse(auth_url).query).get("state") or [None])[0] if auth_url else None
+        state = (
+            (parse_qs(urlparse(auth_url).query).get("state") or [None])[0]
+            if auth_url
+            else None
+        )
         fut = _pending.get(state)
         if fut is None:
             raise RuntimeError("No pending OAuth flow for this server")

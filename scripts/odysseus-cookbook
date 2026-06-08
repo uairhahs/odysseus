@@ -20,50 +20,42 @@ non-zero exit on failure.
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
-from cli import REPO_ROOT as _REPO_ROOT
-from cli import common_parser, emit, fail, quiet_logs, run
-
-quiet_logs()
-
-
 import argparse
 import json
-import logging
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+
+from cli import REPO_ROOT as _REPO_ROOT
+from cli import emit, fail, quiet_logs, run
+
+from core.platform_compat import NVIDIA_PATH_CANDIDATES, SSH_PATH_OVERRIDE
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
+
+quiet_logs()
+
 
 _DATA_DIR = Path(os.environ.get("DATA_DIR", str(_REPO_ROOT / "data")))
 _STATE_PATH = _DATA_DIR / "cookbook_state.json"
 
 # Mirror routes/shell_routes.TMUX_LOG_DIR — don't import it because that pulls
 # the whole web app into the process. Match its definition instead.
-import tempfile
 
 _TMUX_LOG_DIR = Path(tempfile.gettempdir()) / "odysseus-tmux"
-
-from core.platform_compat import NVIDIA_PATH_CANDIDATES, SSH_PATH_OVERRIDE
-
-
-def fail(msg: str, code: int = 1) -> None:
-    sys.stderr.write(f"error: {msg}\n")
-    sys.exit(code)
 
 
 def _tmux_sessions() -> list[str]:
     """Return active tmux session names, or [] if tmux isn't installed."""
     try:
         out = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#S"],
+            ["tmux", "list-sessions", "-F", "#S"],  # noqa: S603 S607
             capture_output=True,
             text=True,
             timeout=5,
@@ -119,7 +111,10 @@ def _macos_metal_gpu() -> list | None:
     def _sysctl(key: str) -> str | None:
         try:
             r = subprocess.run(
-                ["sysctl", "-n", key], capture_output=True, text=True, timeout=5
+                ["sysctl", "-n", key],  # noqa: S603 S607
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             return r.stdout.strip() if r.returncode == 0 else None
         except Exception:
@@ -133,7 +128,9 @@ def _macos_metal_gpu() -> list | None:
 
     free_mb = total_mb
     try:
-        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5)
+        vm = subprocess.run(
+            ["vm_stat"], capture_output=True, text=True, timeout=5  # noqa: S603 S607
+        )
         if vm.returncode == 0:
             page_size, pages = 4096, {}
             for line in vm.stdout.splitlines():
@@ -153,7 +150,8 @@ def _macos_metal_gpu() -> list | None:
             )
             if free_pages:
                 free_mb = (free_pages * page_size) // (1024 * 1024)
-    except Exception:
+    except Exception as e:
+        fail(msg=f"Failed to get free memory from vm_stat: {e}", code=2)
         pass
 
     return [
@@ -273,8 +271,8 @@ def cmd_cached(args) -> None:
             for f in entry.rglob("*"):
                 if f.is_file() and not f.is_symlink():
                     size += f.stat().st_size
-        except Exception:
-            pass
+        except Exception as e:
+            fail(msg=f"Failed to calculate size for {entry}: {e}", code=2)
         models.append({"repo": repo, "path": str(entry), "size_bytes": size})
     emit({"models": models, "hub_path": str(hub)}, args)
 
@@ -292,10 +290,10 @@ def cmd_hf_latest(args) -> None:
         f"?sort=trendingScore&direction=-1&limit={pool_size}&filter={urllib.parse.quote(args.pipeline)}"
     )
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
+        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310
             raw = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        fail(f"HF API request failed: {e}")
+        fail(msg=f"HF API request failed: {e}", code=2)
 
     def _est_vram_fp16(repo_id: str) -> float | None:
         m = re.search(r"[-_/](\d+(?:\.\d+)?)\s*[Bb](?![a-zA-Z])", repo_id)
@@ -360,10 +358,11 @@ def cmd_download(args) -> None:
         try:
             out = subprocess.run(ssh_argv, capture_output=True, text=True, timeout=20)
         except FileNotFoundError:
-            fail("ssh not installed")
+            fail(msg="ssh not installed", code=2)
         if out.returncode != 0:
             fail(
-                f"remote tmux launch failed: {out.stderr.strip() or out.stdout.strip()}"
+                msg=f"remote tmux launch failed: {out.stderr.strip() or out.stdout.strip()}",
+                code=out.returncode or 2,
             )
         emit(
             {
@@ -387,16 +386,25 @@ def cmd_download(args) -> None:
     )
     try:
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session_id, "bash", "-lc", shell_cmd],
+            [  # noqa: S603 S607
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session_id,
+                "bash",
+                "-lc",
+                shell_cmd,
+            ],
             check=True,
             capture_output=True,
             text=True,
             timeout=10,
         )
     except FileNotFoundError:
-        fail("tmux not installed — can't run background sessions from CLI")
+        fail(msg="tmux not installed — can't run background sessions from CLI", code=2)
     except subprocess.CalledProcessError as e:
-        fail(f"tmux failed: {e.stderr or e.stdout}")
+        fail(msg=f"tmux failed: {e.stderr or e.stdout}", code=2)
 
     emit(
         {
@@ -439,16 +447,25 @@ def cmd_serve(args) -> None:
     shell_cmd = f"{args.cmd} 2>&1 | tee {_shell_quote(str(log_path))}; echo DONE"
     try:
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session_id, "bash", "-lc", shell_cmd],
+            [  # noqa: S603 S607
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session_id,
+                "bash",
+                "-lc",
+                shell_cmd,
+            ],
             check=True,
             capture_output=True,
             text=True,
             timeout=10,
         )
     except FileNotFoundError:
-        fail("tmux not installed")
+        fail(msg="tmux not installed", code=2)
     except subprocess.CalledProcessError as e:
-        fail(f"tmux failed: {e.stderr or e.stdout}")
+        fail(msg=f"tmux failed: {e.stderr or e.stdout}", code=2)
     emit(
         {
             "ok": True,
@@ -474,20 +491,21 @@ def cmd_state_set(args) -> None:
     with `cp data/cookbook_state.json.bak data/cookbook_state.json`."""
     data = sys.stdin.read()
     if not data.strip():
-        fail("expected JSON on stdin")
+        fail(msg="expected JSON on stdin", code=2)
     try:
         obj = json.loads(data)
     except json.JSONDecodeError as e:
-        fail(f"invalid JSON on stdin: {e}")
+        fail(msg=f"invalid JSON on stdin: {e}", code=2)
     if not isinstance(obj, dict):
-        fail("invalid cookbook state: expected a JSON object")
+        fail(msg="invalid cookbook state: expected a JSON object", code=2)
     _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     # Backup the existing state — undo button if a bad pipe clobbers it.
     if _STATE_PATH.exists():
         bak = _STATE_PATH.with_suffix(_STATE_PATH.suffix + ".bak")
         try:
             bak.write_bytes(_STATE_PATH.read_bytes())
-        except Exception:
+        except Exception as e:
+            fail(msg=f"Failed to back up existing state file: {e}", code=2)
             pass
     tmp = _STATE_PATH.with_suffix(_STATE_PATH.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False))
@@ -521,7 +539,7 @@ def cmd_kill(args) -> None:
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     except FileNotFoundError:
-        fail("tmux not installed" if not args.host else "ssh not installed")
+        fail(msg="tmux not installed" if not args.host else "ssh not installed", code=2)
     already_gone = (
         out.returncode != 0 and "can't find session" in (out.stderr or "").lower()
     )

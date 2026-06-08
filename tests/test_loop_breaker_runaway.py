@@ -11,6 +11,8 @@ import collections
 import sys
 from unittest.mock import MagicMock
 
+from src.agent_loop import _detect_runaway_call
+
 # Mock heavy deps so importing src.agent_loop doesn't load the full app stack.
 _MOCKED = [
     "sqlalchemy",
@@ -27,8 +29,6 @@ _MOCKED = [
 ]
 for _m in _MOCKED:
     sys.modules.setdefault(_m, MagicMock())
-
-from src.agent_loop import _detect_runaway_call
 
 
 def _freq(sigs):

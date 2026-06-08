@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import httpx
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Cache for discovered hosts
 _hosts_cache: List[str] = []
@@ -45,7 +47,10 @@ def discover_tailscale_hosts() -> List[str]:
     hosts = []
     try:
         result = subprocess.run(
-            ["tailscale", "status", "--json"], capture_output=True, text=True, timeout=5
+            ["tailscale", "status", "--json"],  # noqa: S603 S607
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0:
             return hosts
@@ -117,7 +122,8 @@ class ModelDiscovery:
                     _append_host(out, parsed.hostname or "")
                     if parsed.port:
                         self._extra_ports.add(parsed.port)
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Failed to parse {env_name}='{raw}': {e}")
                     pass
 
         # Manual override takes priority
@@ -162,7 +168,8 @@ class ModelDiscovery:
                     and "architecture" in models[0]
                 ):
                     return "lmstudio"
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fingerprint provider at {host}:{port}: {e}")
             pass
         return None
 
@@ -184,8 +191,8 @@ class ModelDiscovery:
                     "models_display": [i.lstrip("/") for i in ids],
                     "provider": self._fingerprint_provider(host, port),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to check port {host}:{port}: {e}")
         return None
 
     def discover_models(self) -> Dict[str, List[Dict[str, Any]]]:

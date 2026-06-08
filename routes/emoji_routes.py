@@ -19,6 +19,8 @@ from fastapi import APIRouter
 from fastapi.responses import Response
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "emoji_cache"
 # OpenMoji "black" set = monochrome line-art SVGs. Filenames are the codepoints
@@ -28,12 +30,12 @@ _OPENMOJI_BASE = "https://cdn.jsdelivr.net/npm/openmoji@15.0.0/black/svg"
 _CODE_RE = re.compile(r"^[0-9a-f]{2,6}(?:-[0-9a-f]{2,6})*$")
 _MAX_SVG_BYTES = 256 * 1024
 _BLOCKED_SVG_RE = re.compile(
-    br"<\s*(?:script|foreignObject|iframe|object|embed|image)\b|"
-    br"\bon[a-z0-9_-]+\s*=",
+    rb"<\s*(?:script|foreignObject|iframe|object|embed|image)\b|"
+    rb"\bon[a-z0-9_-]+\s*=",
     re.IGNORECASE,
 )
 _EXTERNAL_REF_RE = re.compile(
-    br"\b(?:href|xlink:href)\s*=\s*['\"](?:https?:|//|data:|javascript:)",
+    rb"\b(?:href|xlink:href)\s*=\s*['\"](?:https?:|//|data:|javascript:)",
     re.IGNORECASE,
 )
 _SVG_SECURITY_HEADERS = {
@@ -82,7 +84,9 @@ def setup_emoji_routes() -> APIRouter:
             try:
                 content = fp.read_bytes()
                 if _is_safe_svg(content):
-                    return Response(content, media_type="image/svg+xml", headers=_SVG_HEADERS)
+                    return Response(
+                        content, media_type="image/svg+xml", headers=_SVG_HEADERS
+                    )
                 fp.unlink(missing_ok=True)
             except Exception as e:
                 logger.warning("emoji cache read %s failed: %s", code, e)
@@ -96,9 +100,11 @@ def setup_emoji_routes() -> APIRouter:
             if r.status_code == 200 and _is_safe_svg(r.content):
                 try:
                     fp.write_bytes(r.content)
-                except Exception:
-                    pass  # cache write is best-effort
-                return Response(r.content, media_type="image/svg+xml", headers=_SVG_HEADERS)
+                except Exception as e:
+                    logger.warning("emoji cache write %s failed: %s", code, e)
+                return Response(
+                    r.content, media_type="image/svg+xml", headers=_SVG_HEADERS
+                )
         except Exception as e:
             logger.warning("emoji fetch %s failed: %s", code, e)
 

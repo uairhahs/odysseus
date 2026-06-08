@@ -6,14 +6,16 @@ Any part of the codebase can call log_to_assistant() to surface events,
 notifications, and results in the assistant's unified activity feed.
 """
 
-import json
-import re
-import uuid
+# import json
+# import uuid
+# from datetime import datetime
 import logging
-from datetime import datetime
+import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Session manager reference — set by app.py after initialization
 _session_manager = None
@@ -44,5 +46,7 @@ def log_to_assistant(
     session. Activity now lives in Tasks/notifications, so keep this shim for
     callers while preventing sidebar-log sessions from being created or filled.
     """
-    logger.debug("log_to_assistant ignored legacy activity category=%r owner=%r", category, owner)
+    logger.debug(
+        "log_to_assistant ignored legacy activity category=%r owner=%r", category, owner
+    )
     return

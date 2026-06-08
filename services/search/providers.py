@@ -4,37 +4,42 @@ import json
 import logging
 import os
 from typing import List, Optional
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
 from src.constants import SEARXNG_INSTANCE
+
 from .analytics import RateLimitError, error_logger
 from .query import build_enhanced_query
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 REQUEST_TIMEOUT = 20
 
 # Provider registry — maps setting value to (label, needs_key, needs_url)
 PROVIDER_INFO = {
-    "searxng":  ("SearXNG",           False, True),
-    "brave":    ("Brave Search",      True,  False),
-    "duckduckgo": ("DuckDuckGo",      False, False),
-    "google_pse": ("Google PSE",      True,  False),
-    "tavily":   ("Tavily",            True,  False),
-    "serper":   ("Serper",            True,  False),
-    "disabled": ("Disabled",          False, False),
+    "searxng": ("SearXNG", False, True),
+    "brave": ("Brave Search", True, False),
+    "duckduckgo": ("DuckDuckGo", False, False),
+    "google_pse": ("Google PSE", True, False),
+    "tavily": ("Tavily", True, False),
+    "serper": ("Serper", True, False),
+    "disabled": ("Disabled", False, False),
 }
 
 
 # ── Settings helpers ──
 
+
 def _get_search_settings() -> dict:
     """Return search settings from admin config, falling back to env defaults."""
     try:
         from src.settings import load_settings
+
         return load_settings()
     except Exception:
         return {}
@@ -98,9 +103,15 @@ def _get_safesearch_level() -> str:
     if raw in _SAFESEARCH_LEVELS:
         return raw
     aliases = {
-        "on": "strict", "high": "strict", "2": "strict",
-        "medium": "moderate", "1": "moderate", "default": "moderate",
-        "none": "off", "disabled": "off", "0": "off",
+        "on": "strict",
+        "high": "strict",
+        "2": "strict",
+        "medium": "moderate",
+        "1": "moderate",
+        "default": "moderate",
+        "none": "off",
+        "disabled": "off",
+        "0": "off",
     }
     return aliases.get(raw, "strict")
 
@@ -134,8 +145,12 @@ _NEWS_HINTS = ("news", "nyheter", "headlines", "breaking", "latest", "today", "i
 _GENERAL_ENGINES = os.environ.get("SEARXNG_GENERAL_ENGINES", "bing,mojeek,presearch")
 
 
-def searxng_search_api(query: str, count: int = 10, categories: str = "general",
-                       time_filter: Optional[str] = None) -> List[dict]:
+def searxng_search_api(
+    query: str,
+    count: int = 10,
+    categories: str = "general",
+    time_filter: Optional[str] = None,
+) -> List[dict]:
     """Search using SearXNG JSON API. Returns list of {title, url, snippet}."""
     instance = _get_search_instance()
     api_key = ""
@@ -165,7 +180,9 @@ def searxng_search_api(query: str, count: int = 10, categories: str = "general",
         if time_filter in ("day", "week", "month", "year"):
             # 'day' is too sparse on most SearXNG news engines — widen to a week
             # so there's enough volume; the news category already biases recent.
-            params["time_range"] = "week" if time_filter in ("day", "week") else time_filter
+            params["time_range"] = (
+                "week" if time_filter in ("day", "week") else time_filter
+            )
     else:
         params["categories"] = categories
         # Route general queries to engines that aren't blocked (default general
@@ -173,6 +190,7 @@ def searxng_search_api(query: str, count: int = 10, categories: str = "general",
         if categories == "general" and _GENERAL_ENGINES:
             params["engines"] = _GENERAL_ENGINES
     try:
+
         def _parse_results(results):
             return [
                 {
@@ -235,15 +253,21 @@ def searxng_search_api(query: str, count: int = 10, categories: str = "general",
             parsed, data = _run(fallback)
         logger.info(f"SearXNG JSON API returned {len(parsed)} results for: {query}")
         if not parsed:
-            unresponsive = data.get("unresponsive_engines") if isinstance(data, dict) else None
+            unresponsive = (
+                data.get("unresponsive_engines") if isinstance(data, dict) else None
+            )
             if unresponsive:
-                logger.info(f"SearXNG unresponsive engines for {query!r}: {unresponsive}")
+                logger.info(
+                    f"SearXNG unresponsive engines for {query!r}: {unresponsive}"
+                )
         return parsed
     except Exception as e:
         logger.warning(f"SearXNG JSON API search failed: {e}")
         html_results = searxng_search(query, max_results=count)
         if html_results:
-            logger.info(f"SearXNG HTML fallback returned {len(html_results)} results for: {query}")
+            logger.info(
+                f"SearXNG HTML fallback returned {len(html_results)} results for: {query}"
+            )
         return html_results
 
 
@@ -276,19 +300,29 @@ def searxng_search(query, max_results=10):
             logger.info(f"SearXNG search (HTML) returned {len(results)} results")
             return results
     except Exception as e:
-        logger.error(f"SearXNG search failed: {e}")
+        error_logger.error(f"SearXNG search failed: {e}", exc_info=True)
     return []
 
 
 # ── Brave ──
 
-def brave_search(query: str, count: int = 10, time_filter: Optional[str] = None) -> List[dict]:
+
+def brave_search(
+    query: str, count: int = 10, time_filter: Optional[str] = None
+) -> List[dict]:
     """Search using Brave API with key from admin settings or env var."""
     api_key = _get_provider_key("brave") or os.environ.get("DATA_BRAVE_API_KEY") or ""
-    return _brave_search_impl(query, count, time_filter, search_config={"brave_api_key": api_key})
+    return _brave_search_impl(
+        query, count, time_filter, search_config={"brave_api_key": api_key}
+    )
 
 
-def _brave_search_impl(query: str, count: int, time_filter: Optional[str] = None, search_config: dict = None) -> List[dict]:
+def _brave_search_impl(
+    query: str,
+    count: int,
+    time_filter: Optional[str] = None,
+    search_config: dict = None,
+) -> List[dict]:
     """Core Brave API call. Returns a list of result dicts or an empty list on failure."""
     enhanced_query = build_enhanced_query(query, time_filter)
     config = search_config or {}
@@ -324,16 +358,16 @@ def _brave_search_impl(query: str, count: int, time_filter: Optional[str] = None
             raise RateLimitError("Brave rate limit hit")
         response.raise_for_status()
     except httpx.RequestError as e:
-        error_logger.error(f"NetworkError during Brave search: {e}")
+        error_logger.error(f"NetworkError during Brave search: {e}", exc_info=True)
         return []
     except RateLimitError as e:
-        error_logger.error(str(e))
+        error_logger.error(str(e), exc_info=True)
         return []
 
     try:
         data = response.json()
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse Brave API response: {e}")
+        error_logger.error(f"Failed to parse Brave API response: {e}", exc_info=True)
         return []
 
     results = []
@@ -342,18 +376,21 @@ def _brave_search_impl(query: str, count: int, time_filter: Optional[str] = None
             url = item.get("url", "")
             if not url:
                 continue
-            results.append({
-                "title": item.get("title", ""),
-                "url": url,
-                "snippet": item.get("description", "") or item.get("content", ""),
-                "age": item.get("date", "") if item.get("date") else "",
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "url": url,
+                    "snippet": item.get("description", "") or item.get("content", ""),
+                    "age": item.get("date", "") if item.get("date") else "",
+                }
+            )
 
     logger.info(f"Brave search returned {len(results)} results")
     return results
 
 
 # ── DuckDuckGo (free, no key) ──
+
 
 def _is_duckduckgo_host(host: str) -> bool:
     """True only for duckduckgo.com and its subdomains."""
@@ -376,12 +413,14 @@ def _resolve_ddg_redirect(raw: str) -> str:
             qs = parse_qs(parsed.query)
             if "uddg" in qs:
                 return qs["uddg"][0]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to resolve DuckDuckGo redirect: {e}", exc_info=True)
     return resolved
 
 
-def duckduckgo_search(query: str, count: int = 10, time_filter: Optional[str] = None) -> List[dict]:
+def duckduckgo_search(
+    query: str, count: int = 10, time_filter: Optional[str] = None
+) -> List[dict]:
     """Search using DuckDuckGo via the duckduckgo-search library. No API key needed."""
 
     def _html_fallback() -> List[dict]:
@@ -403,15 +442,19 @@ def duckduckgo_search(query: str, count: int = 10, time_filter: Optional[str] = 
                 if not url:
                     continue
                 snippet_el = result.select_one(".result__snippet")
-                parsed.append({
-                    "title": link.get_text(" ", strip=True),
-                    "url": url,
-                    "snippet": snippet_el.get_text(" ", strip=True) if snippet_el else "",
-                })
+                parsed.append(
+                    {
+                        "title": link.get_text(" ", strip=True),
+                        "url": url,
+                        "snippet": (
+                            snippet_el.get_text(" ", strip=True) if snippet_el else ""
+                        ),
+                    }
+                )
             logger.info(f"DuckDuckGo HTML search returned {len(parsed)} results")
             return parsed
         except Exception as e:
-            logger.warning(f"DuckDuckGo HTML search failed: {e}")
+            logger.warning(f"DuckDuckGo HTML search failed: {e}", exc_info=True)
             return []
 
     try:
@@ -438,21 +481,26 @@ def duckduckgo_search(query: str, count: int = 10, time_filter: Optional[str] = 
             url = item.get("href", "")
             if not url:
                 continue
-            results.append({
-                "title": item.get("title", ""),
-                "url": url,
-                "snippet": item.get("body", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "url": url,
+                    "snippet": item.get("body", ""),
+                }
+            )
         logger.info(f"DuckDuckGo search returned {len(results)} results")
         return results or _html_fallback()
     except Exception as e:
-        logger.warning(f"DuckDuckGo search failed: {e}")
+        logger.warning(f"DuckDuckGo search failed: {e}", exc_info=True)
         return _html_fallback()
 
 
 # ── Google Programmable Search Engine ──
 
-def google_pse_search(query: str, count: int = 10, time_filter: Optional[str] = None) -> List[dict]:
+
+def google_pse_search(
+    query: str, count: int = 10, time_filter: Optional[str] = None
+) -> List[dict]:
     """Search using Google PSE (Custom Search JSON API).
 
     Requires two keys in settings:
@@ -462,7 +510,9 @@ def google_pse_search(query: str, count: int = 10, time_filter: Optional[str] = 
     """
     settings = _get_search_settings()
     api_key = _get_provider_key("google_pse") or os.environ.get("GOOGLE_API_KEY", "")
-    cx = (settings.get("google_pse_cx") or "").strip() or os.environ.get("GOOGLE_PSE_CX", "")
+    cx = (settings.get("google_pse_cx") or "").strip() or os.environ.get(
+        "GOOGLE_PSE_CX", ""
+    )
 
     if not api_key or not cx:
         logger.warning("Google PSE: missing API key or CX ID")
@@ -493,16 +543,16 @@ def google_pse_search(query: str, count: int = 10, time_filter: Optional[str] = 
             raise RateLimitError("Google PSE rate limit hit")
         response.raise_for_status()
     except httpx.RequestError as e:
-        error_logger.error(f"Google PSE search failed: {e}")
+        error_logger.error(f"Google PSE search failed: {e}", exc_info=True)
         return []
     except RateLimitError as e:
-        error_logger.error(str(e))
+        error_logger.error(str(e), exc_info=True)
         return []
 
     try:
         data = response.json()
     except json.JSONDecodeError as e:
-        error_logger.error(f"Google PSE returned invalid JSON: {e}")
+        error_logger.error(f"Google PSE returned invalid JSON: {e}", exc_info=True)
         return []
 
     results = []
@@ -510,11 +560,13 @@ def google_pse_search(query: str, count: int = 10, time_filter: Optional[str] = 
         url = item.get("link", "")
         if not url:
             continue
-        results.append({
-            "title": item.get("title", ""),
-            "url": url,
-            "snippet": item.get("snippet", ""),
-        })
+        results.append(
+            {
+                "title": item.get("title", ""),
+                "url": url,
+                "snippet": item.get("snippet", ""),
+            }
+        )
 
     logger.info(f"Google PSE returned {len(results)} results")
     return results
@@ -522,7 +574,10 @@ def google_pse_search(query: str, count: int = 10, time_filter: Optional[str] = 
 
 # ── Tavily ──
 
-def tavily_search(query: str, count: int = 10, time_filter: Optional[str] = None) -> List[dict]:
+
+def tavily_search(
+    query: str, count: int = 10, time_filter: Optional[str] = None
+) -> List[dict]:
     """Search using Tavily API. Requires search_api_key or TAVILY_API_KEY env var."""
     api_key = _get_provider_key("tavily") or os.environ.get("TAVILY_API_KEY", "")
     if not api_key:
@@ -537,29 +592,34 @@ def tavily_search(query: str, count: int = 10, time_filter: Optional[str] = None
     if time_filter:
         time_map = {"day": "day", "week": "week", "month": "month", "year": "year"}
         if time_filter in time_map:
-            payload["days"] = {"day": 1, "week": 7, "month": 30, "year": 365}[time_filter]
+            payload["days"] = {"day": 1, "week": 7, "month": 30, "year": 365}[
+                time_filter
+            ]
 
     try:
         response = httpx.post(
             "https://api.tavily.com/search",
             json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
             timeout=REQUEST_TIMEOUT,
         )
         if response.status_code == 429:
             raise RateLimitError("Tavily rate limit hit")
         response.raise_for_status()
     except httpx.RequestError as e:
-        error_logger.error(f"Tavily search failed: {e}")
+        error_logger.error(f"Tavily search failed: {e}", exc_info=True)
         return []
     except RateLimitError as e:
-        error_logger.error(str(e))
+        error_logger.error(str(e), exc_info=True)
         return []
 
     try:
         data = response.json()
     except json.JSONDecodeError as e:
-        error_logger.error(f"Tavily returned invalid JSON: {e}")
+        error_logger.error(f"Tavily returned invalid JSON: {e}", exc_info=True)
         return []
 
     results = []
@@ -567,12 +627,14 @@ def tavily_search(query: str, count: int = 10, time_filter: Optional[str] = None
         url = item.get("url", "")
         if not url:
             continue
-        results.append({
-            "title": item.get("title", ""),
-            "url": url,
-            "snippet": item.get("content", ""),
-            "age": item.get("published_date", ""),
-        })
+        results.append(
+            {
+                "title": item.get("title", ""),
+                "url": url,
+                "snippet": item.get("content", ""),
+                "age": item.get("published_date", ""),
+            }
+        )
 
     logger.info(f"Tavily returned {len(results)} results")
     return results
@@ -580,7 +642,10 @@ def tavily_search(query: str, count: int = 10, time_filter: Optional[str] = None
 
 # ── Serper.dev ──
 
-def serper_search(query: str, count: int = 10, time_filter: Optional[str] = None) -> List[dict]:
+
+def serper_search(
+    query: str, count: int = 10, time_filter: Optional[str] = None
+) -> List[dict]:
     """Search using Serper.dev API. Requires search_api_key or SERPER_API_KEY env var."""
     api_key = _get_provider_key("serper") or os.environ.get("SERPER_API_KEY", "")
     if not api_key:
@@ -610,16 +675,16 @@ def serper_search(query: str, count: int = 10, time_filter: Optional[str] = None
             raise RateLimitError("Serper rate limit hit")
         response.raise_for_status()
     except httpx.RequestError as e:
-        error_logger.error(f"Serper search failed: {e}")
+        error_logger.error(f"Serper search failed: {e}", exc_info=True)
         return []
     except RateLimitError as e:
-        error_logger.error(str(e))
+        error_logger.error(str(e), exc_info=True)
         return []
 
     try:
         data = response.json()
     except json.JSONDecodeError as e:
-        error_logger.error(f"Serper returned invalid JSON: {e}")
+        error_logger.error(f"Serper returned invalid JSON: {e}", exc_info=True)
         return []
 
     results = []
@@ -627,12 +692,14 @@ def serper_search(query: str, count: int = 10, time_filter: Optional[str] = None
         url = item.get("link", "")
         if not url:
             continue
-        results.append({
-            "title": item.get("title", ""),
-            "url": url,
-            "snippet": item.get("snippet", ""),
-            "age": item.get("date", ""),
-        })
+        results.append(
+            {
+                "title": item.get("title", ""),
+                "url": url,
+                "snippet": item.get("snippet", ""),
+                "age": item.get("date", ""),
+            }
+        )
 
     logger.info(f"Serper returned {len(results)} results")
     return results

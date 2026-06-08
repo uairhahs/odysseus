@@ -7,7 +7,7 @@ Stores pre-computed embeddings (ChromaDB does not manage embedding).
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from src.embedding_lanes import (
     LANE_CUSTOM,
@@ -20,6 +20,8 @@ from src.embedding_lanes import (
 )
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 class MemoryVectorStore:
@@ -43,7 +45,11 @@ class MemoryVectorStore:
 
             self._healthy = True
             self._collection = next(
-                (lane.collection for lane in self._lanes if lane.name == LANE_FASTEMBED),
+                (
+                    lane.collection
+                    for lane in self._lanes
+                    if lane.name == LANE_FASTEMBED
+                ),
                 self._lanes[0].collection,
             )
             migrate_legacy_collection(self.COLLECTION_NAME, self._lanes)
@@ -93,11 +99,17 @@ class MemoryVectorStore:
             client = get_chroma_client()
             for lane_name in (LANE_CUSTOM, LANE_FASTEMBED):
                 try:
-                    add(client.get_collection(collection_name(self.COLLECTION_NAME, lane_name)))
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                    add(
+                        client.get_collection(
+                            collection_name(self.COLLECTION_NAME, lane_name)
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to get collection for lane {lane_name}: {e}"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to get Chroma client: {e}")
 
         return collections
 
@@ -117,7 +129,9 @@ class MemoryVectorStore:
                     metadatas=[{"source": "memory"}],
                 )
             except Exception as e:
-                logger.warning("memory add failed in %s lane for %s: %s", lane.name, memory_id, e)
+                logger.warning(
+                    "memory add failed in %s lane for %s: %s", lane.name, memory_id, e
+                )
 
     def remove(self, memory_id: str):
         """Remove a memory entry. O(1) — no rebuild needed."""
@@ -152,14 +166,21 @@ class MemoryVectorStore:
                 )
                 for idx, mid in enumerate(results["ids"][0]):
                     distance = results["distances"][0][idx]
-                    out.append({
-                        "memory_id": mid,
-                        "score": round(1.0 - distance, 4),
-                        "embedding_lane": lane.name,
-                    })
+                    out.append(
+                        {
+                            "memory_id": mid,
+                            "score": round(1.0 - distance, 4),
+                            "embedding_lane": lane.name,
+                        }
+                    )
             except Exception as e:
                 logger.warning("memory search failed in %s lane: %s", lane.name, e)
-        out.sort(key=lambda row: (-row["score"], lane_priority.get(row["embedding_lane"], 99)))
+        out.sort(
+            key=lambda row: (
+                -row["score"],
+                lane_priority.get(row["embedding_lane"], 99),
+            )
+        )
         return dedupe_results(out, id_key="memory_id", limit=k)
 
     def find_similar(self, text: str, threshold: float = 0.92) -> Optional[str]:
@@ -182,7 +203,9 @@ class MemoryVectorStore:
                     if similarity >= threshold:
                         return results["ids"][0][0]
             except Exception as e:
-                logger.warning("memory similarity search failed in %s lane: %s", lane.name, e)
+                logger.warning(
+                    "memory similarity search failed in %s lane: %s", lane.name, e
+                )
         return None
 
     def rebuild(self, memories: List[Dict]):
@@ -202,8 +225,8 @@ class MemoryVectorStore:
         for name in lane_names:
             try:
                 client.delete_collection(name)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to delete collection {name}: {e}")
         # Explicit rebuilds must start from the supplied memory list, so clear
         # legacy unsuffixed collections too.
         self._lanes = build_embedding_lanes(self.COLLECTION_NAME)
@@ -225,8 +248,8 @@ class MemoryVectorStore:
             # Batch in chunks of 100 to avoid oversized requests
             failed_lanes = set()
             for i in range(0, len(texts), 100):
-                batch_texts = texts[i:i + 100]
-                batch_ids = ids[i:i + 100]
+                batch_texts = texts[i : i + 100]
+                batch_ids = ids[i : i + 100]
                 for lane in self._lanes:
                     if lane.name in failed_lanes:
                         continue
@@ -239,9 +262,13 @@ class MemoryVectorStore:
                         )
                     except Exception as e:
                         failed_lanes.add(lane.name)
-                        logger.warning("memory rebuild failed in %s lane: %s", lane.name, e)
+                        logger.warning(
+                            "memory rebuild failed in %s lane: %s", lane.name, e
+                        )
 
-        logger.info(f"MemoryVectorStore rebuilt with {len(ids)} entries across {len(self._lanes)} lanes")
+        logger.info(
+            f"MemoryVectorStore rebuilt with {len(ids)} entries across {len(self._lanes)} lanes"
+        )
 
     def get_stats(self) -> Dict:
         return {

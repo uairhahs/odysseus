@@ -28,6 +28,8 @@ from core.database import EditorDraft, SessionLocal
 from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 class DraftCreate(BaseModel):
@@ -83,7 +85,7 @@ def setup_editor_draft_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(EditorDraft).filter(EditorDraft.is_active == True)
+            q = db.query(EditorDraft).filter(EditorDraft.is_active)
             if user is not None:
                 q = q.filter(EditorDraft.owner == user)
             rows = q.order_by(EditorDraft.updated_at.desc()).limit(200).all()
@@ -96,9 +98,11 @@ def setup_editor_draft_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            d = db.query(EditorDraft).filter(
-                EditorDraft.id == draft_id, EditorDraft.is_active == True
-            ).first()
+            d = (
+                db.query(EditorDraft)
+                .filter(EditorDraft.id == draft_id, EditorDraft.is_active)
+                .first()
+            )
             if not d or not _owns(d, user):
                 raise HTTPException(404, "Draft not found")
             return {
@@ -130,18 +134,22 @@ def setup_editor_draft_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.warning(f"editor-draft create failed: {e}")
-            raise HTTPException(500, "Could not save draft")
+            raise HTTPException(500, "Could not save draft") from e
         finally:
             db.close()
 
     @router.put("/api/editor-drafts/{draft_id}")
-    async def update_draft(request: Request, draft_id: str, body: DraftUpdate) -> Dict[str, Any]:
+    async def update_draft(
+        request: Request, draft_id: str, body: DraftUpdate
+    ) -> Dict[str, Any]:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            d = db.query(EditorDraft).filter(
-                EditorDraft.id == draft_id, EditorDraft.is_active == True
-            ).first()
+            d = (
+                db.query(EditorDraft)
+                .filter(EditorDraft.id == draft_id, EditorDraft.is_active)
+                .first()
+            )
             if not d or not _owns(d, user):
                 raise HTTPException(404, "Draft not found")
             if body.name is not None:
@@ -162,7 +170,7 @@ def setup_editor_draft_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.warning(f"editor-draft update failed: {e}")
-            raise HTTPException(500, "Could not update draft")
+            raise HTTPException(500, "Could not update draft") from e
         finally:
             db.close()
 
@@ -181,7 +189,7 @@ def setup_editor_draft_routes() -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 

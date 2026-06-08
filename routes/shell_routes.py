@@ -7,8 +7,6 @@ import os
 import re
 import shlex
 import shutil
-
-# trunk-ignore(bandit/B404)
 import subprocess
 import tempfile
 import uuid
@@ -99,6 +97,8 @@ def _venv_activate_prefix(venv: str | None) -> str:
 
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 PTY_SUPPORTED = pty is not None and fcntl is not None and hasattr(os, "setsid")
 

@@ -1,4 +1,4 @@
-"""CRUD routes for scheduled tasks."""
+# CRUD routes for scheduled tasks
 
 import json
 import logging
@@ -17,6 +17,8 @@ from src.auth_helpers import get_current_user
 from src.task_scheduler import HOUSEKEEPING_DEFAULTS, compute_next_run
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _maybe_cascade_calendar_event(task) -> None:
@@ -52,8 +54,8 @@ def _maybe_cascade_calendar_event(task) -> None:
             cfg = json.loads(task.prompt)
             if isinstance(cfg, dict):
                 event_uid = (cfg.get("cookbook_event_uid") or "").strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to parse task prompt for event UID: {e}")
 
     def _try_delete(uid: str) -> bool:
         try:
@@ -276,8 +278,8 @@ def _resolve_run_endpoint(db, task: ScheduledTask, run: TaskRun) -> str:
             sess = db.query(DbSession).filter(DbSession.id == task.session_id).first()
             if sess and sess.endpoint_url:
                 return sess.endpoint_url or ""
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to resolve run endpoint for task {task.id}: {e}")
 
     model = (getattr(run, "model", None) or getattr(task, "model", None) or "").strip()
     if not model:
@@ -286,18 +288,21 @@ def _resolve_run_endpoint(db, task: ScheduledTask, run: TaskRun) -> str:
     try:
         from core.database import ModelEndpoint
 
-        eps = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
+        eps = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
         for ep in eps:
             cached = []
             if ep.cached_models:
                 try:
                     cached = json.loads(ep.cached_models) or []
-                except Exception:
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to parse cached models for endpoint {ep.id}: {e}"
+                    )
                     cached = []
             if model in cached:
                 return ep.base_url or ""
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to resolve run endpoint for task {task.id}: {e}")
     return ""
 
 
@@ -345,7 +350,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             )
             title = result.strip().strip("\"'").strip()
             return title[:60] if title else prompt[:50].strip()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Task name generation failed: {e}")
             first = prompt.split("\n")[0].split(".")[0].strip()
             return first[:50] if first else "Untitled Task"
 
@@ -471,7 +477,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                 # Unconfigured single-user deploy: trust the local owner.
                 return True
             return bool(auth.is_admin(user))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Admin check failed for user {user}: {e}")
             return False
 
     def _validate_then_task_id(
@@ -530,8 +537,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                 from croniter import croniter
 
                 croniter(req.cron_expression)
-            except Exception:
-                raise HTTPException(400, "Invalid cron expression")
+            except Exception as e:
+                raise HTTPException(400, "Invalid cron expression") from e
         if req.trigger_type == "event" and not req.trigger_event:
             raise HTTPException(400, "Event name is required for event-triggered tasks")
         if req.trigger_type == "event" and not req.trigger_count:
@@ -560,8 +567,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                     sched_date = datetime.fromisoformat(
                         req.scheduled_date.replace("Z", "+00:00")
                     ).replace(tzinfo=None)
-                except ValueError:
-                    raise HTTPException(400, "Invalid scheduled_date format")
+                except ValueError as e:
+                    raise HTTPException(400, "Invalid scheduled_date format") from e
             next_run = compute_next_run(
                 req.schedule,
                 req.scheduled_time,
@@ -687,17 +694,18 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                     elif table in OWNER_SCOPED_EMAIL_CACHE_TABLES and user:
                         owner_clause, owner_params = _email_cache_owner_clause(user)
                         before = conn.execute(
-                            f"SELECT COUNT(*) FROM {table} WHERE {owner_clause}",
+                            f"SELECT COUNT(*) FROM {table} WHERE {owner_clause}",  # noqa: S608
                             owner_params,
                         ).fetchone()[0]
                         conn.execute(
-                            f"DELETE FROM {table} WHERE {owner_clause}", owner_params
+                            f"DELETE FROM {table} WHERE {owner_clause}",  # noqa: S608
+                            owner_params,
                         )
                     else:
                         before = conn.execute(
-                            f"SELECT COUNT(*) FROM {table}"
+                            f"SELECT COUNT(*) FROM {table}"  # noqa: S608
                         ).fetchone()[0]
-                        conn.execute(f"DELETE FROM {table}")
+                        conn.execute(f"DELETE FROM {table}")  # noqa: S608
                     cleared[table] = int(before or 0)
                 except sqlite3.OperationalError:
                     cleared[table] = 0
@@ -713,8 +721,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                     try:
                         child.unlink()
                         removed_files += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to remove cache file {child}: {e}")
             owner_slug = "".join(
                 c if (c.isalnum() or c in "-_.@") else "_" for c in (user or "default")
             )
@@ -723,8 +731,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                     if state_path.exists():
                         state_path.unlink()
                         removed_files += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to remove state file {state_path}: {e}")
 
         return {
             "ok": True,
@@ -798,8 +806,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                         from croniter import croniter
 
                         croniter(req.cron_expression)
-                    except Exception:
-                        raise HTTPException(400, "Invalid cron expression")
+                    except Exception as e:
+                        raise HTTPException(400, "Invalid cron expression") from e
                 task.cron_expression = req.cron_expression or None
 
             # Recompute next_run if schedule changed
@@ -818,8 +826,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                     task.scheduled_date = datetime.fromisoformat(
                         req.scheduled_date.replace("Z", "+00:00")
                     ).replace(tzinfo=None)
-                except ValueError:
-                    raise HTTPException(400, "Invalid scheduled_date format")
+                except ValueError as e:
+                    raise HTTPException(400, "Invalid scheduled_date format") from e
                 schedule_changed = True
 
             if req.cron_expression is not None:
@@ -1149,8 +1157,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                             "description": tool.get("description", ""),
                         }
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to list output targets: {e}")
         return {"targets": targets}
 
     @router.get("/meta/actions")

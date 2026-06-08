@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _task_scheduler = None
 

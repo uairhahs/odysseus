@@ -18,6 +18,8 @@ import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _tidy_state_path(memory_manager) -> str:
@@ -549,7 +551,8 @@ async def audit_memories(
                     v = json.loads(cand)
                     if isinstance(v, list):
                         return v
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Error parsing JSON candidate: {e}")
                     continue
             return None
 

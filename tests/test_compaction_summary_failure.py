@@ -6,6 +6,9 @@ import asyncio
 import sys
 from unittest.mock import MagicMock
 
+import src.context_compactor as cc
+from src.context_compactor import maybe_compact
+
 # Mock heavy dependencies before importing
 for mod in [
     "sqlalchemy",
@@ -21,9 +24,6 @@ for mod in [
 ]:
     if mod not in sys.modules:
         sys.modules[mod] = MagicMock()
-
-import src.context_compactor as cc
-from src.context_compactor import maybe_compact
 
 
 class TestCompactionSummaryFailure:

@@ -8,7 +8,10 @@ from fastapi import HTTPException
 from src import auth_helpers
 
 
-def _request(*, current_user="api", api_token=True, api_token_owner="alice"):
+# this is test data only
+def _request(
+    *, current_user="api", api_token=True, api_token_owner="alice"  # noqa: S107
+):
     return SimpleNamespace(
         state=SimpleNamespace(
             current_user=current_user,
@@ -31,7 +34,7 @@ def test_require_user_rejects_api_token_pseudo_user(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         auth_helpers.require_user(req)
 
-    assert exc.value.status_code == 403  # nosec B101
+    assert exc.value.status_code == 403  # noqa: S101
 
 
 def test_require_authenticated_request_allows_api_token_owner(monkeypatch):

@@ -1,5 +1,19 @@
 # Generic, formatter-friendly config.
-select = ["B", "D3", "E", "F"]
+
+[lint]
+select = ["B", "D3", "E", "F", "S"]
 
 # Never enforce `E501` (line length violations). This should be handled by formatters.
-ignore = ["E501"]
+# S104: Possible binding to all interfaces
+# S108: Probable insecure usage of temporary file or directory (not much certainty in probable)
+# S311: pseudo-random is fine for non-security use (e.g. pagination shuffle)
+# S603: subprocess inputs are validated upstream via allowlists
+# S603: Intentional in serve/download flows
+# B008: Do not perform function call `Body` in argument defaults;
+#       instead, perform the call within the function,
+#       or read the default from a module-level singleton variable
+ignore = ["S104", "S108", "E501", "S311", "S603", "B008"]
+
+[lint.per-file-ignores]
+# S101: assert is required by pytest
+"tests/**" = ["S101"]

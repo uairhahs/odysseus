@@ -1,8 +1,8 @@
 # src/endpoint_resolver.py
-"""Unified endpoint resolution for all backend services.
+# Unified endpoint resolution for all backend services.
 
-Consolidates the 4+ copies of normalize_base / resolve_endpoint logic into one place.
-"""
+# Consolidates the 4+ copies of normalize_base / resolve_endpoint logic into one place.
+
 
 import json
 import logging
@@ -15,6 +15,8 @@ from core.database import ModelEndpoint, SessionLocal
 from src.llm_core import _detect_provider, _host_match, _ollama_api_root
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Model-name substrings that are NOT chat/generation models. When an endpoint
 # has no explicit model configured we pick the first CHAT model from its list —
@@ -98,7 +100,10 @@ def _resolve_tailscale_host(hostname: str) -> Optional[str]:
     # DNS failed — try tailscale
     try:
         result = subprocess.run(
-            ["tailscale", "status", "--json"], capture_output=True, text=True, timeout=5
+            ["tailscale", "status", "--json"],  # noqa: S603 S607
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             import json as _json
@@ -265,7 +270,7 @@ def resolve_endpoint(
     try:
         ep = db.query(ModelEndpoint).filter(
             ModelEndpoint.id == ep_id,
-            ModelEndpoint.is_enabled == True,
+            ModelEndpoint.is_enabled,
         )
         if owner:
             from src.auth_helpers import owner_filter
@@ -316,7 +321,7 @@ def resolve_endpoint_by_id(
     try:
         q = db.query(ModelEndpoint).filter(
             ModelEndpoint.id == ep_id,
-            ModelEndpoint.is_enabled == True,
+            ModelEndpoint.is_enabled,
         )
         if owner:
             from src.auth_helpers import owner_filter
@@ -371,7 +376,8 @@ def resolve_utility_fallback_candidates(owner: Optional[str] = None) -> list:
         ).strip()
         if not utility_ep:
             return _resolve_fallback_candidates("default_model_fallbacks", owner=owner)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not load settings for utility fallbacks: {e}")
         pass
     return _resolve_fallback_candidates("utility_model_fallbacks", owner=owner)
 

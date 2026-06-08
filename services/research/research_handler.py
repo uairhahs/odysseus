@@ -7,16 +7,19 @@ if needed.
 
 Includes a task registry so research survives page refreshes and can be cancelled.
 """
+
 import asyncio
 import json
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from src.research_utils import is_low_quality
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 RESEARCH_DATA_DIR = Path("data/deep_research")
 
@@ -33,7 +36,8 @@ class ResearchHandler:
     def _initialize_legacy_engine(self):
         """Initialize the legacy research engine as a fallback."""
         try:
-            from research_engine import ResearchOrchestrator, Config
+            from research_engine import Config, ResearchOrchestrator
+
             config = Config(max_searches=12, max_content_per_page=15000)
             self._legacy_engine = ResearchOrchestrator(config)
             logger.info("Legacy ResearchOrchestrator initialized (fallback)")
@@ -81,7 +85,9 @@ class ResearchHandler:
         async def _run():
             try:
                 result = await self.call_research_service(
-                    query, llm_endpoint, llm_model,
+                    query,
+                    llm_endpoint,
+                    llm_model,
                     max_time=max_time,
                     progress_callback=on_progress,
                     _task_entry=entry,
@@ -123,8 +129,11 @@ class ResearchHandler:
                     "query": data.get("query", ""),
                     "started_at": data.get("started_at", 0),
                 }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to read research status for {session_id}: {e}",
+                    exc_info=True,
+                )
         return None
 
     def cancel_research(self, session_id: str) -> bool:
@@ -155,8 +164,11 @@ class ResearchHandler:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 return data.get("result")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to read research result for {session_id}: {e}",
+                    exc_info=True,
+                )
         return None
 
     def get_sources(self, session_id: str) -> Optional[list]:
@@ -175,8 +187,11 @@ class ResearchHandler:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 return data.get("sources")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to read research sources for {session_id}: {e}",
+                    exc_info=True,
+                )
         return None
 
     @staticmethod
@@ -200,8 +215,11 @@ class ResearchHandler:
         if path.exists():
             try:
                 path.unlink()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to clear research result for {session_id}: {e}",
+                    exc_info=True,
+                )
 
     def _save_result(self, session_id: str, entry: dict):
         """Persist completed research result to disk."""
@@ -225,7 +243,9 @@ class ResearchHandler:
             path.write_text(json.dumps(data), encoding="utf-8")
             logger.info(f"Research result saved to {path}")
         except Exception as e:
-            logger.error(f"Failed to save research result: {e}")
+            logger.error(
+                f"Failed to save research result for {session_id}: {e}", exc_info=True
+            )
 
     async def call_research_service(
         self,
@@ -281,24 +301,34 @@ class ResearchHandler:
                 logger.info(f"  {key}: {value}")
 
             return self._format_research_report(
-                query, report, stats, elapsed,
+                query,
+                report,
+                stats,
+                elapsed,
                 findings=researcher.findings,
                 evolving_report=researcher.evolving_report,
             )
 
         except Exception as e:
             logger.error(f"DeepResearcher failed: {e}", exc_info=True)
-            return await self._fallback_research(query, llm_endpoint, llm_model, max_time, str(e))
+            return await self._fallback_research(
+                query, llm_endpoint, llm_model, max_time, str(e)
+            )
 
     async def _fallback_research(
-        self, query: str, llm_endpoint: str, llm_model: str,
-        max_time: int, primary_error: str,
+        self,
+        query: str,
+        llm_endpoint: str,
+        llm_model: str,
+        max_time: int,
+        primary_error: str,
     ) -> str:
         """Fall back to legacy engine, then to basic web search."""
         # Try legacy orchestrator
         if self._legacy_engine:
             try:
                 import asyncio
+
                 logger.info("Falling back to legacy ResearchOrchestrator...")
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
@@ -308,7 +338,7 @@ class ResearchHandler:
                 elapsed = float(stats.get("Duration", "0").rstrip("s") or 0)
                 return self._format_research_report(query, result, stats, elapsed)
             except Exception as e:
-                logger.error(f"Legacy engine also failed: {e}")
+                logger.error(f"Legacy engine also failed: {e}", exc_info=True)
 
         # Fall back to basic web search
         return self._handle_research_failure(query, primary_error)
@@ -322,15 +352,20 @@ class ResearchHandler:
             return {
                 "Findings": len(self._legacy_engine.findings),
                 "Sources": len(self._legacy_engine.source_reports),
-                "Searches": tracker.counters['searches_executed'],
-                "URLs": tracker.counters['urls_processed'],
+                "Searches": tracker.counters["searches_executed"],
+                "URLs": tracker.counters["urls_processed"],
             }
         except Exception:
             return {}
 
     def _format_research_report(
-        self, query: str, full_report: str, stats: dict, elapsed: float,
-        findings: list = None, evolving_report: str = None,
+        self,
+        query: str,
+        full_report: str,
+        stats: dict,
+        elapsed: float,
+        findings: list = None,
+        evolving_report: str = None,
     ) -> str:
         """Format research report with sources list and expandable raw findings."""
         summary_lines = [
@@ -365,7 +400,11 @@ class ResearchHandler:
                 title = f.get("title", "") or "Untitled"
                 summary = f.get("summary", "")
                 evidence = f.get("evidence", "")
-                content = summary if summary else (evidence[:2000] if evidence else "(no content)")
+                content = (
+                    summary
+                    if summary
+                    else (evidence[:2000] if evidence else "(no content)")
+                )
                 parts.append(f"**{i}. [{title}]({url})**\n\n{content}")
             raw_findings_section = "\n\n".join(parts)
 

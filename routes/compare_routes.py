@@ -1,19 +1,23 @@
 # routes/compare_routes.py
 """Model A/B comparison routes."""
+
 import json
-import uuid
-import random
-from datetime import datetime
-from fastapi import APIRouter, Form, HTTPException, Request
-from typing import List
-from pydantic import BaseModel
 import logging
+import random
+import uuid
+from datetime import datetime
+from typing import List
+
+from fastapi import APIRouter, Form, HTTPException, Request
+from pydantic import BaseModel
 
 from core.database import Comparison, SessionLocal
 from core.session_manager import SessionManager
 from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 router = APIRouter(prefix="/api/compare", tags=["compare"])
 
@@ -34,6 +38,7 @@ def _owned_endpoint_by_url(db, base_url, owner):
     """
     from core.database import ModelEndpoint
     from src.auth_helpers import owner_filter
+
     q = db.query(ModelEndpoint).filter(ModelEndpoint.base_url == base_url)
     return owner_filter(q, ModelEndpoint, owner).first()
 
@@ -41,7 +46,7 @@ def _owned_endpoint_by_url(db, base_url, owner):
 class RecordVoteRequest(BaseModel):
     prompt: str
     models: List[str]
-    winner: str           # model name or "tie"
+    winner: str  # model name or "tie"
     is_blind: bool = True
 
 
@@ -66,7 +71,7 @@ def setup_compare_routes(session_manager: SessionManager):
         comp_id = str(uuid.uuid4())
         sid_a = str(uuid.uuid4())
         sid_b = str(uuid.uuid4())
-        user = getattr(request.state, 'current_user', None)
+        user = getattr(request.state, "current_user", None)
 
         # Blind mapping: randomly assign left/right
         blind = str(is_blind).lower() == "true"
@@ -88,8 +93,13 @@ def setup_compare_routes(session_manager: SessionManager):
         slot_name = {session_left: "Model A", session_right: "Model B"}
 
         # Create ephemeral sessions (prefixed [CMP])
-        for sid, model, endpoint in [(sid_a, model_a, endpoint_a), (sid_b, model_b, endpoint_b)]:
-            name = f"[CMP] {slot_name[sid]}" if blind else f"[CMP] {model.split('/')[-1]}"
+        for sid, model, endpoint in [
+            (sid_a, model_a, endpoint_a),
+            (sid_b, model_b, endpoint_b),
+        ]:
+            name = (
+                f"[CMP] {slot_name[sid]}" if blind else f"[CMP] {model.split('/')[-1]}"
+            )
             session_manager.create_session(
                 session_id=sid,
                 name=name,
@@ -102,6 +112,7 @@ def setup_compare_routes(session_manager: SessionManager):
             db = SessionLocal()
             try:
                 from src.endpoint_resolver import build_headers, normalize_base
+
                 # Find matching endpoint by URL, scoped to the caller so a
                 # comparison can't borrow another user's private endpoint key.
                 base = normalize_base(endpoint)
@@ -140,8 +151,12 @@ def setup_compare_routes(session_manager: SessionManager):
             "id": comp_id,
             "session_left": session_left,
             "session_right": session_right,
-            "model_left": None if blind else (model_a if mapping["left"] == "a" else model_b),
-            "model_right": None if blind else (model_a if mapping["right"] == "a" else model_b),
+            "model_left": (
+                None if blind else (model_a if mapping["left"] == "a" else model_b)
+            ),
+            "model_right": (
+                None if blind else (model_a if mapping["right"] == "a" else model_b)
+            ),
             "is_blind": blind,
             "mapping": None if blind else mapping,
         }
@@ -166,7 +181,11 @@ def setup_compare_routes(session_manager: SessionManager):
             if comp.winner:
                 raise HTTPException(400, "Already voted")
 
-            mapping = json.loads(comp.blind_mapping) if comp.blind_mapping else {"left": "a", "right": "b"}
+            mapping = (
+                json.loads(comp.blind_mapping)
+                if comp.blind_mapping
+                else {"left": "a", "right": "b"}
+            )
 
             if winner == "tie":
                 comp.winner = "tie"

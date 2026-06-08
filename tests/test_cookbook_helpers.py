@@ -190,7 +190,7 @@ def test_pip_install_fallback_chain_propagates_failure_in_venv():
         "&& echo user_attempt; }"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        ["bash", "-c", script],  # noqa: S603 S607
         capture_output=True,
         text=True,
         timeout=10,
@@ -212,7 +212,7 @@ def test_pip_install_fallback_chain_tries_user_outside_venv():
         "'"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        ["bash", "-c", script],  # noqa: S603 S607
         capture_output=True,
         text=True,
         timeout=10,
@@ -328,7 +328,7 @@ def test_pip_install_attempt_failure_propagates_real_exit_code():
     if sys.platform == "win32":
         snippet = snippet.replace("$", "\\$")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        ["bash", "-c", snippet],  # noqa: S603 S607
         capture_output=True,
         text=True,
         timeout=60,
@@ -342,7 +342,7 @@ def test_pip_install_attempt_success_exits_zero():
     if sys.platform == "win32":
         snippet = snippet.replace("$", "\\$")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        ["bash", "-c", snippet],  # noqa: S603 S607
         capture_output=True,
         text=True,
         timeout=15,
@@ -358,7 +358,7 @@ def test_pip_install_attempt_surfaces_stderr_on_failure():
     if sys.platform == "win32":
         snippet = snippet.replace("$", "\\$")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        ["bash", "-c", snippet],  # noqa: S603 S607
         capture_output=True,
         text=True,
         timeout=60,

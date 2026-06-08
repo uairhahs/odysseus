@@ -131,6 +131,8 @@ def _verify_session_owner(request: Request, session_id: str, session_manager=Non
 
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -208,8 +210,8 @@ def _pick_endpoint_for_sort(owner=None):
         url, model, headers = resolve_task_endpoint(owner=owner)
         if url and model:
             return url, model, headers
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("[session] failed to resolve task endpoint: %s", e, exc_info=True)
     # Fall back to default
     url, model, headers = resolve_endpoint("default", owner=owner)
     if url and model:
@@ -261,14 +263,20 @@ def setup_session_routes(
                     if hasattr(session_manager, "delete_session"):
                         try:
                             session_manager.delete_session(_g.id)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(
+                                "[session] failed to delete session: %s",
+                                e,
+                                exc_info=True,
+                            )
                 if _ghosts:
                     _purge_db.commit()
             finally:
                 _purge_db.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "[session] failed to purge ghost sessions: %s", e, exc_info=True
+            )
         user_sessions = session_manager.get_sessions_for_user(user)
         # Fetch folder info from DB for each session
         db = SessionLocal()
@@ -294,7 +302,7 @@ def setup_session_routes(
                     DbSession.mode,
                     DbSession.message_count,
                 )
-                .filter(DbSession.archived == False, DbSession.owner == user)
+                .filter(not DbSession.archived, DbSession.owner == user)
                 .all()
             )
             for row in rows:
@@ -329,8 +337,8 @@ def setup_session_routes(
                 r[0]
                 for r in db.query(Document.session_id)
                 .filter(
-                    Document.is_active == True,
-                    Document.current_content != None,
+                    Document.is_active,
+                    Document.current_content is not None,
                     func.trim(Document.current_content) != "",
                     Document.owner == user,
                 )
@@ -340,7 +348,7 @@ def setup_session_routes(
             img_session_ids = set(
                 r[0]
                 for r in db.query(GalleryImage.session_id)
-                .filter(GalleryImage.session_id != None, GalleryImage.owner == user)
+                .filter(GalleryImage.session_id is not None, GalleryImage.owner == user)
                 .distinct()
                 .all()
             )
@@ -399,7 +407,7 @@ def setup_session_routes(
             try:
                 q = _db.query(ModelEndpoint).filter(
                     ModelEndpoint.id == endpoint_id.strip(),
-                    ModelEndpoint.is_enabled == True,
+                    ModelEndpoint.is_enabled,
                 )
                 if user:
                     q = owner_filter(q, ModelEndpoint, user)
@@ -536,8 +544,8 @@ def setup_session_routes(
         _verify_session_owner(request, sid)
         try:
             session = session_manager.get_session(sid)
-        except KeyError:
-            raise HTTPException(404, f"Session {sid} not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session {sid} not found") from e
         result = {"id": sid}
         if name is not None:
             session_manager.update_session_name(sid, name)
@@ -571,7 +579,7 @@ def setup_session_routes(
                 try:
                     q = _db.query(ModelEndpoint).filter(
                         ModelEndpoint.id == endpoint_id,
-                        ModelEndpoint.is_enabled == True,
+                        ModelEndpoint.is_enabled,
                     )
                     if user:
                         q = owner_filter(q, ModelEndpoint, user)
@@ -614,8 +622,8 @@ def setup_session_routes(
         _verify_session_owner(request, sid)
         try:
             sess = session_manager.get_session(sid)
-        except KeyError:
-            raise HTTPException(404, f"Session {sid} not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session {sid} not found") from e
         body = await request.json()
         messages = body.get("messages", [])
         from core.models import ChatMessage
@@ -657,8 +665,8 @@ def setup_session_routes(
 
                 if session_manager.delete_session(sid):
                     deleted_count += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error deleting session {sid}: {e}", exc_info=True)
         return {"deleted": deleted_count}
 
     @router.delete("/session/{sid}")
@@ -696,7 +704,7 @@ def setup_session_routes(
                     "error": "SESSION_DELETE_ERROR",
                     "message": "Failed to delete session",
                 },
-            )
+            ) from e
 
     @router.delete("/sessions/all")
     def delete_all_sessions(request: Request):
@@ -718,8 +726,8 @@ def setup_session_routes(
             return {"status": "deleted", "count": count}
         except Exception as e:
             db.rollback()
-            logger.error(f"Error deleting all sessions: {e}")
-            raise HTTPException(500, "Failed to delete sessions")
+            logger.error(f"Error deleting all sessions: {e}", exc_info=True)
+            raise HTTPException(500, "Failed to delete sessions") from e
         finally:
             db.close()
 
@@ -754,12 +762,12 @@ def setup_session_routes(
             except Exception as e:
                 db.rollback()
                 logger.error(f"Error archiving session {sid}: {e}")
-                raise HTTPException(500, "Failed to archive session")
+                raise HTTPException(500, "Failed to archive session") from e
             finally:
                 db.close()
 
-        except KeyError:
-            raise HTTPException(404, f"Session '{sid}' not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session '{sid}' not found") from e
 
     @router.post("/session/{sid}/unarchive")
     def unarchive_session(request: Request, sid: str):
@@ -779,15 +787,18 @@ def setup_session_routes(
                     session_manager.sessions[sid].archived = False
                 else:
                     session_manager._load_session_from_db(sid)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    "[session] failed to reload session from DB: %s", e, exc_info=True
+                )
                 pass  # Non-fatal — session will load on next access
             return {"status": "unarchived"}
         except HTTPException:
             raise
         except Exception as e:
             db.rollback()
-            logger.error(f"Error unarchiving session {sid}: {e}")
-            raise HTTPException(500, "Failed to unarchive session")
+            logger.error(f"Error unarchiving session {sid}: {e}", exc_info=True)
+            raise HTTPException(500, "Failed to unarchive session") from e
         finally:
             db.close()
 
@@ -804,7 +815,7 @@ def setup_session_routes(
         user = effective_user(request)
         db = SessionLocal()
         try:
-            q = db.query(DbSession).filter(DbSession.archived == True)
+            q = db.query(DbSession).filter(DbSession.archived)
             if not user:
                 raise HTTPException(403, "Authentication required")
             q = q.filter(DbSession.owner == user)
@@ -853,8 +864,8 @@ def setup_session_routes(
         _verify_session_owner(request, sid)
         try:
             session = session_manager.get_session(sid)
-        except KeyError:
-            raise HTTPException(404, f"Session {sid} not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session {sid} not found") from e
         return {"history": [msg.to_dict() for msg in session.history]}
 
     @router.get("/session/{sid}/export")
@@ -866,8 +877,8 @@ def setup_session_routes(
         _verify_session_owner(request, sid)
         try:
             session = session_manager.get_session(sid)
-        except KeyError:
-            raise HTTPException(404, f"Session {sid} not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session {sid} not found") from e
 
         safe_name = re.sub(r"[^\w\-_]", "_", session.name)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1027,12 +1038,12 @@ def setup_session_routes(
             except Exception as e:
                 db.rollback()
                 logger.error(f"Error updating session {session_id} importance: {e}")
-                raise HTTPException(500, "Failed to update session importance")
+                raise HTTPException(500, "Failed to update session importance") from e
             finally:
                 db.close()
 
-        except KeyError:
-            raise HTTPException(404, f"Session {session_id} not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session {session_id} not found") from e
 
     @router.post("/session/{session_id}/compact")
     async def compact_session(request: Request, session_id: str):
@@ -1040,8 +1051,8 @@ def setup_session_routes(
         _verify_session_owner(request, session_id)
         try:
             session = session_manager.get_session(session_id)
-        except KeyError:
-            raise HTTPException(404, f"Session {session_id} not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session {session_id} not found") from e
         _reject_compact_during_active_run(session_id)
 
         history = list(session.history or [])
@@ -1094,7 +1105,7 @@ def setup_session_routes(
             )
         except Exception as e:
             logger.error("Manual compaction failed: %s", e)
-            raise HTTPException(500, "Compaction failed")
+            raise HTTPException(500, "Compaction failed") from e
 
         summary_msg = ChatMessage(
             role="system",
@@ -1181,7 +1192,7 @@ def setup_session_routes(
         try:
             rows = (
                 db.query(DbSession)
-                .filter(DbSession.archived == False, DbSession.owner == user)
+                .filter(not DbSession.archived, DbSession.owner == user)
                 .limit(2000)
                 .all()
             )
@@ -1409,7 +1420,7 @@ def setup_session_routes(
             raise
         except Exception as e:
             logger.error(f"Auto-sort LLM call failed: {e}")
-            raise HTTPException(502, f"Auto-sort failed: {str(e)}")
+            raise HTTPException(502, f"Auto-sort failed: {str(e)}") from e
 
         folders = result.get("folders", {})
         if not folders:
@@ -1456,7 +1467,7 @@ def setup_session_routes(
         except Exception as e:
             db.rollback()
             logger.error(f"Auto-sort DB update failed: {e}")
-            raise HTTPException(500, "Failed to apply folder assignments")
+            raise HTTPException(500, "Failed to apply folder assignments") from e
         finally:
             db.close()
 

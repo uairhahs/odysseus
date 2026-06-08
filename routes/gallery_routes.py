@@ -1,4 +1,4 @@
-"""Gallery routes — browsable library for photos and AI-generated images."""
+# Gallery routes — browsable library for photos and AI-generated images.
 
 import hashlib
 import logging
@@ -24,6 +24,8 @@ from src.auth_helpers import get_current_user, require_privilege
 from src.upload_limits import read_upload_limited
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 GALLERY_UPLOAD_MAX_BYTES = int(
     os.getenv("ODYSSEUS_GALLERY_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
@@ -55,8 +57,8 @@ def _gallery_image_path(filename: str) -> Path:
     try:
         if os.path.commonpath([str(root), str(path)]) != str(root):
             raise ValueError
-    except Exception:
-        raise HTTPException(400, "Unsafe gallery filename")
+    except Exception as e:
+        raise HTTPException(400, "Unsafe gallery filename") from e
     if safe_name != original:
         raise HTTPException(400, "Unsafe gallery filename")
     return path
@@ -135,7 +137,7 @@ def setup_gallery_routes() -> APIRouter:
             # file (the response leaks the existing row's id+filename).
             _dup_q = db.query(GalleryImage).filter(
                 GalleryImage.file_hash == file_hash,
-                GalleryImage.is_active == True,
+                GalleryImage.is_active,
             )
             if user:
                 _dup_q = _dup_q.filter(GalleryImage.owner == user)
@@ -242,13 +244,16 @@ def setup_gallery_routes() -> APIRouter:
                 with Image.open(BytesIO(content)) as new_im:
                     img.width = new_im.width
                     img.height = new_im.height
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Failed to read dimensions of replaced gallery image: {e}"
+                )
                 pass
             try:
                 db.commit()
             except Exception as e:
                 db.rollback()
-                raise HTTPException(500, f"DB commit failed: {e}")
+                raise HTTPException(500, f"DB commit failed: {e}") from e
             return {"ok": True, "width": img.width, "height": img.height}
         finally:
             db.close()
@@ -291,8 +296,8 @@ def setup_gallery_routes() -> APIRouter:
         data = await request.json()
         try:
             angle = int(data.get("angle", 90))
-        except (TypeError, ValueError):
-            raise HTTPException(400, "Invalid angle")
+        except (TypeError, ValueError) as e:
+            raise HTTPException(400, "Invalid angle") from e
         if angle not in (90, -90, 180, 270):
             raise HTTPException(400, "Angle must be 90, -90, 180, or 270")
 
@@ -453,8 +458,8 @@ def setup_gallery_routes() -> APIRouter:
         db = SessionLocal()
         try:
             q = db.query(GalleryImage.tags).filter(
-                GalleryImage.is_active == True,
-                GalleryImage.tags != None,
+                GalleryImage.is_active,
+                GalleryImage.tags is not None,
                 GalleryImage.tags != "",
             )
             q = _owner_filter(q, user)
@@ -488,8 +493,8 @@ def setup_gallery_routes() -> APIRouter:
         try:
             # Distinct tags for filter UI
             tag_q = db.query(GalleryImage.tags).filter(
-                GalleryImage.is_active == True,
-                GalleryImage.tags != None,
+                GalleryImage.is_active,
+                GalleryImage.tags is not None,
                 GalleryImage.tags != "",
             )
             tag_q = _owner_filter(tag_q, user)
@@ -503,7 +508,7 @@ def setup_gallery_routes() -> APIRouter:
 
             # Distinct models for filter UI
             model_q = db.query(GalleryImage.model).filter(
-                GalleryImage.is_active == True, GalleryImage.model != None
+                GalleryImage.is_active, GalleryImage.model is not None
             )
             model_q = _owner_filter(model_q, user)
             model_rows = model_q.distinct().all()
@@ -513,7 +518,7 @@ def setup_gallery_routes() -> APIRouter:
             q = (
                 db.query(GalleryImage, DbSession.name)
                 .outerjoin(DbSession, GalleryImage.session_id == DbSession.id)
-                .filter(GalleryImage.is_active == True)
+                .filter(GalleryImage.is_active)
             )
             if user is not None:
                 q = q.filter(GalleryImage.owner == user)
@@ -558,7 +563,7 @@ def setup_gallery_routes() -> APIRouter:
 
             # Favorites filter
             if favorites:
-                q = q.filter(GalleryImage.favorite == True)
+                q = q.filter(GalleryImage.favorite)
 
             # Total before pagination
             total = q.count()
@@ -574,11 +579,11 @@ def setup_gallery_routes() -> APIRouter:
                 # deterministically with `seed`, then re-query for just the
                 # page we want. Stable across pagination as long as the
                 # client keeps the same seed.
-                import random as _random
+                import random as _random  # noqa: S311
 
                 id_rows = q.with_entities(GalleryImage.id).all()
                 all_ids = [r[0] for r in id_rows]
-                rng = _random.Random(seed if seed is not None else 0)
+                rng = _random.Random(seed if seed is not None else 0)  # noqa: S311
                 rng.shuffle(all_ids)
                 page_ids = all_ids[offset : offset + limit]
                 if page_ids:
@@ -615,7 +620,7 @@ def setup_gallery_routes() -> APIRouter:
             }
         except Exception as e:
             logger.error(f"Failed to fetch gallery library: {e}")
-            raise HTTPException(500, f"Failed to fetch gallery library: {e}")
+            raise HTTPException(500, f"Failed to fetch gallery library: {e}") from e
         finally:
             db.close()
 
@@ -633,7 +638,7 @@ def setup_gallery_routes() -> APIRouter:
             result = []
             for a in albums:
                 _count_q = db.query(GalleryImage).filter(
-                    GalleryImage.album_id == a.id, GalleryImage.is_active == True
+                    GalleryImage.album_id == a.id, GalleryImage.is_active
                 )
                 if user:
                     _count_q = _count_q.filter(GalleryImage.owner == user)
@@ -649,7 +654,7 @@ def setup_gallery_routes() -> APIRouter:
                         cover_url = f"/api/generated-image/{cover.filename}"
                 elif count > 0:
                     _cover_q = db.query(GalleryImage).filter(
-                        GalleryImage.album_id == a.id, GalleryImage.is_active == True
+                        GalleryImage.album_id == a.id, GalleryImage.is_active
                     )
                     if user:
                         _cover_q = _cover_q.filter(GalleryImage.owner == user)
@@ -702,9 +707,9 @@ def setup_gallery_routes() -> APIRouter:
         try:
             from sqlalchemy import func
 
-            base = db.query(GalleryImage).filter(GalleryImage.is_active == True)
+            base = db.query(GalleryImage).filter(GalleryImage.is_active)
             size_q = db.query(func.sum(GalleryImage.file_size)).filter(
-                GalleryImage.is_active == True
+                GalleryImage.is_active
             )
             album_q = db.query(GalleryAlbum)
             if user:
@@ -713,7 +718,7 @@ def setup_gallery_routes() -> APIRouter:
                 album_q = album_q.filter(GalleryAlbum.owner == user)
             total = base.count()
             total_size = size_q.scalar() or 0
-            fav_count = base.filter(GalleryImage.favorite == True).count()
+            fav_count = base.filter(GalleryImage.favorite).count()
             album_count = album_q.count()
             return {
                 "total_photos": total,
@@ -735,8 +740,8 @@ def setup_gallery_routes() -> APIRouter:
         db = SessionLocal()
         try:
             q = db.query(GalleryImage).filter(
-                GalleryImage.is_active == True,
-                (GalleryImage.ai_tags == None) | (GalleryImage.ai_tags == ""),
+                GalleryImage.is_active,
+                (GalleryImage.ai_tags is None) | (GalleryImage.ai_tags == ""),
             )
             if user:
                 q = q.filter(GalleryImage.owner == user)
@@ -824,7 +829,7 @@ def setup_gallery_routes() -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -900,7 +905,7 @@ def setup_gallery_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(GalleryImage).filter(GalleryImage.is_active == True)
+            q = db.query(GalleryImage).filter(GalleryImage.is_active)
             q = _owner_filter(q, user)
             cleared = 0
             for img in q.all():
@@ -911,7 +916,7 @@ def setup_gallery_routes() -> APIRouter:
             return {"ok": True, "cleared": cleared}
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -926,7 +931,7 @@ def setup_gallery_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(GalleryImage).filter(GalleryImage.is_active == True)
+            q = db.query(GalleryImage).filter(GalleryImage.is_active)
             q = _owner_filter(q, user)
             if image_id:  # clear just one photo's AI tags
                 q = q.filter(GalleryImage.id == image_id)
@@ -939,7 +944,7 @@ def setup_gallery_routes() -> APIRouter:
             return {"ok": True, "cleared": cleared}
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -952,7 +957,7 @@ def setup_gallery_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(GalleryImage).filter(GalleryImage.is_active == True)
+            q = db.query(GalleryImage).filter(GalleryImage.is_active)
             q = _owner_filter(q, user)
             rows_touched = 0
             tags_removed = 0
@@ -985,7 +990,7 @@ def setup_gallery_routes() -> APIRouter:
             }
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -1044,7 +1049,8 @@ def setup_gallery_routes() -> APIRouter:
                         continue
                     try:
                         meta = _json.loads(m.meta_data)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"malformed meta_data in chat history: {e}")
                         continue
                     events = meta.get("tool_events") or []
                     new_events = []
@@ -1108,7 +1114,7 @@ def setup_gallery_routes() -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -1193,8 +1199,8 @@ def setup_gallery_routes() -> APIRouter:
 
             try:
                 from PIL import Image
-            except ImportError:
-                raise HTTPException(500, "Pillow not installed on server")
+            except ImportError as e:
+                raise HTTPException(500, "Pillow not installed on server") from e
 
             try:
                 img_bytes = base64.b64decode(body["image"])
@@ -1218,7 +1224,9 @@ def setup_gallery_routes() -> APIRouter:
             except HTTPException:
                 raise
             except Exception as e:
-                raise HTTPException(400, f"Failed to prepare OpenAI request: {e}")
+                raise HTTPException(
+                    400, f"Failed to prepare OpenAI request: {e}"
+                ) from e
 
             width = int(body.get("width") or 1024)
             height = int(body.get("height") or 1024)
@@ -1302,8 +1310,8 @@ def setup_gallery_routes() -> APIRouter:
                             f"Inpaint compose failed, returning raw: {comp_err}"
                         )
                         return {"image": raw_b64}
-            except httpx.TimeoutException:
-                raise HTTPException(504, "OpenAI inpaint timed out (120s)")
+            except httpx.TimeoutException as e:
+                raise HTTPException(504, "OpenAI inpaint timed out (120s)") from e
 
         # Self-hosted diffusion server path
         try:
@@ -1318,12 +1326,12 @@ def setup_gallery_routes() -> APIRouter:
                         r.status_code, f"Inpaint failed: {r.text[:200]}"
                     )
                 return r.json()
-        except httpx.TimeoutException:
-            raise HTTPException(504, "Inpaint request timed out (120s)")
+        except httpx.TimeoutException as e:
+            raise HTTPException(504, "Inpaint request timed out (120s)") from e
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(502, f"Inpaint error: {str(e)}")
+            raise HTTPException(502, f"Inpaint error: {str(e)}") from e
 
     # ---- POST /api/image/harmonize — proper img2img call ----
     # Earlier version routed through inpaint with a full-white mask, but
@@ -1501,7 +1509,7 @@ def setup_gallery_routes() -> APIRouter:
         # weights to GPU). 240s gives headroom for both that and a full
         # 1024×1024 inference pass on slower setups.
         async with httpx.AsyncClient(timeout=240) as client:
-            for path, kind, payload in candidates:
+            for path, _kind, payload in candidates:
                 target = base_root + path if path.startswith("/sdapi") else base + path
                 try:
                     r = await client.post(target, json=payload, headers=headers)
@@ -1547,12 +1555,12 @@ def setup_gallery_routes() -> APIRouter:
                 except httpx.ConnectError as e:
                     raise HTTPException(
                         502, f"Can't reach diffusion server at {base}: {e}"
-                    )
-                except httpx.TimeoutException:
+                    ) from e
+                except httpx.TimeoutException as e:
                     raise HTTPException(
                         504,
                         "Harmonize timed out (240s) — restart the diffusion server or lower Color match / disable Seam fix",
-                    )
+                    ) from e
         raise HTTPException(
             502,
             f"None of the img2img routes worked on {base}. "
@@ -1610,15 +1618,15 @@ def setup_gallery_routes() -> APIRouter:
             import numpy as np
             from PIL import Image
         except ImportError as e:
-            raise HTTPException(500, f"Server missing dependency: {e}")
+            raise HTTPException(500, f"Server missing dependency: {e}") from e
         # Decode source image (RGB; Real-ESRGAN doesn't preserve alpha).
         img_bytes = base64.b64decode(image_b64)
         src = Image.open(io.BytesIO(img_bytes)).convert("RGB")
         try:
             from realesrgan import RealESRGANer
-        except ImportError:
+        except ImportError as e:
             return {
-                "error": "realesrgan not installed. Install it from Cookbook → Dependencies (search 'realesrgan')."
+                "error": f"realesrgan not installed. Install it from Cookbook → Dependencies (search 'realesrgan'). ({e})"
             }
         try:
             # General-purpose lightweight model with denoise control.
@@ -1674,7 +1682,7 @@ def setup_gallery_routes() -> APIRouter:
             import numpy as np
             from PIL import Image
         except ImportError as e:
-            raise HTTPException(500, f"Server missing dependency: {e}")
+            raise HTTPException(500, f"Server missing dependency: {e}") from e
         img_bytes = base64.b64decode(image_b64)
         src = Image.open(io.BytesIO(img_bytes)).convert("RGB")
         try:
@@ -1892,7 +1900,7 @@ def setup_gallery_routes() -> APIRouter:
             enhanced.save(buf, format="PNG")
             return {"image": base64.b64encode(buf.getvalue()).decode(), "method": "pil"}
         except Exception as e:
-            raise HTTPException(500, f"Face enhancement failed: {str(e)}")
+            raise HTTPException(500, f"Face enhancement failed: {str(e)}") from e
 
     # ---- Album management (path-param routes) ----
 
@@ -2006,9 +2014,10 @@ def setup_gallery_routes() -> APIRouter:
     async def ai_tag_image(request: Request, image_id: str):
         """Send image to vision model for auto-tagging."""
         import base64
-        from pathlib import Path
 
         import httpx
+
+        # from pathlib import Path
 
         user = get_current_user(request)
         db = SessionLocal()

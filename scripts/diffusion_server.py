@@ -8,10 +8,25 @@ Usage:
     python3 scripts/diffusion_server.py --model /path/to/model --port 8100
 """
 
+import argparse
+import base64
 import importlib
 import importlib.machinery
+import io
+import json
+import logging
 import os
 import sys
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import torch  # type: ignore[import-untyped]
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 # Block xformers — create a fake module that reports as not installed
 _fake = type(sys)("xformers")
@@ -21,22 +36,6 @@ _fake.__path__ = []
 sys.modules["xformers"] = _fake
 sys.modules["xformers.ops"] = type(sys)("xformers.ops")
 sys.modules["xformers.ops.fmha"] = type(sys)("xformers.ops.fmha")
-
-import argparse
-import base64
-import io
-import json
-import logging
-import time
-from contextlib import asynccontextmanager
-from pathlib import Path
-
-import torch
-import uvicorn
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("diffusion_server")
@@ -157,7 +156,7 @@ def _fix_meta_tensors(pipe, dtype):
 
 def load_model():
     global _pipe, _model_id
-    import diffusers
+    import diffusers  # type: ignore[import-untyped]
 
     model_path = _args.model
     _model_id = Path(model_path).name
@@ -340,7 +339,7 @@ def load_model():
             )
             if target:
                 logger.info(f"Downloading single file: {target}")
-                single_file = hf_hub_download(model_path, target)
+                single_file = hf_hub_download(model_path, target, revision="main")
         except Exception as e:
             logger.warning(f"Could not list repo files for single-file fallback: {e}")
         # Also check local path
@@ -414,6 +413,7 @@ def load_model():
 
                     local = snapshot_download(
                         repo_id,
+                        revision="main",
                         allow_patterns=["*.json", "*.txt", "**/*.json", "**/*.txt"],
                         ignore_patterns=[
                             "*.safetensors",
@@ -440,6 +440,7 @@ def load_model():
 
                         local = _sd2(
                             repo_id,
+                            revision="main",
                             ignore_patterns=[
                                 "*.safetensors",
                                 "*.bin",
@@ -511,14 +512,14 @@ def load_model():
         try:
             _pipe.enable_attention_slicing()
             logger.info("Attention slicing enabled")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to enable attention slicing: {e}")
     if _args.vae_slicing:
         try:
             _pipe.enable_vae_slicing()
             logger.info("VAE slicing enabled")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to enable VAE slicing: {e}")
 
     logger.info(f"Model loaded: {_model_id}")
 
@@ -649,9 +650,9 @@ def _get_inpaint_pipe():
     if _img2img_pipe:
         return _img2img_pipe, "img2img"
 
-    import diffusers
+    import diffusers  # type: ignore[import-untyped]
 
-    model_path = _args.model
+    _model_path = _args.model
     torch_dtype = DTYPE_MAP.get(_args.dtype, torch.bfloat16)
 
     # Check if the main pipeline IS already an inpaint pipeline

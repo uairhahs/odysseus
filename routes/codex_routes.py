@@ -210,7 +210,8 @@ def setup_codex_routes(
 
     @router.post("/todos")
     async def manage_todos(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         action = str(body.get("action") or "add").replace("-", "_").strip().lower()
         allowed = TODO_WRITE_SCOPES if action in WRITE_ACTIONS else TODO_READ_SCOPES
@@ -280,7 +281,8 @@ def setup_codex_routes(
 
     @router.post("/emails/draft")
     async def codex_email_draft(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         owner = _scope_owner(request, EMAIL_DRAFT_SCOPES)
         if email_draft_endpoint is None:
@@ -289,13 +291,14 @@ def setup_codex_routes(
 
         try:
             req = SendEmailRequest(**body)
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid draft payload: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Invalid draft payload: {e}") from e
         return await email_draft_endpoint(req=req, owner=owner)
 
     @router.post("/emails/send")
     async def codex_email_send(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         owner = _scope_owner(request, EMAIL_SEND_SCOPES)
         if email_send_endpoint is None:
@@ -304,8 +307,8 @@ def setup_codex_routes(
 
         try:
             req = SendEmailRequest(**body)
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid send payload: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Invalid send payload: {e}") from e
         return await email_send_endpoint(
             req=req, background_tasks=BackgroundTasks(), owner=owner
         )
@@ -321,7 +324,8 @@ def setup_codex_routes(
 
     @router.post("/memory")
     async def codex_memory_add(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         owner = _scope_owner(request, MEMORY_WRITE_SCOPES)
         if memory_add_endpoint is None:
@@ -335,8 +339,8 @@ def setup_codex_routes(
                 source=body.get("source", "user"),
                 session_id=body.get("session_id"),
             )
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid memory payload: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Invalid memory payload: {e}") from e
         if not memory_data.text:
             raise HTTPException(400, "Empty memory text")
         return await _as_owner(
@@ -358,7 +362,8 @@ def setup_codex_routes(
 
     @router.post("/calendar/events")
     async def codex_calendar_create(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         owner = _scope_owner(request, CALENDAR_WRITE_SCOPES)
         if calendar_create_event is None:
@@ -367,8 +372,8 @@ def setup_codex_routes(
 
         try:
             data = EventCreate(**body)
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid event payload: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Invalid event payload: {e}") from e
         return await _as_owner(request, owner, calendar_create_event, request, data)
 
     # ── Documents ─────────────────────────────────────────────────────────
@@ -445,7 +450,8 @@ def setup_codex_routes(
 
     @router.post("/documents")
     async def codex_documents_create(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         owner = _scope_owner(request, DOCS_WRITE_SCOPES)
         if documents_create_endpoint is None:
@@ -454,8 +460,8 @@ def setup_codex_routes(
 
         try:
             req = DocumentCreate(**body)
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid document payload: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Invalid document payload: {e}") from e
         return await _as_owner(request, owner, documents_create_endpoint, request, req)
 
     # ── Cookbook surface ──
@@ -592,7 +598,8 @@ def setup_codex_routes(
 
     @router.post("/cookbook/serve")
     async def codex_cookbook_serve(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         _scope_owner(request, COOKBOOK_LAUNCH_SCOPES)
         # Wraps /api/model/serve with the SAME validation the UI uses.
@@ -621,8 +628,8 @@ def setup_codex_routes(
             pass  # leave as-is — user's `port` here is ambiguous; skip remap.
         try:
             req = ServeRequest(**norm)
-        except Exception as exc:
-            raise HTTPException(400, f"Invalid serve payload: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Invalid serve payload: {e}") from e
         serve_endpoint = _find_endpoint(None, "POST", "/api/model/serve")
         # Fall back to importing from the cookbook router registered on app.
         if serve_endpoint is None:
@@ -820,8 +827,8 @@ def setup_codex_routes(
             body["remote_host"] = host
         try:
             req = ServeRequest(**body)
-        except Exception as exc:
-            raise HTTPException(400, f"Preset payload invalid: {exc}")
+        except Exception as e:
+            raise HTTPException(400, f"Preset payload invalid: {e}") from e
         serve_endpoint = _find_endpoint(None, "POST", "/api/model/serve")
         if serve_endpoint is None:
             from fastapi import FastAPI
@@ -839,7 +846,8 @@ def setup_codex_routes(
 
     @router.post("/cookbook/adopt")
     async def codex_cookbook_adopt(
-        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+        request: Request,
+        body: dict[str, Any] = Body(default_factory=dict),  # noqa: B008
     ):
         """Adopt an existing tmux session (one started via raw ssh+tmux) into
         cookbook tracking. Needed when serve_model rejects a cmd and the
@@ -909,8 +917,8 @@ def setup_codex_routes(
         )
         try:
             atomic_write_json(cookbook_state_path, state)
-        except Exception as exc:
-            raise HTTPException(500, f"state write failed: {exc}")
+        except Exception as e:
+            raise HTTPException(500, f"state write failed: {e}") from e
         return {"ok": True, "session_id": sess, "host": host or "local"}
 
     return router

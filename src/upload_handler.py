@@ -1,6 +1,7 @@
 # src/upload_handler.py
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -35,9 +36,9 @@ def secure_filename(filename: str) -> str:
     return filename or "unnamed"
 
 
-import logging
-
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # The extension is optional: save_upload builds the id as `{uuid.hex}{ext}`,
 # and a file with no extension (Dockerfile, README, ...) yields a bare 32-hex
@@ -311,7 +312,7 @@ class UploadHandler:
             cutoff_date = datetime.now() - timedelta(days=self.cleanup_days)
             cleaned_count = 0
 
-            for root, dirs, files in os.walk(self.upload_dir):
+            for root, _dirs, files in os.walk(self.upload_dir):
                 if root == self.upload_dir:
                     continue
 
@@ -711,7 +712,7 @@ class UploadHandler:
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Failed to save file: {str(e)}"
-            )
+            ) from e
 
         # Create file metadata
         file_metadata = {

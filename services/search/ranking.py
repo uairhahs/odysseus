@@ -1,12 +1,14 @@
 """Search result ranking based on relevance, source quality, and recency."""
 
-import re
 import logging
+import re
 from datetime import datetime, timezone
 from typing import List, Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _AGE_FORMATS = ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S")
 
@@ -47,8 +49,19 @@ def recency_score(age_str: Optional[str], now: Optional[datetime] = None) -> flo
 
 _NEWS_HINTS = {"news", "nyheter", "headlines", "breaking", "latest", "today", "idag"}
 _SPORTS_HINTS = {
-    "sport", "sports", "soccer", "football", "hockey", "nba", "nfl", "mlb",
-    "fifa", "world cup", "championship", "quarterfinal", "eliminates",
+    "sport",
+    "sports",
+    "soccer",
+    "football",
+    "hockey",
+    "nba",
+    "nfl",
+    "mlb",
+    "fifa",
+    "world cup",
+    "championship",
+    "quarterfinal",
+    "eliminates",
 }
 # Word-boundary match so "sport" does not fire inside "transport"/"passport"
 # and a domain like "transport.gov" is not mistaken for a sports site.
@@ -56,16 +69,35 @@ _SPORTS_HINT_RE = re.compile(
     r"\b(?:" + "|".join(re.escape(h) for h in _SPORTS_HINTS) + r")\b"
 )
 _LOW_VALUE_NEWS_DOMAINS = {
-    "facebook.com", "www.facebook.com", "sports.yahoo.com", "yahoo.com",
-    "www.yahoo.com", "msn.com", "www.msn.com",
+    "facebook.com",
+    "www.facebook.com",
+    "sports.yahoo.com",
+    "yahoo.com",
+    "www.yahoo.com",
+    "msn.com",
+    "www.msn.com",
 }
 _TRUSTED_NEWS_DOMAINS = {
-    "apnews.com", "www.apnews.com", "reuters.com", "www.reuters.com",
-    "bbc.com", "www.bbc.com", "cbc.ca", "www.cbc.ca",
-    "ctvnews.ca", "www.ctvnews.ca", "globalnews.ca", "www.globalnews.ca",
+    "apnews.com",
+    "www.apnews.com",
+    "reuters.com",
+    "www.reuters.com",
+    "bbc.com",
+    "www.bbc.com",
+    "cbc.ca",
+    "www.cbc.ca",
+    "ctvnews.ca",
+    "www.ctvnews.ca",
+    "globalnews.ca",
+    "www.globalnews.ca",
     "theguardian.com",
-    "www.theguardian.com", "euronews.com", "www.euronews.com",
-    "dw.com", "www.dw.com", "government.se", "www.government.se",
+    "www.theguardian.com",
+    "euronews.com",
+    "www.euronews.com",
+    "dw.com",
+    "www.dw.com",
+    "government.se",
+    "www.government.se",
 }
 
 
@@ -77,12 +109,12 @@ def _domain(url: str) -> str:
 
 
 def _has_word(text: str, term: str) -> bool:
-    """True if ``term`` appears in ``text`` as a whole word.
+    r"""True if ``term`` appears in ``text`` as a whole word.
 
     Query terms are matched on word boundaries so a short term doesn't match
     inside an unrelated word: "us" must not match "business"/"music", "port"
     must not match "transport"/"support". This mirrors the tokenization used to
-    build ``query_terms`` (``\\b\\w+\\b``). #1473 converted the title and sports
+    build ``query_terms`` (``\b\w+\b``). #1473 converted the title and sports
     checks to word boundaries; the snippet and subject-term checks below use
     the same helper so the whole file stays consistent.
     """
@@ -131,16 +163,23 @@ def rank_search_results(query: str, results: List[dict]) -> List[dict]:
         adjustment = 0.0
         if netloc in _TRUSTED_NEWS_DOMAINS:
             adjustment += 1.2
-        if any(term in text for term in ("latest news", "breaking news", "daily coverage", "news from")):
+        if any(
+            term in text
+            for term in ("latest news", "breaking news", "daily coverage", "news from")
+        ):
             adjustment += 0.4
         if netloc in _LOW_VALUE_NEWS_DOMAINS:
             adjustment -= 0.8
-        if not is_sports_query and (_SPORTS_HINT_RE.search(text) or _SPORTS_HINT_RE.search(netloc)):
+        if not is_sports_query and (
+            _SPORTS_HINT_RE.search(text) or _SPORTS_HINT_RE.search(netloc)
+        ):
             adjustment -= 1.5
         # A country/news query should not rank a page whose title/snippet barely
         # mentions the country above actual news pages for that country.
         subject_terms = [t for t in query_terms if t not in _NEWS_HINTS]
-        if subject_terms and not any(_has_word(text, t) or _has_word(netloc, t) for t in subject_terms):
+        if subject_terms and not any(
+            _has_word(text, t) or _has_word(netloc, t) for t in subject_terms
+        ):
             adjustment -= 1.0
         return adjustment
 

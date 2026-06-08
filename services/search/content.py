@@ -24,6 +24,8 @@ from .cache import (
 )
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _PRIVATE_NETWORKS = (
     ipaddress.ip_network("0.0.0.0/8"),
@@ -61,7 +63,13 @@ def _resolve_hostname_ips(hostname: str) -> list[ipaddress._BaseAddress]:
     for info in infos:
         try:
             out.append(ipaddress.ip_address(info[4][0]))
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Failed to parse IP address from %s for hostname %s: %s",
+                info[4][0],
+                hostname,
+                e,
+            )
             continue
     return out
 

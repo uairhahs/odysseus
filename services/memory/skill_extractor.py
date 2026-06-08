@@ -11,6 +11,8 @@ import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 SKILL_EXTRACT_PROMPT = (
     "You are analyzing an AI agent's work session. The agent took {rounds} rounds "
@@ -220,8 +222,8 @@ async def maybe_extract_skill(
             from src.text_helpers import strip_think as _strip_think
 
             response = _strip_think(response, prose=True, prompt_echo=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[skill-extract] strip_think failed: %s", e, exc_info=True)
 
         # Parse JSON. The object may be wrapped in code fences or surrounded by
         # commentary (and may contain a stray/invalid brace fragment before
@@ -276,13 +278,19 @@ async def maybe_extract_skill(
             from src.event_bus import fire_event
 
             fire_event("skill_added", owner)
-        except Exception:
-            logger.debug("skill_added event dispatch failed", exc_info=True)
+        except Exception as e:
+            logger.debug(
+                "[skill-extract] skill_added event dispatch failed: %s",
+                e,
+                exc_info=True,
+            )
         logger.info("Auto-extracted skill: %s (id=%s)", title, entry["id"])
         return entry
 
     except json.JSONDecodeError as e:
-        logger.debug("[skill-extract] non-JSON LLM response, dropping: %s", e)
+        logger.debug(
+            "[skill-extract] non-JSON LLM response, dropping: %s", e, exc_info=True
+        )
         return None
     except Exception as e:
         # Real exceptions stay INFO+warning so they don't get lost when

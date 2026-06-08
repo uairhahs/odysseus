@@ -18,9 +18,9 @@ import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
-from src.tool_security import is_public_blocked_tool, owner_is_admin_or_single_user
+from src.constants import MAX_DIFF_LINES, MAX_OUTPUT_CHARS, MAX_READ_CHARS
 from src.tool_policy import ToolPolicy
-from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS, MAX_DIFF_LINES
+from src.tool_security import is_public_blocked_tool, owner_is_admin_or_single_user
 
 # Persistent working directory for agent subprocesses.
 # Resolves to <repo_root>/data, which is the bind-mounted volume in Docker
@@ -43,13 +43,21 @@ def _unified_diff(old: str, new: str, path: str) -> Optional[Dict[str, Any]]:
     old_lines = old.splitlines()
     new_lines = new.splitlines()
     label = path or "file"
-    diff_lines = list(difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile=f"a/{label}", tofile=f"b/{label}",
-        lineterm="",
-    ))
-    added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
-    removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+    diff_lines = list(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{label}",
+            tofile=f"b/{label}",
+            lineterm="",
+        )
+    )
+    added = sum(
+        1 for line in diff_lines if line.startswith("+") and not line.startswith("+++")
+    )
+    removed = sum(
+        1 for line in diff_lines if line.startswith("-") and not line.startswith("---")
+    )
     truncated = False
     if len(diff_lines) > MAX_DIFF_LINES:
         diff_lines = diff_lines[:MAX_DIFF_LINES]
@@ -66,7 +74,9 @@ def _unified_diff(old: str, new: str, path: str) -> Optional[Dict[str, Any]]:
     }
 
 
-async def _do_edit_file(content: str, workspace: Optional[str] = None) -> Dict[str, Any]:
+async def _do_edit_file(
+    content: str, workspace: Optional[str] = None
+) -> Dict[str, Any]:
     """Exact string-replacement edit of an on-disk file.
 
     content is JSON: {"path", "old_string", "new_string", "replace_all"?}.
@@ -87,14 +97,23 @@ async def _do_edit_file(content: str, workspace: Optional[str] = None) -> Dict[s
     # Confine to the workspace when set, else the same allowlist + sensitive-file
     # policy as read/write_file.
     try:
-        path = (_resolve_tool_path_in_workspace(workspace, raw_path)
-                if workspace else _resolve_tool_path(raw_path))
+        path = (
+            _resolve_tool_path_in_workspace(workspace, raw_path)
+            if workspace
+            else _resolve_tool_path(raw_path)
+        )
     except ValueError as e:
         return {"error": f"edit_file: {e}", "exit_code": 1}
     if old == "":
-        return {"error": "edit_file: old_string required (use write_file to create a file)", "exit_code": 1}
+        return {
+            "error": "edit_file: old_string required (use write_file to create a file)",
+            "exit_code": 1,
+        }
     if old == new:
-        return {"error": "edit_file: old_string and new_string are identical", "exit_code": 1}
+        return {
+            "error": "edit_file: old_string and new_string are identical",
+            "exit_code": 1,
+        }
 
     def _apply():
         with open(path, "r", encoding="utf-8") as f:
@@ -104,7 +123,9 @@ async def _do_edit_file(content: str, workspace: Optional[str] = None) -> Dict[s
             return original, None, "not_found"
         if count > 1 and not replace_all:
             return original, None, f"not_unique:{count}"
-        updated = original.replace(old, new) if replace_all else original.replace(old, new, 1)
+        updated = (
+            original.replace(old, new) if replace_all else original.replace(old, new, 1)
+        )
         with open(path, "w", encoding="utf-8") as f:
             f.write(updated)
         return original, updated, "ok"
@@ -112,26 +133,42 @@ async def _do_edit_file(content: str, workspace: Optional[str] = None) -> Dict[s
     try:
         original, updated, status = await asyncio.to_thread(_apply)
     except FileNotFoundError:
-        return {"error": f"edit_file: {path}: not found (use write_file to create it)", "exit_code": 1}
+        return {
+            "error": f"edit_file: {path}: not found (use write_file to create it)",
+            "exit_code": 1,
+        }
     except (IsADirectoryError, UnicodeDecodeError):
-        return {"error": f"edit_file: {path}: not an editable text file", "exit_code": 1}
+        return {
+            "error": f"edit_file: {path}: not an editable text file",
+            "exit_code": 1,
+        }
     except PermissionError:
         return {"error": f"edit_file: {path}: permission denied", "exit_code": 1}
     except OSError as e:
         return {"error": f"edit_file: {path}: {e}", "exit_code": 1}
 
     if status == "not_found":
-        return {"error": f"edit_file: old_string not found in {path}. Read the file and match it exactly.", "exit_code": 1}
+        return {
+            "error": f"edit_file: old_string not found in {path}. Read the file and match it exactly.",
+            "exit_code": 1,
+        }
     if status.startswith("not_unique"):
         n = status.split(":", 1)[1]
-        return {"error": f"edit_file: old_string is not unique in {path} ({n} matches). Add surrounding context or set replace_all=true.", "exit_code": 1}
+        return {
+            "error": f"edit_file: old_string is not unique in {path} ({n} matches). Add surrounding context or set replace_all=true.",
+            "exit_code": 1,
+        }
 
     n = original.count(old)
-    result = {"output": f"Edited {path} ({n} replacement{'s' if n != 1 else ''})", "exit_code": 0}
+    result = {
+        "output": f"Edited {path} ({n} replacement{'s' if n != 1 else ''})",
+        "exit_code": 0,
+    }
     diff = _unified_diff(original, updated, path)
     if diff:
         result["diff"] = diff
     return result
+
 
 # ---------------------------------------------------------------------------
 # Path confinement for read_file / write_file
@@ -152,15 +189,27 @@ async def _do_edit_file(content: str, workspace: Optional[str] = None) -> Dict[s
 # ---------------------------------------------------------------------------
 
 _SENSITIVE_BASENAMES: set[str] = {
-    ".ssh", ".gnupg", ".gitconfig",
-    ".bashrc", ".bash_profile", ".bash_logout",
-    ".zshrc", ".zprofile", ".zshenv",
-    ".profile", ".tcshrc", ".cshrc",
-    ".env", ".netrc",
+    ".ssh",
+    ".gnupg",
+    ".gitconfig",
+    ".bashrc",
+    ".bash_profile",
+    ".bash_logout",
+    ".zshrc",
+    ".zprofile",
+    ".zshenv",
+    ".profile",
+    ".tcshrc",
+    ".cshrc",
+    ".env",
+    ".netrc",
 }
 
 _SENSITIVE_FILE_PATTERNS: tuple[str, ...] = (
-    "authorized_keys", "id_rsa", "id_ed25519", "id_ecdsa",
+    "authorized_keys",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
     "known_hosts",
 )
 
@@ -194,6 +243,7 @@ def _tool_path_roots() -> list[str]:
 
     # Project data directory — the agent's primary workspace.
     from src.constants import DATA_DIR
+
     roots.append(DATA_DIR)
 
     # /tmp (and its macOS realpath /private/tmp).
@@ -213,11 +263,12 @@ def _tool_path_roots() -> list[str]:
     # Opt-in extra roots from settings.
     try:
         from src.settings import get_setting
+
         extra = get_setting("tool_path_extra_roots")
         if isinstance(extra, list):
             roots.extend(str(r) for r in extra if r)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to load extra tool path roots: {e}")
 
     # Deduplicate; resolve symlinks so containment is unambiguous.
     seen: set[str] = set()
@@ -266,9 +317,7 @@ def _resolve_tool_path(raw_path: str) -> str:
             continue
         if common == root:
             return resolved
-    raise ValueError(
-        f"path '{raw_path}' is outside the allowed roots"
-    )
+    raise ValueError(f"path '{raw_path}' is outside the allowed roots")
 
 
 def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
@@ -300,9 +349,12 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
         try:
             if os.path.commonpath([os.path.normcase(resolved), nbase]) != nbase:
                 raise ValueError
-        except ValueError:
-            raise ValueError(f"path '{raw_path}' is outside the workspace ({workspace})")
+        except ValueError as e:
+            raise ValueError(
+                f"path '{raw_path}' is outside the workspace ({workspace})"
+            ) from e
     return resolved
+
 
 # Bash + python tools used to share a single 60s timeout. That's
 # enough for one-shot commands but starves real workloads (pip
@@ -314,8 +366,8 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
 # The user can cancel sooner via the chat stop button — when the
 # SSE stream is torn down, the asyncio task running the subprocess
 # gets cancelled and the subprocess is killed by the finally block.
-DEFAULT_BASH_TIMEOUT = 60 * 60     # 1 hour
-DEFAULT_PYTHON_TIMEOUT = 60 * 60
+DEFAULT_BASH_TIMEOUT = 3600  # in seconds, 1 hour
+DEFAULT_PYTHON_TIMEOUT = 3600  # in seconds, 1 hour
 
 # How often to push a progress event while a long-running subprocess
 # is still in flight. The frontend cares about "alive" more than
@@ -329,6 +381,7 @@ PROGRESS_TAIL_LINES = 12
 
 def get_mcp_manager():
     from src import agent_tools
+
     return agent_tools.get_mcp_manager()
 
 
@@ -336,11 +389,27 @@ def get_mcp_manager():
 # polluted by VCS internals / dependency trees / build caches. ripgrep already
 # honours .gitignore; this is the parity floor for the no-rg path (and the
 # explicit excludes passed to rg so it skips them even without a .gitignore).
-_CODENAV_SKIP_DIRS = frozenset({
-    ".git", ".hg", ".svn", "node_modules", "venv", ".venv", "__pycache__",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
-    ".next", ".cache", "site-packages", ".idea", ".tox",
-})
+_CODENAV_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        "venv",
+        ".venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "dist",
+        "build",
+        ".next",
+        ".cache",
+        "site-packages",
+        ".idea",
+        ".tox",
+    }
+)
 # Per-tool result caps (keep tool output cheap + model-friendly).
 _CODENAV_MAX_HITS = 200
 _CODENAV_MAX_LINE = 400
@@ -370,7 +439,10 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
         return text[:limit] + f"\n... (truncated, {len(text)} chars total)"
     return text
 
+
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 async def _run_subprocess_streaming(
@@ -417,14 +489,14 @@ async def _run_subprocess_streaming(
         while True:
             if progress_cb:
                 try:
-                    await progress_cb({
-                        "elapsed_s": round(time.time() - started, 1),
-                        "tail": "\n".join(list(tail)),
-                    })
-                except Exception:
-                    # Progress is best-effort — never let a UI hiccup
-                    # break the underlying subprocess.
-                    pass
+                    await progress_cb(
+                        {
+                            "elapsed_s": round(time.time() - started, 1),
+                            "tail": "\n".join(list(tail)),
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
             await asyncio.sleep(PROGRESS_INTERVAL_S)
 
     rd_out = asyncio.create_task(_reader(proc.stdout, stdout_full, "out"))
@@ -438,24 +510,24 @@ async def _run_subprocess_streaming(
         timed_out = True
         try:
             proc.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to kill process: {e}")
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to wait for process termination: {e}")
     except asyncio.CancelledError:
         # User hit stop / SSE stream torn down. Kill the child so it
         # doesn't keep running orphaned. Re-raise so the agent loop's
         # cancellation propagates as the user expects.
         try:
             proc.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to kill process: {e}")
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to wait for process termination: {e}")
         # Best-effort: stop the readers + emitter before re-raising.
         for t in (rd_out, rd_err):
             t.cancel()
@@ -467,14 +539,14 @@ async def _run_subprocess_streaming(
             prog_task.cancel()
             try:
                 await prog_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except (asyncio.CancelledError, Exception) as e:
+                logger.warning(f"Progress emitter task failed: {e}")
         # Wait for readers to finish draining the pipes.
         for t in (rd_out, rd_err):
             try:
                 await asyncio.wait_for(t, timeout=1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Reader task failed: {e}")
 
     return (
         "\n".join(stdout_full),
@@ -482,6 +554,7 @@ async def _run_subprocess_streaming(
         proc.returncode,
         timed_out,
     )
+
 
 _ADMIN_TOOLS = {
     "app_api",
@@ -502,19 +575,20 @@ def _owner_is_admin(owner: Optional[str]) -> bool:
     """Mirror route-level admin behavior for agent tool execution."""
     return owner_is_admin_or_single_user(owner)
 
+
 # ---------------------------------------------------------------------------
 # MCP-backed tool helpers
 # ---------------------------------------------------------------------------
 
 # Map legacy tool names -> (MCP server_id, MCP tool_name)
 _MCP_TOOL_MAP = {
-    "bash":           ("bash",       "bash"),
-    "python":         ("python",     "python"),
-    "read_file":      ("filesystem", "read_file"),
-    "write_file":     ("filesystem", "write_file"),
-    "web_search":     ("web_search", "web_search"),
-    "web_fetch":      ("web_fetch",  "web_fetch"),
-    "generate_image": ("image_gen",  "generate_image"),
+    "bash": ("bash", "bash"),
+    "python": ("python", "python"),
+    "read_file": ("filesystem", "read_file"),
+    "write_file": ("filesystem", "write_file"),
+    "web_search": ("web_search", "web_search"),
+    "web_fetch": ("web_fetch", "web_fetch"),
+    "generate_image": ("image_gen", "generate_image"),
 }
 
 
@@ -554,14 +628,14 @@ def _parse_write_file(content: str) -> Dict:
 
 
 _MCP_ARG_PARSERS: Dict[str, Callable[[str], Dict[str, str]]] = {
-    "bash":           lambda c: {"command": c},
-    "python":         lambda c: {"code": c},
-    "web_search":     lambda c: {"query": c.split("\n")[0].strip()},
-    "web_fetch":      lambda c: {"url": c.split("\n")[0].strip()},
-    "read_file":      lambda c: {"path": c.split("\n")[0].strip()},
-    "write_file":     _parse_write_file,
+    "bash": lambda c: {"command": c},
+    "python": lambda c: {"code": c},
+    "web_search": lambda c: {"query": c.split("\n")[0].strip()},
+    "web_fetch": lambda c: {"url": c.split("\n")[0].strip()},
+    "read_file": lambda c: {"path": c.split("\n")[0].strip()},
+    "write_file": _parse_write_file,
     "generate_image": _parse_generate_image,
-    "manage_memory":  _parse_manage_memory,
+    "manage_memory": _parse_manage_memory,
 }
 
 
@@ -580,7 +654,9 @@ async def _call_mcp_tool(
     """Route a legacy tool call through the MCP manager, with direct fallbacks."""
     mcp = get_mcp_manager()
     if not mcp:
-        return await _direct_fallback(tool, content, progress_cb=progress_cb, workspace=workspace) or {"error": f"MCP manager not available for tool '{tool}'", "exit_code": 1}
+        return await _direct_fallback(
+            tool, content, progress_cb=progress_cb, workspace=workspace
+        ) or {"error": f"MCP manager not available for tool '{tool}'", "exit_code": 1}
 
     server_id, tool_name = _MCP_TOOL_MAP[tool]
     qualified = f"mcp__{server_id}__{tool_name}"
@@ -588,8 +664,14 @@ async def _call_mcp_tool(
     result = await mcp.call_tool(qualified, args)
 
     # If MCP server not connected, try direct fallback
-    if isinstance(result, dict) and result.get("exit_code") == 1 and "not connected" in result.get("error", ""):
-        fallback = await _direct_fallback(tool, content, progress_cb=progress_cb, workspace=workspace)
+    if (
+        isinstance(result, dict)
+        and result.get("exit_code") == 1
+        and "not connected" in result.get("error", "")
+    ):
+        fallback = await _direct_fallback(
+            tool, content, progress_cb=progress_cb, workspace=workspace
+        )
         if fallback:
             return fallback
 
@@ -613,21 +695,29 @@ def _promote_image_fields(result: Dict) -> None:
     if not isinstance(result, dict) or result.get("exit_code") != 0:
         return
     out = result.get("stdout") or ""
-    m = re.search(r'(?:https?://[^\s)\]]+)?/api/generated-image/[A-Za-z0-9._-]+', out)
+    m = re.search(r"(?:https?://[^\s)\]]+)?/api/generated-image/[A-Za-z0-9._-]+", out)
     if not m:
         return
     result["image_url"] = m.group(0).strip()
     for field, pat in (
-        ("image_prompt", r'^Generated image for:\s*(.+)$'),
-        ("image_model", r'^model:\s*(.+)$'),
-        ("image_size", r'^size:\s*(.+)$'),
+        ("image_prompt", r"^Generated image for:\s*(.+)$"),
+        ("image_model", r"^model:\s*(.+)$"),
+        ("image_size", r"^size:\s*(.+)$"),
     ):
         fm = re.search(pat, out, re.M)
         if fm:
             result[field] = fm.group(1).strip()
 
 
-_BG_MARKERS = {"#!bg", "#bg", "# bg", "#background", "# background", "@background", "# @background"}
+_BG_MARKERS = {
+    "#!bg",
+    "#bg",
+    "# bg",
+    "#background",
+    "# background",
+    "@background",
+    "# @background",
+}
 
 
 def _split_bg_marker(content: str):
@@ -689,11 +779,20 @@ async def _direct_fallback(
                 progress_cb=progress_cb,
             )
             if timed_out:
-                return {"error": f"bash: timed out after {DEFAULT_BASH_TIMEOUT}s — process killed", "exit_code": 124, "stdout": _truncate(stdout, MAX_OUTPUT_CHARS), "stderr": _truncate(stderr, MAX_OUTPUT_CHARS)}
+                return {
+                    "error": f"bash: timed out after {DEFAULT_BASH_TIMEOUT}s — process killed",
+                    "exit_code": 124,
+                    "stdout": _truncate(stdout, MAX_OUTPUT_CHARS),
+                    "stderr": _truncate(stderr, MAX_OUTPUT_CHARS),
+                }
             output = stdout.rstrip()
             err = stderr.rstrip()
             if err:
-                output = (output + "\nSTDERR: " + err).strip() if output else "STDERR: " + err
+                output = (
+                    (output + "\nSTDERR: " + err).strip()
+                    if output
+                    else "STDERR: " + err
+                )
             output = _truncate(output, MAX_OUTPUT_CHARS)
             return {"output": output or "(no output)", "exit_code": rc or 0}
 
@@ -704,7 +803,10 @@ async def _direct_fallback(
             proc = await asyncio.create_subprocess_exec(
                 # Use the running interpreter — there is no `python3.exe` on
                 # Windows, which made the agent's `python` tool fail there.
-                (sys.executable or "python"), "-I", "-c", content,
+                (sys.executable or "python"),
+                "-I",
+                "-c",
+                content,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_subproc_env,
@@ -716,11 +818,20 @@ async def _direct_fallback(
                 progress_cb=progress_cb,
             )
             if timed_out:
-                return {"error": f"python: timed out after {DEFAULT_PYTHON_TIMEOUT}s — process killed", "exit_code": 124, "stdout": _truncate(stdout, MAX_OUTPUT_CHARS), "stderr": _truncate(stderr, MAX_OUTPUT_CHARS)}
+                return {
+                    "error": f"python: timed out after {DEFAULT_PYTHON_TIMEOUT}s — process killed",
+                    "exit_code": 124,
+                    "stdout": _truncate(stdout, MAX_OUTPUT_CHARS),
+                    "stderr": _truncate(stderr, MAX_OUTPUT_CHARS),
+                }
             output = stdout.rstrip()
             err = stderr.rstrip()
             if err:
-                output = (output + "\nSTDERR: " + err).strip() if output else "STDERR: " + err
+                output = (
+                    (output + "\nSTDERR: " + err).strip()
+                    if output
+                    else "STDERR: " + err
+                )
             output = _truncate(output, MAX_OUTPUT_CHARS)
             return {"output": output or "(no output)", "exit_code": rc or 0}
 
@@ -738,8 +849,11 @@ async def _direct_fallback(
                 except (json.JSONDecodeError, TypeError, ValueError):
                     pass
             try:
-                path = (_resolve_tool_path_in_workspace(workspace, raw_path)
-                        if workspace else _resolve_tool_path(raw_path))
+                path = (
+                    _resolve_tool_path_in_workspace(workspace, raw_path)
+                    if workspace
+                    else _resolve_tool_path(raw_path)
+                )
             except ValueError as e:
                 return {"error": f"read_file: {e}", "exit_code": 1}
             try:
@@ -759,22 +873,34 @@ async def _direct_fallback(
                                 n += 1
                                 budget -= len(line)
                                 if budget <= 0:
-                                    out.append(f"\n... [truncated at {MAX_READ_CHARS} chars]")
+                                    out.append(
+                                        f"\n... [truncated at {MAX_READ_CHARS} chars]"
+                                    )
                                     break
                         return "".join(out)
                     with open(path, "r", encoding="utf-8", errors="replace") as f:
                         return f.read(MAX_READ_CHARS + 1)
+
                 data = await asyncio.to_thread(_read)
             except FileNotFoundError:
                 return {"error": f"read_file: {path}: not found", "exit_code": 1}
             except PermissionError:
-                return {"error": f"read_file: {path}: permission denied", "exit_code": 1}
+                return {
+                    "error": f"read_file: {path}: permission denied",
+                    "exit_code": 1,
+                }
             except IsADirectoryError:
-                return {"error": f"read_file: {path}: is a directory (use ls)", "exit_code": 1}
+                return {
+                    "error": f"read_file: {path}: is a directory (use ls)",
+                    "exit_code": 1,
+                }
             except OSError as e:
                 return {"error": f"read_file: {path}: {e}", "exit_code": 1}
             if not (offset > 0 or limit > 0) and len(data) > MAX_READ_CHARS:
-                data = data[:MAX_READ_CHARS] + f"\n... [truncated at {MAX_READ_CHARS} chars]"
+                data = (
+                    data[:MAX_READ_CHARS]
+                    + f"\n... [truncated at {MAX_READ_CHARS} chars]"
+                )
             return {"output": data, "exit_code": 0}
 
         if tool == "write_file":
@@ -782,11 +908,15 @@ async def _direct_fallback(
             raw_path = lines[0].strip()
             body = lines[1] if len(lines) > 1 else ""
             try:
-                path = (_resolve_tool_path_in_workspace(workspace, raw_path)
-                        if workspace else _resolve_tool_path(raw_path))
+                path = (
+                    _resolve_tool_path_in_workspace(workspace, raw_path)
+                    if workspace
+                    else _resolve_tool_path(raw_path)
+                )
             except ValueError as e:
                 return {"error": f"write_file: {e}", "exit_code": 1}
             try:
+
                 def _write():
                     # Capture prior content (best-effort, text) so we can show a
                     # before/after diff. Missing/binary file → treat as empty.
@@ -794,7 +924,12 @@ async def _direct_fallback(
                     try:
                         with open(path, "r", encoding="utf-8") as f:
                             old = f.read()
-                    except (FileNotFoundError, IsADirectoryError, UnicodeDecodeError, OSError):
+                    except (
+                        FileNotFoundError,
+                        IsADirectoryError,
+                        UnicodeDecodeError,
+                        OSError,
+                    ):
                         old = ""
                     d = os.path.dirname(path)
                     if d:
@@ -802,9 +937,13 @@ async def _direct_fallback(
                     with open(path, "w", encoding="utf-8") as f:
                         f.write(body)
                     return old, len(body)
+
                 old_content, size = await asyncio.to_thread(_write)
             except PermissionError:
-                return {"error": f"write_file: {path}: permission denied", "exit_code": 1}
+                return {
+                    "error": f"write_file: {path}: permission denied",
+                    "exit_code": 1,
+                }
             except OSError as e:
                 return {"error": f"write_file: {path}: {e}", "exit_code": 1}
             diff = _unified_diff(old_content, body, path)
@@ -843,10 +982,17 @@ async def _direct_fallback(
             def _grep():
                 import re as _re
                 import shutil
+
                 rg = shutil.which("rg")
                 if rg:
-                    cmd = [rg, "--line-number", "--no-heading", "--color=never",
-                           "--max-count", str(max_hits)]
+                    cmd = [
+                        rg,
+                        "--line-number",
+                        "--no-heading",
+                        "--color=never",
+                        "--max-count",
+                        str(max_hits),
+                    ]
                     if ignore_case:
                         cmd.append("--ignore-case")
                     if glob_pat:
@@ -858,8 +1004,13 @@ async def _direct_fallback(
                     cmd += ["--regexp", pattern, root]
                     try:
                         import subprocess
-                        p = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-                        lines = [ln for ln in (p.stdout or "").splitlines() if ln][:max_hits]
+
+                        p = subprocess.run(
+                            cmd, capture_output=True, text=True, timeout=20
+                        )
+                        lines = [ln for ln in (p.stdout or "").splitlines() if ln][
+                            :max_hits
+                        ]
                         return lines, None
                     except subprocess.TimeoutExpired:
                         return None, "grep: timed out"
@@ -871,6 +1022,7 @@ async def _direct_fallback(
                 except _re.error as _e:
                     return None, f"grep: bad pattern: {_e}"
                 import fnmatch
+
                 hits = []
                 if os.path.isfile(root):
                     file_iter = [root]
@@ -889,7 +1041,9 @@ async def _direct_fallback(
                         with open(fp, "r", encoding="utf-8", errors="strict") as f:
                             for i, line in enumerate(f, 1):
                                 if rx.search(line):
-                                    hits.append(f"{fp}:{i}:{line.rstrip()[:_CODENAV_MAX_LINE]}")
+                                    hits.append(
+                                        f"{fp}:{i}:{line.rstrip()[:_CODENAV_MAX_LINE]}"
+                                    )
                                     if len(hits) >= max_hits:
                                         break
                     except (UnicodeDecodeError, OSError):
@@ -900,7 +1054,10 @@ async def _direct_fallback(
             if err:
                 return {"error": err, "exit_code": 1}
             if not lines:
-                return {"output": f"No matches for {pattern!r} under {root}", "exit_code": 0}
+                return {
+                    "output": f"No matches for {pattern!r} under {root}",
+                    "exit_code": 0,
+                }
             out = "\n".join(ln[:_CODENAV_MAX_LINE] for ln in lines)
             if len(lines) >= max_hits:
                 out += f"\n... [capped at {max_hits} matches]"
@@ -926,6 +1083,7 @@ async def _direct_fallback(
 
             def _glob():
                 from pathlib import Path
+
                 base = Path(root)
                 if not base.is_dir():
                     return None, f"glob: {root}: not a directory"
@@ -950,7 +1108,10 @@ async def _direct_fallback(
             if err:
                 return {"error": err, "exit_code": 1}
             if not paths:
-                return {"output": f"No files matching {pattern!r} under {root}", "exit_code": 0}
+                return {
+                    "output": f"No files matching {pattern!r} under {root}",
+                    "exit_code": 0,
+                }
             out = "\n".join(paths)
             if len(paths) >= _CODENAV_MAX_HITS:
                 out += f"\n... [capped at {_CODENAV_MAX_HITS} files]"
@@ -982,13 +1143,19 @@ async def _direct_fallback(
                                 continue
                             try:
                                 is_dir = entry.is_dir(follow_symlinks=False)
-                                size = entry.stat(follow_symlinks=False).st_size if not is_dir else 0
+                                size = (
+                                    entry.stat(follow_symlinks=False).st_size
+                                    if not is_dir
+                                    else 0
+                                )
                             except OSError:
                                 continue
                             rows.append((is_dir, entry.name, size))
                 except (PermissionError, OSError) as _e:
                     return None, f"ls: {_e}"
-                rows.sort(key=lambda r: (not r[0], r[1].lower()))  # dirs first, then name
+                rows.sort(
+                    key=lambda r: (not r[0], r[1].lower())
+                )  # dirs first, then name
                 lines = [f"{root}:"]
                 for is_dir, name, size in rows[:_CODENAV_MAX_HITS]:
                     lines.append(f"  {name}/" if is_dir else f"  {name}  ({size} B)")
@@ -1005,6 +1172,7 @@ async def _direct_fallback(
 
         if tool == "web_search":
             from src.search import comprehensive_web_search
+
             raw = content.strip()
             query = raw
             time_filter = None
@@ -1016,7 +1184,12 @@ async def _direct_fallback(
                     if isinstance(parsed, dict) and "query" in parsed:
                         query = str(parsed.get("query", "")).strip()
                         tf = parsed.get("time_filter") or parsed.get("freshness")
-                        if isinstance(tf, str) and tf.lower() in ("day", "week", "month", "year"):
+                        if isinstance(tf, str) and tf.lower() in (
+                            "day",
+                            "week",
+                            "month",
+                            "year",
+                        ):
                             time_filter = tf.lower()
                         mp = parsed.get("max_pages")
                         if isinstance(mp, int) and 1 <= mp <= 10:
@@ -1028,13 +1201,30 @@ async def _direct_fallback(
             # Auto-detect freshness from query phrasing when not explicit
             if time_filter is None:
                 q_lc = query.lower()
-                if any(kw in q_lc for kw in ("today", "latest", "breaking", "this morning", "right now", "currently")):
+                if any(
+                    kw in q_lc
+                    for kw in (
+                        "today",
+                        "latest",
+                        "breaking",
+                        "this morning",
+                        "right now",
+                        "currently",
+                    )
+                ):
                     time_filter = "day"
-                elif any(kw in q_lc for kw in ("this week", "past week", "recent news", "last few days")):
+                elif any(
+                    kw in q_lc
+                    for kw in ("this week", "past week", "recent news", "last few days")
+                ):
                     time_filter = "week"
                 elif any(kw in q_lc for kw in ("this month", "past month")):
                     time_filter = "month"
-                elif " news" in q_lc or q_lc.startswith("news ") or q_lc.endswith(" news"):
+                elif (
+                    " news" in q_lc
+                    or q_lc.startswith("news ")
+                    or q_lc.endswith(" news")
+                ):
                     time_filter = "week"
             loop = asyncio.get_running_loop()
             text, sources = await asyncio.wait_for(
@@ -1059,6 +1249,7 @@ async def _direct_fallback(
             # by deep research, so private/loopback/metadata addresses are
             # already blocked there.
             from src.search.content import fetch_webpage_content
+
             raw = content.strip()
             url = ""
             # Accept either a JSON arg ({"url": "..."}) or a plain URL/domain.
@@ -1074,18 +1265,30 @@ async def _direct_fallback(
                 # only, so a URL followed by commentary still parses.
                 url = raw.split("\n")[0].strip()
             # Reject anything that isn't a single bare URL/domain token.
-            if not url or url.startswith("{") or any(c in url for c in (" ", "\t", "\n")):
-                return {"error": "web_fetch: provide a single URL or domain, e.g. example.com", "exit_code": 1}
+            if (
+                not url
+                or url.startswith("{")
+                or any(c in url for c in (" ", "\t", "\n"))
+            ):
+                return {
+                    "error": "web_fetch: provide a single URL or domain, e.g. example.com",
+                    "exit_code": 1,
+                }
             low = url.lower()
             if "://" in low and not low.startswith(("http://", "https://")):
-                return {"error": f"web_fetch: unsupported URL scheme (only http/https): {url[:80]}", "exit_code": 1}
+                return {
+                    "error": f"web_fetch: unsupported URL scheme (only http/https): {url[:80]}",
+                    "exit_code": 1,
+                }
             # Accept bare domains like "example.com" by defaulting to https.
             if not low.startswith(("http://", "https://")):
                 url = "https://" + url
             loop = asyncio.get_running_loop()
             try:
                 result = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: fetch_webpage_content(url, timeout=10)),
+                    loop.run_in_executor(
+                        None, lambda: fetch_webpage_content(url, timeout=10)
+                    ),
                     timeout=30,
                 )
             except asyncio.TimeoutError:
@@ -1104,7 +1307,10 @@ async def _direct_fallback(
                     return {"error": f"web_fetch: {url}: {err}", "exit_code": 1}
                 # No extractable text: non-HTML body, or a pure client-rendered
                 # shell. The agent can fall back to the builtin_browser tool.
-                return {"error": f"web_fetch: {url}: no readable text content (not HTML, or the page needs JS/login)", "exit_code": 1}
+                return {
+                    "error": f"web_fetch: {url}: no readable text content (not HTML, or the page needs JS/login)",
+                    "exit_code": 1,
+                }
 
             header = (f"# {title}\n" if title else "") + f"Source: {url}\n\n"
             output = header + text
@@ -1125,6 +1331,7 @@ async def _direct_fallback(
 # Dispatcher
 # ---------------------------------------------------------------------------
 
+
 async def execute_tool_block(
     block: Any,
     session_id: Optional[str] = None,
@@ -1141,21 +1348,44 @@ async def execute_tool_block(
     events while the command is in flight. Ignored by other tools.
     """
     from src.tool_implementations import (
-        do_create_document, do_update_document, do_edit_document,
-        do_suggest_document, do_search_chats, do_manage_tasks,
-        do_manage_skills, do_api_call, do_manage_endpoints,
-        do_manage_mcp, do_manage_webhooks, do_manage_tokens,
-        do_manage_documents, do_manage_settings, do_manage_notes,
-        do_manage_calendar,
-        do_download_model, do_serve_model, do_list_served_models, do_stop_served_model,
-        do_tail_serve_output,
-        do_list_downloads, do_cancel_download, do_search_hf_models, do_list_cached_models,
-        do_list_serve_presets, do_serve_preset, do_adopt_served_model,
-        do_list_cookbook_servers,
-        do_edit_image, do_trigger_research, do_manage_research, do_resolve_contact,
-        do_manage_contact,
-        do_vault_search, do_vault_get, do_vault_unlock,
+        do_adopt_served_model,
+        do_api_call,
         do_app_api,
+        do_cancel_download,
+        do_create_document,
+        do_download_model,
+        do_edit_document,
+        do_edit_image,
+        do_list_cached_models,
+        do_list_cookbook_servers,
+        do_list_downloads,
+        do_list_serve_presets,
+        do_list_served_models,
+        do_manage_calendar,
+        do_manage_contact,
+        do_manage_documents,
+        do_manage_endpoints,
+        do_manage_mcp,
+        do_manage_notes,
+        do_manage_research,
+        do_manage_settings,
+        do_manage_skills,
+        do_manage_tasks,
+        do_manage_tokens,
+        do_manage_webhooks,
+        do_resolve_contact,
+        do_search_chats,
+        do_search_hf_models,
+        do_serve_model,
+        do_serve_preset,
+        do_stop_served_model,
+        do_suggest_document,
+        do_tail_serve_output,
+        do_trigger_research,
+        do_update_document,
+        do_vault_get,
+        do_vault_search,
+        do_vault_unlock,
     )
 
     tool = block.tool_type
@@ -1164,7 +1394,11 @@ async def execute_tool_block(
     # Misformatted tool call detection: model put JSON inside ```python``` (or
     # similar) without naming the tool. Common with MiniMax-style outputs.
     # Return a helpful error so the model retries with the correct format.
-    if tool in ("python", "json", "xml") and content.strip().startswith("{") and content.strip().endswith("}"):
+    if (
+        tool in ("python", "json", "xml")
+        and content.strip().startswith("{")
+        and content.strip().endswith("}")
+    ):
         try:
             parsed = json.loads(content.strip())
             if isinstance(parsed, dict):
@@ -1174,11 +1408,11 @@ async def execute_tool_block(
                         f"You wrote a JSON object inside a ```{tool}``` block, but that's not a tool call.\n"
                         "To call a tool, use the tool name as the fence tag, e.g.\n"
                         "```resolve_contact\n"
-                        "{\"name\": \"...\"}\n"
+                        '{"name": "..."}\n'
                         "```\n"
                         "or\n"
                         "```send_email\n"
-                        "{\"to\": \"...\", \"subject\": \"...\", \"body\": \"...\"}\n"
+                        '{"to": "...", "subject": "...", "body": "..."}\n'
                         "```"
                     ),
                     "exit_code": 1,
@@ -1233,7 +1467,7 @@ async def execute_tool_block(
         if isinstance(parsed, dict):
             question = str(parsed.get("question", "")).strip()
             multi = bool(parsed.get("multi") or parsed.get("multiSelect"))
-            for opt in (parsed.get("options") or []):
+            for opt in parsed.get("options") or []:
                 if isinstance(opt, dict):
                     label = str(opt.get("label", "")).strip()
                     descr = str(opt.get("description", "")).strip()
@@ -1261,7 +1495,9 @@ async def execute_tool_block(
             "output": f"Asked the user: {question}\nOptions: {labels}\nAwaiting their selection.",
             "exit_code": 0,
         }
-        logger.info("Tool executed: %s (%d options, multi=%s)", desc, len(options), multi)
+        logger.info(
+            "Tool executed: %s (%d options, multi=%s)", desc, len(options), multi
+        )
         return desc, result
 
     # update_plan: the agent writes back to the active plan — tick an item done
@@ -1271,6 +1507,7 @@ async def execute_tool_block(
     # the docked plan window. Does NOT end the turn.
     if tool == "update_plan":
         import json as _json
+
         raw = (content or "").strip()
         plan = ""
         try:
@@ -1293,7 +1530,11 @@ async def execute_tool_block(
         desc = f"update_plan: {done}/{total} done" if total else "update_plan"
         result = {
             "plan_update": {"plan": plan},
-            "output": f"Plan updated ({done}/{total} steps complete)." if total else "Plan updated.",
+            "output": (
+                f"Plan updated ({done}/{total} steps complete)."
+                if total
+                else "Plan updated."
+            ),
             "exit_code": 0,
         }
         logger.info("Tool executed: %s", desc)
@@ -1307,7 +1548,10 @@ async def execute_tool_block(
         _is_bg, _bg_cmd = _split_bg_marker(content)
         if _is_bg and _bg_cmd:
             from src import bg_jobs
-            rec = bg_jobs.launch(_bg_cmd, session_id=session_id, cwd=workspace or _AGENT_WORKDIR)
+
+            rec = bg_jobs.launch(
+                _bg_cmd, session_id=session_id, cwd=workspace or _AGENT_WORKDIR
+            )
             short = _bg_cmd.strip().split(chr(10))[0][:80]
             desc = f"bash (background): {short}"
             result = {
@@ -1329,14 +1573,17 @@ async def execute_tool_block(
     if tool in _MCP_TOOL_MAP:
         first_line = content.split(chr(10))[0][:80]
         desc = f"{tool}: {first_line}"
-        result = await _call_mcp_tool(tool, content, progress_cb=progress_cb, workspace=workspace)
+        result = await _call_mcp_tool(
+            tool, content, progress_cb=progress_cb, workspace=workspace
+        )
     elif tool in ("grep", "glob", "ls"):
         # Code-navigation tools — no MCP server; run the direct implementation.
         # Confined to the workspace when one is set (same policy as read_file).
         first_line = content.split(chr(10))[0][:80]
         desc = f"{tool}: {first_line}"
-        result = await _direct_fallback(tool, content, progress_cb=progress_cb, workspace=workspace) \
-            or {"error": f"{tool}: execution failed", "exit_code": 1}
+        result = await _direct_fallback(
+            tool, content, progress_cb=progress_cb, workspace=workspace
+        ) or {"error": f"{tool}: execution failed", "exit_code": 1}
     elif tool == "create_document":
         title = content.split("\n")[0].strip()[:60]
         desc = f"create_document: {title}"
@@ -1354,11 +1601,20 @@ async def execute_tool_block(
         query = content.split("\n")[0].strip()
         desc = f"search_chats: {query[:80]}"
         result = await do_search_chats(query, owner=owner)
-    elif tool in ("chat_with_model", "create_session", "list_sessions",
-                  "send_to_session", "pipeline",
-                  "manage_session", "manage_memory", "list_models",
-                  "ui_control", "ask_teacher"):
+    elif tool in (
+        "chat_with_model",
+        "create_session",
+        "list_sessions",
+        "send_to_session",
+        "pipeline",
+        "manage_session",
+        "manage_memory",
+        "list_models",
+        "ui_control",
+        "ask_teacher",
+    ):
         from src.ai_interaction import dispatch_ai_tool
+
         desc, result = await dispatch_ai_tool(tool, content, session_id, owner=owner)
     elif tool == "manage_tasks":
         desc = "manage_tasks"
@@ -1490,10 +1746,26 @@ async def execute_tool_block(
 
 # Keys handled by the dedicated branches below — never echo them as raw JSON.
 _FORMATTER_HANDLED_KEYS = {
-    "stdout", "stderr", "exit_code", "content", "size",
-    "response", "results", "session_id", "name", "model", "session_name",
-    "success", "path", "action", "title", "doc_id", "version", "applied",
-    "error", "output",
+    "stdout",
+    "stderr",
+    "exit_code",
+    "content",
+    "size",
+    "response",
+    "results",
+    "session_id",
+    "name",
+    "model",
+    "session_name",
+    "success",
+    "path",
+    "action",
+    "title",
+    "doc_id",
+    "version",
+    "applied",
+    "error",
+    "output",
 }
 
 
@@ -1513,7 +1785,9 @@ def format_tool_result(description: str, result: Dict) -> str:
         if result.get("exit_code") not in (0, None):
             parts.append(f"**exit_code:** {result['exit_code']}")
     elif "content" in result:
-        parts.append(f"**content ({result.get('size', '?')} chars):**\n```\n{result['content']}\n```")
+        parts.append(
+            f"**content ({result.get('size', '?')} chars):**\n```\n{result['content']}\n```"
+        )
     elif "response" in result:
         model = result.get("model", result.get("session_name", ""))
         if model:
@@ -1523,7 +1797,9 @@ def format_tool_result(description: str, result: Dict) -> str:
     elif "results" in result:
         parts.append(result["results"])
     elif "session_id" in result and "name" in result:
-        parts.append(f"Session created: **{result['name']}** (id: `{result['session_id']}`, model: {result.get('model', 'unknown')})")
+        parts.append(
+            f"Session created: **{result['name']}** (id: `{result['session_id']}`, model: {result.get('model', 'unknown')})"
+        )
     elif "success" in result:
         if result["success"]:
             parts.append(f"File written: {result['path']} ({result['size']} bytes)")
@@ -1532,11 +1808,17 @@ def format_tool_result(description: str, result: Dict) -> str:
     elif "action" in result:
         action = result["action"]
         if action == "create":
-            parts.append(f"Document created: \"{result.get('title', '')}\" (id: {result['doc_id']}, v{result['version']})")
+            parts.append(
+                f"Document created: \"{result.get('title', '')}\" (id: {result['doc_id']}, v{result['version']})"
+            )
         elif action == "update":
-            parts.append(f"Document updated: \"{result.get('title', '')}\" (v{result['version']})")
+            parts.append(
+                f"Document updated: \"{result.get('title', '')}\" (v{result['version']})"
+            )
         elif action == "edit":
-            parts.append(f'Document edited: "{result.get("title", "")}" (v{result.get("version", "?")}, {result.get("applied", 0)} edit(s) applied)')
+            parts.append(
+                f'Document edited: "{result.get("title", "")}" (v{result.get("version", "?")}, {result.get("applied", 0)} edit(s) applied)'
+            )
     elif "error" in result:
         parts.append(f"**Error:** {result['error']}")
 
@@ -1550,7 +1832,10 @@ def format_tool_result(description: str, result: Dict) -> str:
             extra_json = json.dumps(extra, indent=2, default=str, ensure_ascii=False)
             # Cap to avoid blowing the context window on huge payloads.
             if len(extra_json) > 8000:
-                extra_json = extra_json[:8000] + f"\n... (truncated, {len(extra_json)} chars total)"
+                extra_json = (
+                    extra_json[:8000]
+                    + f"\n... (truncated, {len(extra_json)} chars total)"
+                )
             parts.append(f"**data:**\n```json\n{extra_json}\n```")
         except (TypeError, ValueError):
             pass

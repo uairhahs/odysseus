@@ -46,6 +46,8 @@ from src.session_search import search_session_messages
 from src.tool_policy import build_effective_tool_policy
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Track active streams for partial-save safety net
 _active_streams: Dict[str, dict] = {}
@@ -84,7 +86,7 @@ def _clear_orphaned_session_endpoint(sess, owner: str | None = None) -> bool:
         return False
     db = SessionLocal()
     try:
-        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
         if owner:
             from src.auth_helpers import owner_filter
 
@@ -150,7 +152,7 @@ def _is_image_generation_session(sess, owner: str | None = None) -> bool:
 
     db = SessionLocal()
     try:
-        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
         if owner:
             from src.auth_helpers import owner_filter
 
@@ -194,7 +196,7 @@ def _recover_empty_session_model(
         # cached model is the most defensible default.
         ep = None
         if getattr(sess, "endpoint_url", ""):
-            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
             if owner:
                 from src.auth_helpers import owner_filter
 
@@ -274,7 +276,8 @@ def _set_user_time_from_request(request: Request) -> None:
             set_user_tz_offset(tz_offset)
         if tz_name:
             set_user_tz_name(tz_name)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to set user time from request: {e}")
         pass
 
 
@@ -314,8 +317,8 @@ def setup_chat_routes(
 
         try:
             sess = session_manager.get_session(session)
-        except KeyError:
-            raise HTTPException(404, f"Session '{session}' not found")
+        except KeyError as e:
+            raise HTTPException(404, f"Session '{session}' not found") from e
         owner = get_current_user(request)
         if _clear_orphaned_session_endpoint(sess, owner=owner):
             raise HTTPException(
@@ -427,11 +430,11 @@ def setup_chat_routes(
                 try:
                     body = await request.json()
                 except json.JSONDecodeError as e:
-                    raise HTTPException(400, f"Invalid JSON: {e}")
+                    raise HTTPException(400, f"Invalid JSON: {e}") from e
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(400, f"Request parsing error: {e}")
+            raise HTTPException(400, f"Request parsing error: {e}") from e
 
         _set_user_time_from_request(request)
 
@@ -536,9 +539,9 @@ def setup_chat_routes(
                     "No model selected for this chat. Open the model picker and choose one before sending.",
                 )
         except SessionNotFoundError as e:
-            raise HTTPException(404, str(e))
-        except (ValueError, ValidationError):
-            raise HTTPException(400, "Invalid request parameters")
+            raise HTTPException(404, str(e)) from e
+        except (ValueError, ValidationError) as e:
+            raise HTTPException(400, "Invalid request parameters") from e
 
         # ------------------------------------------------------------------ #
         # Privilege gates that must fire BEFORE any LLM work / token spend.
@@ -568,7 +571,8 @@ def setup_chat_routes(
         elif attachments:
             try:
                 att_ids = [str(x) for x in json.loads(attachments)]
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error parsing attachments: {e}")
                 pass
 
         no_memory = str(form_data.get("no_memory", "")).lower() == "true"
@@ -646,7 +650,7 @@ def setup_chat_routes(
                     logger.warning(f"[doc-inject] NOT FOUND by ID {active_doc_id}")
             if not active_doc:
                 _session_doc_q = _doc_db.query(DBDocument).filter(
-                    DBDocument.session_id == session, DBDocument.is_active == True
+                    DBDocument.session_id == session, DBDocument.is_active
                 )
                 active_doc = (
                     _owner_session_filter(_session_doc_q, ctx.user)
@@ -1615,8 +1619,8 @@ def setup_chat_routes(
             )
             session_manager.save_sessions()
             return {"status": "context_injected"}
-        except KeyError:
-            raise HTTPException(404, "Session not found")
+        except KeyError as e:
+            raise HTTPException(404, "Session not found") from e
 
     # ------------------------------------------------------------------ #
     # GET /api/search — search across chat messages
@@ -1654,8 +1658,8 @@ def setup_chat_routes(
         """
         try:
             body = await request.json()
-        except Exception:
-            raise HTTPException(400, "Invalid JSON")
+        except Exception as e:
+            raise HTTPException(400, "Invalid JSON") from e
 
         session_id = body.get("session_id")
         original_text = body.get("original_text", "")
@@ -1670,8 +1674,8 @@ def setup_chat_routes(
 
         try:
             sess = session_manager.get_session(session_id)
-        except (KeyError, SessionNotFoundError):
-            raise HTTPException(404, "Session not found")
+        except (KeyError, SessionNotFoundError) as e:
+            raise HTTPException(404, "Session not found") from e
 
         messages = [
             {

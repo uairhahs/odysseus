@@ -177,7 +177,7 @@ Move toward this layout _gradually_, only after helper conventions and
 determinism are stable. Low-risk categories move first; oversized catch-all files
 are split last.
 
-```
+```text
 tests/
   conftest.py        # stays minimal
   README.md          # helper reference

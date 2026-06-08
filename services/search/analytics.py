@@ -11,6 +11,8 @@ from core.constants import DATA_DIR
 from .cache import cache_metrics
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Dedicated error logger — write to the data logs directory (writable on both
 # native runs and Docker, where DATA_DIR resolves to the bind-mounted volume).

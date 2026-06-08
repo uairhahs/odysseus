@@ -1,16 +1,16 @@
-"""Pin that the login handler keeps bcrypt off the event loop.
+# Pin that the login handler keeps bcrypt off the event loop.
 
-`/api/auth/login` is an `async def` and is reachable unauthenticated. bcrypt
-(`checkpw`/`hashpw`) is deliberately CPU-expensive (~100-300 ms). Running it
-directly in the coroutine blocks the single event loop for that whole window,
-freezing every other in-flight request (chat streams, polling, ...). Because
-the endpoint is unauthenticated and rate-limited only per-IP, a burst of login
-attempts serializes the whole server — a cheap DoS-amplification vector.
+# `/api/auth/login` is an `async def` and is reachable unauthenticated. bcrypt
+# (`checkpw`/`hashpw`) is deliberately CPU-expensive (~100-300 ms). Running it
+# directly in the coroutine blocks the single event loop for that whole window,
+# freezing every other in-flight request (chat streams, polling, ...). Because
+# the endpoint is unauthenticated and rate-limited only per-IP, a burst of login
+# attempts serializes the whole server — a cheap DoS-amplification vector.
 
-The fix offloads the bcrypt-bearing AuthManager calls via asyncio.to_thread.
-This test asserts those calls run on a worker thread, not the loop thread; it
-fails if they are awaited inline again.
-"""
+# The fix offloads the bcrypt-bearing AuthManager calls via asyncio.to_thread.
+# This test asserts those calls run on a worker thread, not the loop thread; it
+# fails if they are awaited inline again.
+
 
 import asyncio
 import os
@@ -20,6 +20,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+
+from routes.auth_routes import LoginRequest, setup_auth_routes
 
 
 # Stub `core.auth` / `core.database` before importing the route module.
@@ -75,9 +77,6 @@ def _event_loop_stubs(monkeypatch):
     monkeypatch.setitem(sys.modules, "core.auth", auth)
 
 
-from routes.auth_routes import LoginRequest, setup_auth_routes
-
-
 def _login_endpoint(auth_manager):
     router = setup_auth_routes(auth_manager)
     for r in router.routes:
@@ -105,7 +104,10 @@ def test_login_offloads_bcrypt_bearing_calls(monkeypatch):
 
     request = SimpleNamespace(client=SimpleNamespace(host="203.0.113.7"), cookies={})
     response = MagicMock()
-    body = LoginRequest(username="alice", password="hunter2", remember=True)
+    # this is test data only
+    body = LoginRequest(
+        username="alice", password="hunter2", remember=True  # noqa: S106
+    )
 
     result = asyncio.run(login(body=body, request=request, response=response))
 

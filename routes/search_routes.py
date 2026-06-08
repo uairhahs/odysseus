@@ -1,17 +1,18 @@
 """Search routes — /api/search/config GET, /api/search POST."""
 
 import logging
-from typing import Dict, Any
+import time
+from typing import Any, Dict
 
 from fastapi import APIRouter, Request
 
-import time
-
-from services.search import get_search_config, comprehensive_web_search, PROVIDER_INFO
+from services.search import PROVIDER_INFO, comprehensive_web_search, get_search_config
 from services.search.core import _call_provider
 from services.search.providers import _get_provider_key, _get_search_instance
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 async def _request_values(request: Request) -> Dict[str, Any]:
@@ -31,8 +32,8 @@ async def _request_values(request: Request) -> Dict[str, Any]:
         else:
             form = await request.form()
             values.update(dict(form))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("[search] failed to parse request values: %s", e, exc_info=True)
     return values
 
 
@@ -58,11 +59,13 @@ def setup_search_routes(config) -> APIRouter:
             time_filter = str(time_filter).strip() or None
         try:
             context, sources = comprehensive_web_search(
-                query, return_sources=True, time_filter=time_filter,
+                query,
+                return_sources=True,
+                time_filter=time_filter,
             )
             return {"context": context, "sources": sources}
         except Exception as e:
-            logger.error(f"Standalone web search failed: {e}")
+            logger.error(f"Standalone web search failed: {e}", exc_info=True)
             return {"context": "", "sources": [], "error": str(e)}
 
     @router.get("/api/search/providers")
@@ -77,11 +80,13 @@ def setup_search_routes(config) -> APIRouter:
                 available = False
             if needs_url and pid == "searxng" and not _get_search_instance():
                 available = False
-            providers.append({
-                "id": pid,
-                "label": label,
-                "available": available,
-            })
+            providers.append(
+                {
+                    "id": pid,
+                    "label": label,
+                    "available": available,
+                }
+            )
         return providers
 
     @router.post("/api/search/query")
@@ -92,7 +97,8 @@ def setup_search_routes(config) -> APIRouter:
         provider = str(values.get("provider") or "").strip()
         try:
             count = int(values.get("count") or values.get("limit") or 10)
-        except Exception:
+        except Exception as e:
+            logger.debug("[search] failed to parse count value: %s", e, exc_info=True)
             count = 10
         if not query:
             return {"results": [], "provider": provider, "error": "query is required"}
@@ -105,7 +111,12 @@ def setup_search_routes(config) -> APIRouter:
             return {"results": results, "provider": provider, "time": elapsed}
         except Exception as e:
             elapsed = round(time.time() - t0, 2)
-            logger.error(f"Search provider {provider} failed: {e}")
-            return {"results": [], "provider": provider, "time": elapsed, "error": str(e)}
+            logger.error(f"Search provider {provider} failed: {e}", exc_info=True)
+            return {
+                "results": [],
+                "provider": provider,
+                "time": elapsed,
+                "error": str(e),
+            }
 
     return router

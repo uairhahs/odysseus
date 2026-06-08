@@ -1,6 +1,7 @@
-"""Calendar routes — local SQLite-backed calendar CRUD."""
+# Calendar routes — local SQLite-backed calendar CRUD.
 
 import logging
+import os as _os
 import re
 import uuid
 from datetime import date, datetime, timedelta
@@ -14,8 +15,16 @@ from sqlalchemy import and_, or_
 from core.database import CalendarCal, CalendarEvent, SessionLocal
 from src.auth_helpers import require_user
 from src.upload_limits import read_upload_limited
+from src.user_time import (  # set_user_tz_name,; set_user_tz_offset,
+    get_user_tz_name,
+    get_user_tz_offset,
+    now_user_local,
+    user_timezone,
+)
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _ics_naive_dtstart(dt):
@@ -42,7 +51,6 @@ def _ics_naive_dtstart(dt):
 # Override at deploy time via `ODYSSEUS_FALLBACK_OWNER` env var. In a real
 # multi-user install set `ODYSSEUS_SINGLE_USER=0` so unauthenticated requests
 # are rejected instead of silently writing to this address.
-import os as _os
 
 FALLBACK_OWNER = _os.environ.get("ODYSSEUS_FALLBACK_OWNER", "owner@localhost")
 _SINGLE_USER_MODE = _os.environ.get("ODYSSEUS_SINGLE_USER", "1") != "0"
@@ -92,10 +100,10 @@ def _get_or_404_event(db, uid: str, owner: str) -> CalendarEvent:
 
 
 def _ics_escape(text: str) -> str:
-    """Escape a value for an iCalendar TEXT field (RFC 5545 §3.3.11).
+    r"""Escape a value for an iCalendar TEXT field (RFC 5545 §3.3.11).
 
     Backslash, semicolon and comma are structural in TEXT values and must be
-    escaped, and newlines become a literal ``\\n``. Backslash is escaped first
+    escaped, and newlines become a literal `\n`. Backslash is escaped first
     so the escapes we add aren't re-escaped.
     """
     return (
@@ -186,14 +194,6 @@ def _ensure_default_calendar(db, owner: str = None) -> CalendarCal:
 # headers so natural-language times the LLM emits ("today at 9pm") are parsed
 # in the user's timezone, not the server's clock. None = unknown, fall back to
 # legacy server-local behavior.
-from src.user_time import (
-    get_user_tz_name,
-    get_user_tz_offset,
-    now_user_local,
-    set_user_tz_name,
-    set_user_tz_offset,
-    user_timezone,
-)
 
 
 def parse_due_for_user(s: str) -> str:
@@ -473,8 +473,8 @@ def _parse_dt(s: str) -> datetime:
 
             return parsed.astimezone(_tz.utc).replace(tzinfo=None)
         return parsed
-    except Exception:
-        raise ValueError(f"could not parse datetime: {s!r}")
+    except Exception as e:
+        raise ValueError(f"could not parse datetime: {s!r}") from e
 
 
 def _event_to_dict(ev: CalendarEvent) -> dict:
@@ -697,7 +697,7 @@ def setup_calendar_routes() -> APIRouter:
         try:
             validated_url = validate_caldav_url(body.get("url", ""))
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         if accounts:
             acc = dict(accounts[0])
         else:
@@ -758,7 +758,7 @@ def setup_calendar_routes() -> APIRouter:
         try:
             url = validate_caldav_url(body.get("url", ""))
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         if not body.get("password"):
             raise HTTPException(400, "Password is required")
         from src.secret_storage import encrypt
@@ -796,7 +796,7 @@ def setup_calendar_routes() -> APIRouter:
             try:
                 acc["url"] = validate_caldav_url(body["url"])
             except ValueError as e:
-                raise HTTPException(400, str(e))
+                raise HTTPException(400, str(e)) from e
         if body.get("label") is not None:
             acc["label"] = (body.get("label") or "").strip() or "CalDAV"
         if body.get("username") is not None:
@@ -854,7 +854,12 @@ def setup_calendar_routes() -> APIRouter:
                             from src.secret_storage import decrypt
 
                             pw = decrypt(pw)
-                        except Exception:
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to decrypt password for account %s: %s",
+                                acc.get("id"),
+                                e,
+                            )
                             pass
         if not (url and user and pw):
             return {"ok": False, "error": "Missing URL, username, or password"}
@@ -953,7 +958,7 @@ def setup_calendar_routes() -> APIRouter:
             raise
         except Exception as e:
             logger.error("Failed to delete calendar %s: %s", cal_id, e)
-            raise HTTPException(500, "Failed to delete calendar")
+            raise HTTPException(500, "Failed to delete calendar") from e
         finally:
             db.close()
 
@@ -974,7 +979,7 @@ def setup_calendar_routes() -> APIRouter:
             raise
         except Exception as e:
             logger.error("Failed to list calendars: %s", e)
-            raise HTTPException(500, "Failed to list calendars")
+            raise HTTPException(500, "Failed to list calendars") from e
         finally:
             db.close()
 
@@ -1046,7 +1051,7 @@ def setup_calendar_routes() -> APIRouter:
             raise
         except Exception as e:
             logger.error("Failed to list events: %s", e)
-            raise HTTPException(500, "Failed to list events")
+            raise HTTPException(500, "Failed to list events") from e
         finally:
             db.close()
 
@@ -1129,7 +1134,7 @@ def setup_calendar_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error("Failed to create event: %s", e)
-            raise HTTPException(500, "Failed to create event")
+            raise HTTPException(500, "Failed to create event") from e
         finally:
             db.close()
 
@@ -1139,7 +1144,7 @@ def setup_calendar_routes() -> APIRouter:
         try:
             base_uid = _resolve_base_uid(uid)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         db = SessionLocal()
         try:
             ev = _get_or_404_event(db, base_uid, owner)
@@ -1195,7 +1200,7 @@ def setup_calendar_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error("Failed to update event: %s", e)
-            raise HTTPException(500, "Failed to update event")
+            raise HTTPException(500, "Failed to update event") from e
         finally:
             db.close()
 
@@ -1205,7 +1210,7 @@ def setup_calendar_routes() -> APIRouter:
         try:
             base_uid = _resolve_base_uid(uid)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
         db = SessionLocal()
         try:
             ev = _get_or_404_event(db, base_uid, owner)
@@ -1229,7 +1234,7 @@ def setup_calendar_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error("Failed to delete event: %s", e)
-            raise HTTPException(500, "Failed to delete event")
+            raise HTTPException(500, "Failed to delete event") from e
         finally:
             db.close()
 
@@ -1253,7 +1258,7 @@ def setup_calendar_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error("Failed to create calendar: %s", e)
-            raise HTTPException(500, "Failed to create calendar")
+            raise HTTPException(500, "Failed to create calendar") from e
         finally:
             db.close()
 
@@ -1276,25 +1281,7 @@ def setup_calendar_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error("Failed to update calendar: %s", e)
-            raise HTTPException(500, "Failed to update calendar")
-        finally:
-            db.close()
-
-    @router.delete("/calendars/{cal_id}")
-    async def delete_calendar(request: Request, cal_id: str):
-        owner = _require_user(request)
-        db = SessionLocal()
-        try:
-            cal = _get_or_404_calendar(db, cal_id, owner)
-            db.query(CalendarEvent).filter(CalendarEvent.calendar_id == cal_id).delete()
-            db.delete(cal)
-            db.commit()
-            return {"ok": True}
-        except HTTPException:
-            raise
-        except Exception as e:
-            db.rollback()
-            return {"error": str(e)}
+            raise HTTPException(500, "Failed to update calendar") from e
         finally:
             db.close()
 
@@ -1304,7 +1291,9 @@ def setup_calendar_routes() -> APIRouter:
 
     @router.post("/import")
     async def import_ics(
-        request: Request, file: UploadFile = File(...), calendar_name: str = ""
+        request: Request,
+        file: UploadFile = File(...),  # noqa: B008
+        calendar_name: str = "",
     ):
         """Import events from an .ics file (scoped to caller's account)."""
         from icalendar import Calendar as iCal
@@ -1316,7 +1305,7 @@ def setup_calendar_routes() -> APIRouter:
             try:
                 cal_data = iCal.from_ical(content)
             except Exception as e:
-                raise HTTPException(400, f"Invalid ICS file: {e}")
+                raise HTTPException(400, f"Invalid ICS file: {e}") from e
 
             # Sanitize display name — length cap + strip control chars
             raw_name = (
@@ -1454,7 +1443,7 @@ def setup_calendar_routes() -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error("Failed to import ICS: %s", e)
-            raise HTTPException(500, "Failed to import ICS")
+            raise HTTPException(500, "Failed to import ICS") from e
         finally:
             db.close()
 
@@ -1520,7 +1509,7 @@ def setup_calendar_routes() -> APIRouter:
             raise
         except Exception as e:
             logger.error("Failed to export ICS: %s", e)
-            raise HTTPException(500, "Failed to export ICS")
+            raise HTTPException(500, "Failed to export ICS") from e
         finally:
             db.close()
 

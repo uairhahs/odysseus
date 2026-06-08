@@ -20,6 +20,8 @@ from src.prompt_security import untrusted_context_message
 from src.research_utils import is_low_quality, strip_thinking
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def current_date_context() -> str:
@@ -839,7 +841,8 @@ class DeepResearcher:
         if self._progress:
             try:
                 self._progress(kwargs)
-            except Exception:
+            except Exception as e:
+                logger.warning("Progress callback error: %s", e)
                 pass
 
     def _time_exceeded(self) -> bool:

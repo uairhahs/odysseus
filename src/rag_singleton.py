@@ -1,12 +1,15 @@
 """
 RAG singleton instance for the application.
 """
-import os
+
 import logging
+import os
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 rag_instance = None
 _last_attempt = 0.0

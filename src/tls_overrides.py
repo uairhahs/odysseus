@@ -42,9 +42,13 @@ import ssl
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
-_extra_bundle_path: Optional[str] = (os.environ.get("LLM_CA_BUNDLE") or "").strip() or None
+_extra_bundle_path: Optional[str] = (
+    os.environ.get("LLM_CA_BUNDLE") or ""
+).strip() or None
 
 
 def _build_ssl_context() -> Optional[ssl.SSLContext]:
@@ -67,7 +71,8 @@ def _build_ssl_context() -> Optional[ssl.SSLContext]:
         logger.warning(
             "LLM_CA_BUNDLE=%r failed to load (%s); falling back to the "
             "default trust store.",
-            _extra_bundle_path, e,
+            _extra_bundle_path,
+            e,
         )
         return None
     logger.info(

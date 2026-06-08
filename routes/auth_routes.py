@@ -31,6 +31,8 @@ from src.settings import save_settings as _save_settings
 from src.settings_scrub import scrub_settings
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 class LoginRequest(BaseModel):
@@ -176,7 +178,13 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             u = result.get("username")
             if u:
                 result["privileges"] = auth_manager.get_privileges(u)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Failed to get user privileges for auth status: %s due to: %s",
+                result.get("username"),
+                str(e),
+                exc_info=True,
+            )
             pass
         return result
 
@@ -346,7 +354,7 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
                 new_username,
                 e,
             )
-            raise HTTPException(500, "Failed to rename user data")
+            raise HTTPException(500, "Failed to rename user data") from e
 
         # Per-user prefs are JSON-backed, not SQL-backed.
         try:
@@ -431,7 +439,12 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             invalidator = getattr(request.app.state, "invalidate_token_cache", None)
             if invalidator:
                 invalidator()
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Failed to invalidate token cache after user deletion: %s",
+                str(e),
+                exc_info=True,
+            )
             pass
         return {"ok": True}
 
@@ -491,8 +504,8 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
                 lo, hi = _INT_RANGES[key]
                 try:
                     val = int(val)
-                except (TypeError, ValueError):
-                    raise HTTPException(400, f"{key} must be an integer")
+                except (TypeError, ValueError) as e:
+                    raise HTTPException(400, f"{key} must be an integer") from e
                 val = max(lo, min(val, hi))
             current[key] = val
         _save_settings(current)

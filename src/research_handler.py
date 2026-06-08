@@ -19,6 +19,8 @@ from typing import Dict, Optional
 from src.research_utils import is_low_quality, strip_thinking
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 RESEARCH_DATA_DIR = Path("data/deep_research")
 _RESEARCH_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
@@ -249,8 +251,8 @@ class ResearchHandler:
                 _match = _re.search(r"\{[\s\S]*\}", _clean)
                 if _match:
                     parsed = _json.loads(_match.group())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to parse research plan JSON: {e}", exc_info=True)
 
             return {
                 "sub_questions": parsed.get("sub_questions", []) if parsed else [],
@@ -515,8 +517,11 @@ class ResearchHandler:
                     "query": data.get("query", ""),
                     "started_at": data.get("started_at", 0),
                 }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to read research status for {session_id}: {e}",
+                    exc_info=True,
+                )
         return None
 
     def cancel_research(self, session_id: str) -> bool:
@@ -551,8 +556,11 @@ class ResearchHandler:
                 if data.get("consumed"):
                     return None
                 return data.get("result")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to read research result for {session_id}: {e}",
+                    exc_info=True,
+                )
         return None
 
     def get_sources(self, session_id: str) -> Optional[list]:
@@ -573,8 +581,11 @@ class ResearchHandler:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 return data.get("sources")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    f"Failed to read research sources for {session_id}: {e}",
+                    exc_info=True,
+                )
         return None
 
     def get_raw_findings(self, session_id: str) -> Optional[list]:
@@ -648,10 +659,14 @@ class ResearchHandler:
                         completed = data.get("completed_at", 0)
                         if started and completed and completed > started:
                             durations.append(completed - started)
-                except Exception:
-                    continue
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.error(
+                        f"Failed to read research duration for {p}: {e}", exc_info=True
+                    )
+        except Exception as e:
+            logger.error(
+                f"Failed to compute average research duration: {e}", exc_info=True
+            )
         if durations:
             return sum(durations) / len(durations)
         return None
@@ -670,8 +685,8 @@ class ResearchHandler:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 data["consumed"] = True
                 path.write_text(json.dumps(data), encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to clear research result: {e}", exc_info=True)
 
     def _save_result(self, session_id: str, entry: dict):
         """Persist completed research result to disk."""
@@ -715,7 +730,7 @@ class ResearchHandler:
             except Exception:
                 logger.debug("research_completed event dispatch failed", exc_info=True)
         except Exception as e:
-            logger.error(f"Failed to save research result: {e}")
+            logger.error(f"Failed to save research result: {e}", exc_info=True)
 
     def _get_session_json(self, session_id: str) -> Optional[dict]:
         """Load the saved research JSON for a session, if it exists."""
@@ -725,8 +740,8 @@ class ResearchHandler:
         if path.exists():
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to load session JSON: {e}")
         return None
 
     def get_report_html(self, session_id: str) -> Optional[str]:

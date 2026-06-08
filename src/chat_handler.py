@@ -1,32 +1,35 @@
 # src/chat_handler.py
 """Handler for chat endpoint operations."""
-import os
+
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any
+import os
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from src.constants import (
-    MAX_CONTEXT_MESSAGES,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_MAX_TOKENS,
-    UPLOAD_DIR,
-)
 from core.models import ChatMessage
 from src.chat_helpers import extract_urls, model_supports_vision
-from src.document_processor import build_user_content, analyze_image_with_vl_result
+from src.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    MAX_CONTEXT_MESSAGES,
+    UPLOAD_DIR,
+)
+from src.document_processor import analyze_image_with_vl_result, build_user_content
 from src.youtube_handler import (
-    is_youtube_url,
-    extract_youtube_id,
+    YOUTUBE_INSTRUCTION_PROMPT,
     extract_transcript_async,
-    format_transcript_for_context,
+    extract_youtube_id,
     fetch_youtube_comments,
     format_comments_for_context,
-    YOUTUBE_INSTRUCTION_PROMPT,
+    format_transcript_for_context,
+    is_youtube_url,
 )
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 class ChatHandler:
@@ -158,14 +161,18 @@ class ChatHandler:
             for att_id in effective_att_ids:
                 fi = files_by_id.get(att_id)
                 if fi:
-                    attachment_meta.append({
-                        "id": fi["id"],
-                        "name": fi.get("name") or fi.get("original_name") or fi["id"],
-                        "mime": fi.get("mime", ""),
-                        "size": fi.get("size", 0),
-                        "width": fi.get("width"),
-                        "height": fi.get("height"),
-                    })
+                    attachment_meta.append(
+                        {
+                            "id": fi["id"],
+                            "name": fi.get("name")
+                            or fi.get("original_name")
+                            or fi["id"],
+                            "mime": fi.get("mime", ""),
+                            "size": fi.get("size", 0),
+                            "width": fi.get("width"),
+                            "height": fi.get("height"),
+                        }
+                    )
 
         # Analyze images only when attachment preprocessing is actually
         # allowed. The vision capability check can probe local model endpoints,
@@ -174,6 +181,7 @@ class ChatHandler:
         main_is_vision = False
         if effective_att_ids:
             from src.settings import get_setting
+
             vision_enabled = get_setting("vision_enabled", True)
             if vision_enabled:
                 main_is_vision = await asyncio.to_thread(
@@ -210,8 +218,12 @@ class ChatHandler:
                                     _m = meta_by_id.get(att_id)
                                     if _m is not None:
                                         _m["vision"] = _vtext
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(
+                                    "Error reading user-corrected caption / OCR: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                     else:
                         # Main model is text-only — use VL model for description.
                         # Prefer the cached/user-edited text in UPLOAD_DIR/.vision/{id}.txt
@@ -226,19 +238,31 @@ class ChatHandler:
                                     cached_desc = _vf.read().strip()
                                 if cached_desc and not cached_desc.startswith("["):
                                     vl_desc = cached_desc
-                            except Exception:
+                            except Exception as e:
+                                logger.warning(
+                                    "Error reading vision cache: %s", e, exc_info=True
+                                )
                                 vl_desc = None
                         if not vl_desc:
-                            vl_result = analyze_image_with_vl_result(file_info["path"], owner=owner)
+                            vl_result = analyze_image_with_vl_result(
+                                file_info["path"], owner=owner
+                            )
                             vl_desc = vl_result.get("text", "")
                             vl_model = vl_result.get("model", "")
                             if vl_desc and not vl_desc.startswith("["):
                                 try:
-                                    os.makedirs(os.path.join(UPLOAD_DIR, ".vision"), exist_ok=True)
+                                    os.makedirs(
+                                        os.path.join(UPLOAD_DIR, ".vision"),
+                                        exist_ok=True,
+                                    )
                                     with open(_vcache, "w", encoding="utf-8") as _vf:
                                         _vf.write(vl_desc)
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logger.warning(
+                                        "Error writing vision cache: %s",
+                                        e,
+                                        exc_info=True,
+                                    )
                         enhanced_message = f"{enhanced_message}\n\n[Image: {file_info['name']}]\n{vl_desc}"
                         # Surface the description to the client live so it renders as a
                         # collapsible "image description" on the user bubble (not just
@@ -249,7 +273,10 @@ class ChatHandler:
                             _m["vision_model"] = vl_model
 
         user_content = build_user_content(
-            enhanced_message, effective_att_ids, UPLOAD_DIR, self.upload_handler,
+            enhanced_message,
+            effective_att_ids,
+            UPLOAD_DIR,
+            self.upload_handler,
             session_id=getattr(sess, "id", None),
             auto_opened_docs=auto_opened_docs,
             owner=owner,
@@ -259,16 +286,22 @@ class ChatHandler:
         # Strip image_url entries for text-only models (VL description is already in the text)
         if not vision_enabled and isinstance(user_content, list):
             text_parts = [
-                item.get("text", "") for item in user_content
+                item.get("text", "")
+                for item in user_content
                 if isinstance(item, dict) and item.get("type") == "text"
             ]
-            user_content = "\n".join(text_parts).strip() if text_parts else enhanced_message
+            user_content = (
+                "\n".join(text_parts).strip() if text_parts else enhanced_message
+            )
         elif not main_is_vision and isinstance(user_content, list):
             text_parts = [
-                item.get("text", "") for item in user_content
+                item.get("text", "")
+                for item in user_content
                 if isinstance(item, dict) and item.get("type") == "text"
             ]
-            user_content = "\n".join(text_parts).strip() if text_parts else enhanced_message
+            user_content = (
+                "\n".join(text_parts).strip() if text_parts else enhanced_message
+            )
 
         # Extract text portion for naming / context
         if isinstance(user_content, list):
@@ -279,7 +312,13 @@ class ChatHandler:
         else:
             text_for_context = user_content
 
-        return enhanced_message, user_content, text_for_context, youtube_transcripts, attachment_meta
+        return (
+            enhanced_message,
+            user_content,
+            text_for_context,
+            youtube_transcripts,
+            attachment_meta,
+        )
 
     # ------------------------------------------------------------------
     # Session helpers

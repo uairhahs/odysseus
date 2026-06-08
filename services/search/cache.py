@@ -9,6 +9,8 @@ from typing import Dict
 from core.constants import DATA_DIR
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Cache directories
 CACHE_DIR = Path(DATA_DIR) / "cache"

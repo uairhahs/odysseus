@@ -1,11 +1,13 @@
 """Query enhancement, entity extraction, and cache duration helpers."""
 
-import re
 import logging
+import re
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 # ----------------------------------------------------------------------
@@ -129,7 +131,16 @@ def build_enhanced_query(query: str, time_filter: str = None) -> str:
 # ----------------------------------------------------------------------
 def _is_news_query(query: str) -> bool:
     """Lightweight heuristic to decide if a query is news-oriented."""
-    news_terms = {"news", "latest", "breaking", "today", "today's", "current", "updates", "happening"}
+    news_terms = {
+        "news",
+        "latest",
+        "breaking",
+        "today",
+        "today's",
+        "current",
+        "updates",
+        "happening",
+    }
     if not isinstance(query, str):
         return False
     tokens = set(re.findall(r"\b\w+\b", query.lower()))

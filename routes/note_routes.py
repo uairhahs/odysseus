@@ -2,23 +2,26 @@
 """Google Keep-style notes / checklists API."""
 
 import json
-import uuid
 import logging
-from typing import Dict, Any, Optional
+import uuid
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-
-from core.database import SessionLocal, Note
-from src.auth_helpers import get_current_user
 from sqlalchemy.orm.attributes import flag_modified
 
+from core.database import Note, SessionLocal
+from src.auth_helpers import get_current_user
+
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
 
 class NoteCreate(BaseModel):
     title: str = ""
@@ -55,6 +58,7 @@ class NoteUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _note_to_dict(note: Note) -> Dict[str, Any]:
     items = None
@@ -121,7 +125,6 @@ def _reminder_text_from_note(note: Note) -> tuple[str, str]:
     return title, (note.content or "").strip()[:400]
 
 
-
 # ---------------------------------------------------------------------------
 # Reminder dispatch — module-level so background tasks (built-in actions)
 # can call it directly without an HTTP roundtrip + auth cookie. The route
@@ -156,6 +159,7 @@ async def dispatch_reminder(
     nothing is "sent" synchronously for it — the channel just routes there.
     """
     from src.settings import load_settings
+
     settings = {**load_settings(), **(settings_override or {})}
     channel = settings.get("reminder_channel", "browser")
     llm_on = bool(settings.get("reminder_llm_synthesis", False))
@@ -167,9 +171,14 @@ async def dispatch_reminder(
     if cache_key:
         try:
             import json as _json
-            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+            from datetime import timezone as _tz
             from pathlib import Path as _P
-            _slug = "".join(c if (c.isalnum() or c in "-_.@") else "_" for c in (owner or "default"))
+
+            _slug = "".join(
+                c if (c.isalnum() or c in "-_.@") else "_" for c in (owner or "default")
+            )
             cache_path = _P(f"data/note_pings_{_slug}.json")
             if cache_path.exists():
                 cache = _json.loads(cache_path.read_text(encoding="utf-8"))
@@ -207,19 +216,31 @@ async def dispatch_reminder(
         try:
             from src.endpoint_resolver import resolve_endpoint
             from src.llm_core import llm_call_async
+
             url, model, headers = resolve_endpoint("utility", owner=owner or None)
             if not url:
                 url, model, headers = resolve_endpoint("default", owner=owner or None)
             if url and model:
                 raw = await llm_call_async(
-                    url=url, model=model,
+                    url=url,
+                    model=model,
                     messages=[
-                        {"role": "system", "content": "You are a reminder assistant. Write a single short, warm, motivating sentence (max 25 words) reminding the user about the note below. Do not add greetings, preamble, or hashtags. Output only the sentence."},
-                        {"role": "user", "content": f"Title: {title}\n\n{note_body}".strip()},
+                        {
+                            "role": "system",
+                            "content": "You are a reminder assistant. Write a single short, warm, motivating sentence (max 25 words) reminding the user about the note below. Do not add greetings, preamble, or hashtags. Output only the sentence.",
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Title: {title}\n\n{note_body}".strip(),
+                        },
                     ],
-                    temperature=0.7, max_tokens=200, headers=headers, timeout=30,
+                    temperature=0.7,
+                    max_tokens=200,
+                    headers=headers,
+                    timeout=30,
                 )
                 from src.text_helpers import strip_think as _strip_think
+
                 # prose=True strips untagged "The user wants me to…" chain-of-thought.
                 # prompt_echo=True strips Qwen-style "Thinking Process:" / leaked
                 # prompt prefixes. Both are safe here because this is a
@@ -233,6 +254,7 @@ async def dispatch_reminder(
                 # last surviving line — that's the actual warm sentence.
                 if synthesis:
                     import re as _re
+
                     # Tightened: target ACTUAL self-talk (model narrating what
                     # it'll do) rather than any first-person sentence. The old
                     # pattern killed legit warm sentences like "I'll see you
@@ -273,7 +295,11 @@ async def dispatch_reminder(
                         _re.IGNORECASE,
                     )
                     lines = [ln for ln in synthesis.splitlines() if ln.strip()]
-                    cleaned = [ln for ln in lines if not _reasoning.match(ln) and not _echo.match(ln)]
+                    cleaned = [
+                        ln
+                        for ln in lines
+                        if not _reasoning.match(ln) and not _echo.match(ln)
+                    ]
                     if cleaned:
                         # The model's actual answer is normally the LAST surviving
                         # line — reasoning leads, answer trails.
@@ -284,47 +310,79 @@ async def dispatch_reminder(
             logger.warning(f"Reminder LLM synthesis failed: {e}")
             synthesis = _SYNTH_FAILED_TAG
         if synthesis:
-            _s = synthesis.strip(); _low = _s.lower()
-            if (not _s or _low.startswith("error:") or _low.startswith("[error")
-                    or "operation failed" in _low
-                    or ("upstream" in _low and "failed" in _low)) and synthesis != _SYNTH_FAILED_TAG:
-                logger.warning(f"Reminder synthesis looked like an error, replacing: {_s[:120]!r}")
+            _s = synthesis.strip()
+            _low = _s.lower()
+            if (
+                not _s
+                or _low.startswith("error:")
+                or _low.startswith("[error")
+                or "operation failed" in _low
+                or ("upstream" in _low and "failed" in _low)
+            ) and synthesis != _SYNTH_FAILED_TAG:
+                logger.warning(
+                    f"Reminder synthesis looked like an error, replacing: {_s[:120]!r}"
+                )
                 synthesis = _SYNTH_FAILED_TAG
 
     email_sent = False
     email_error = ""
     if channel == "email":
         try:
-            from routes.email_routes import _get_email_config
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
             from datetime import datetime as _dt
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            from routes.email_routes import _get_email_config
+
             # `reminder_email_account_id` lets the user pick WHICH email
             # account to send reminders from (when they have several
             # configured in Integrations). Falls back to the default
             # account when no explicit choice is saved.
             _acc_id = (settings.get("reminder_email_account_id") or "").strip() or None
             cfg = _get_email_config(account_id=_acc_id, owner=owner or "")
-            if not (cfg.get("smtp_host") and cfg.get("smtp_user") and cfg.get("smtp_password")):
+            if not (
+                cfg.get("smtp_host")
+                and cfg.get("smtp_user")
+                and cfg.get("smtp_password")
+            ):
                 try:
-                    from core.database import SessionLocal as _SL, EmailAccount as _EA
                     from sqlalchemy import and_, or_
+
+                    from core.database import EmailAccount as _EA
+                    from core.database import SessionLocal as _SL
+
                     db = _SL()
                     try:
                         q = db.query(_EA).filter(_EA.enabled == True)  # noqa: E712
                         if owner:
-                            unowned = or_(_EA.owner == None, _EA.owner == "")  # noqa: E711
-                            same_mailbox = or_(_EA.imap_user == owner, _EA.from_address == owner)
-                            q = q.filter(or_(_EA.owner == owner, and_(unowned, same_mailbox)))
-                        for row in q.order_by(_EA.is_default.desc(), _EA.created_at.asc()).all():
-                            trial = _get_email_config(account_id=row.id, owner=owner or "")
-                            if trial.get("smtp_host") and trial.get("smtp_user") and trial.get("smtp_password"):
+                            unowned = or_(
+                                _EA.owner is None, _EA.owner == ""
+                            )  # noqa: E711
+                            same_mailbox = or_(
+                                _EA.imap_user == owner, _EA.from_address == owner
+                            )
+                            q = q.filter(
+                                or_(_EA.owner == owner, and_(unowned, same_mailbox))
+                            )
+                        for row in q.order_by(
+                            _EA.is_default.desc(), _EA.created_at.asc()
+                        ).all():
+                            trial = _get_email_config(
+                                account_id=row.id, owner=owner or ""
+                            )
+                            if (
+                                trial.get("smtp_host")
+                                and trial.get("smtp_user")
+                                and trial.get("smtp_password")
+                            ):
                                 cfg = trial
                                 break
                     finally:
                         db.close()
                 except Exception as _fallback_error:
-                    logger.debug(f"Reminder SMTP fallback lookup failed: {_fallback_error}")
+                    logger.debug(
+                        f"Reminder SMTP fallback lookup failed: {_fallback_error}"
+                    )
             from_addr = (cfg.get("from_address") or cfg.get("smtp_user") or "").strip()
             recipient = (settings.get("reminder_email_to") or "").strip() or from_addr
             # Loud diagnostic so we can see WHY a reminder didn't send (the
@@ -350,14 +408,20 @@ async def dispatch_reminder(
                 email_error = "Missing " + ", ".join(missing)
                 logger.warning(
                     "Reminder email not sent for note_id=%s account=%r: %s",
-                    note_id, cfg.get("account_name"), email_error,
+                    note_id,
+                    cfg.get("account_name"),
+                    email_error,
                 )
             else:
                 msg = MIMEMultipart("alternative")
                 msg["From"] = from_addr
                 msg["To"] = recipient
-                _t = title or 'Note'
-                _t = _t[len('Reminder:'):].strip() if _t.lower().startswith('reminder:') else _t
+                _t = title or "Note"
+                _t = (
+                    _t[len("Reminder:") :].strip()
+                    if _t.lower().startswith("reminder:")
+                    else _t
+                )
                 msg["Subject"] = f"Reminder (Odysseus): {_t}"
                 msg["Date"] = _dt.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
                 msg["X-Odysseus-Origin"] = "odysseus-ui"
@@ -379,9 +443,11 @@ async def dispatch_reminder(
 
                 def _smtp_send():
                     from routes.email_helpers import _send_smtp_message
+
                     _send_smtp_message(cfg, from_addr, [recipient], msg.as_string())
 
                 import asyncio as _aio
+
                 await _aio.to_thread(_smtp_send)
                 email_sent = True
         except Exception as e:
@@ -392,9 +458,12 @@ async def dispatch_reminder(
     webhook_error = ""
     if channel == "webhook":
         try:
-            import httpx
             import json as _wjson
+
+            import httpx
+
             from src.integrations import load_integrations
+
             # Built-in payload defaults for known presets so users don't have
             # to configure a template just to use a standard service.
             _PRESET_TEMPLATE_DEFAULTS = {
@@ -406,18 +475,25 @@ async def dispatch_reminder(
                 webhook_error = "No webhook integration selected"
             else:
                 intg = next(
-                    (i for i in load_integrations()
-                     if i.get("id") == intg_id and i.get("base_url")),
+                    (
+                        i
+                        for i in load_integrations()
+                        if i.get("id") == intg_id and i.get("base_url")
+                    ),
                     None,
                 )
                 if not intg:
-                    webhook_error = f"Integration {intg_id!r} not found or missing base URL"
+                    webhook_error = (
+                        f"Integration {intg_id!r} not found or missing base URL"
+                    )
                 else:
                     # Fall back to a built-in default for known presets so
                     # users don't have to configure a template for standard
                     # services like Discord.
                     if not template:
-                        template = _PRESET_TEMPLATE_DEFAULTS.get(intg.get("preset", ""), "")
+                        template = _PRESET_TEMPLATE_DEFAULTS.get(
+                            intg.get("preset", ""), ""
+                        )
                     if not template:
                         webhook_error = "No payload template configured"
                     else:
@@ -427,7 +503,9 @@ async def dispatch_reminder(
                         msg = (synthesis or note_body or title or "Reminder")[:4000]
                         _t = _wjson.dumps(title or "Reminder")[1:-1]
                         _m = _wjson.dumps(msg)[1:-1]
-                        rendered = template.replace("{{title}}", _t).replace("{{message}}", _m)
+                        rendered = template.replace("{{title}}", _t).replace(
+                            "{{message}}", _m
+                        )
                         hdrs = {"Content-Type": "application/json"}
                         api_key = intg.get("api_key", "")
                         auth_type = (intg.get("auth_type") or "none").lower()
@@ -435,7 +513,9 @@ async def dispatch_reminder(
                             if auth_type == "bearer":
                                 hdrs["Authorization"] = f"Bearer {api_key}"
                             elif auth_type == "header":
-                                hdrs[intg.get("auth_header") or "Authorization"] = api_key
+                                hdrs[intg.get("auth_header") or "Authorization"] = (
+                                    api_key
+                                )
                         url = intg["base_url"].rstrip("/")
                         # SSRF guard — matches the pattern used by webhook_routes,
                         # CalDAV, search, and embeddings. Blocks link-local / metadata
@@ -443,17 +523,28 @@ async def dispatch_reminder(
                         # REMINDER_WEBHOOK_BLOCK_PRIVATE_IPS=true to also block
                         # RFC-1918 ranges for locked-down deployments.
                         import os as _os
+
                         from src.url_safety import check_outbound_url as _chk
-                        _block = _os.getenv("REMINDER_WEBHOOK_BLOCK_PRIVATE_IPS", "false").lower() == "true"
+
+                        _block = (
+                            _os.getenv(
+                                "REMINDER_WEBHOOK_BLOCK_PRIVATE_IPS", "false"
+                            ).lower()
+                            == "true"
+                        )
                         _ok, _reason = _chk(url, block_private=_block)
                         if not _ok:
                             webhook_error = f"Webhook URL rejected: {_reason}"
                         else:
                             async with httpx.AsyncClient(timeout=10.0) as client:
-                                resp = await client.post(url, content=rendered.encode(), headers=hdrs)
+                                resp = await client.post(
+                                    url, content=rendered.encode(), headers=hdrs
+                                )
                                 webhook_sent = resp.is_success
                                 if not webhook_sent:
-                                    webhook_error = f"Webhook returned HTTP {resp.status_code}"
+                                    webhook_error = (
+                                        f"Webhook returned HTTP {resp.status_code}"
+                                    )
         except Exception as e:
             webhook_error = str(e) or e.__class__.__name__
             logger.warning(f"Reminder webhook send failed: {e}")
@@ -462,23 +553,36 @@ async def dispatch_reminder(
     ntfy_error = ""
     if channel == "ntfy":
         try:
-            from src.integrations import load_integrations
             import httpx
+
+            from src.integrations import load_integrations
+
             intg = next(
-                (i for i in load_integrations()
-                 if i.get("preset") == "ntfy" and i.get("enabled", True) and i.get("base_url")),
+                (
+                    i
+                    for i in load_integrations()
+                    if i.get("preset") == "ntfy"
+                    and i.get("enabled", True)
+                    and i.get("base_url")
+                ),
                 None,
             )
             if intg:
                 base = intg["base_url"].rstrip("/")
                 topic = settings.get("reminder_ntfy_topic") or "reminders"
                 ntfy_body = synthesis or note_body or title
-                hdrs = {"Title": title or "Reminder", "Priority": "high", "Tags": "bell"}
+                hdrs = {
+                    "Title": title or "Reminder",
+                    "Priority": "high",
+                    "Tags": "bell",
+                }
                 api_key = intg.get("api_key", "")
                 if api_key:
                     hdrs["Authorization"] = f"Bearer {api_key}"
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post(f"{base}/{topic}", content=ntfy_body, headers=hdrs)
+                    resp = await client.post(
+                        f"{base}/{topic}", content=ntfy_body, headers=hdrs
+                    )
                     ntfy_sent = resp.is_success
                     if not ntfy_sent:
                         ntfy_error = f"ntfy returned HTTP {resp.status_code}"
@@ -494,7 +598,7 @@ async def dispatch_reminder(
     # popups. Lets the user see reminders inside the app even when the
     # primary channel is email/ntfy and the tab is open.
     browser_sent = False
-    local_browser_sent = (not queue_browser and channel == "browser")
+    local_browser_sent = not queue_browser and channel == "browser"
     if queue_browser and _scheduler_ref is not None:
         try:
             _scheduler_ref.add_notification(
@@ -502,7 +606,8 @@ async def dispatch_reminder(
                 status="success",
                 task_id=f"reminder-{note_id}",
                 owner=owner or None,
-                body=(synthesis or note_body or title or "").strip()[:500] or "Reminder",
+                body=(synthesis or note_body or title or "").strip()[:500]
+                or "Reminder",
             )
             browser_sent = True
         except Exception as _e:
@@ -513,23 +618,38 @@ async def dispatch_reminder(
     # second send for the same note within 25 min. Without this, a note
     # whose due_date fires while the user has the app open got TWO emails
     # (frontend-fired here + background-fired by ping_notes 0–5 min later).
-    if (email_sent or ntfy_sent or webhook_sent or browser_sent or local_browser_sent) and note_id:
+    if (
+        email_sent or ntfy_sent or webhook_sent or browser_sent or local_browser_sent
+    ) and note_id:
         try:
             import json as _json
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
             from pathlib import Path as _P
+
             # Per-owner cache so the scanner's prune step on user A's run
             # doesn't drop user B's just-fired entry (review C4).
             _STATE = cache_path
             if _STATE is None:
-                _slug = "".join(c if (c.isalnum() or c in "-_.@") else "_" for c in (owner or "default"))
+                _slug = "".join(
+                    c if (c.isalnum() or c in "-_.@") else "_"
+                    for c in (owner or "default")
+                )
                 _STATE = _P(f"data/note_pings_{_slug}.json")
             _STATE.parent.mkdir(parents=True, exist_ok=True)
             try:
-                _cache = cache or (_json.loads(_STATE.read_text(encoding="utf-8")) if _STATE.exists() else {})
+                _cache = cache or (
+                    _json.loads(_STATE.read_text(encoding="utf-8"))
+                    if _STATE.exists()
+                    else {}
+                )
             except Exception:
                 _cache = {}
-            sent_channel = "email" if email_sent else "ntfy" if ntfy_sent else "webhook" if webhook_sent else "browser"
+            sent_channel = (
+                "email"
+                if email_sent
+                else "ntfy" if ntfy_sent else "webhook" if webhook_sent else "browser"
+            )
             _cache[cache_key or str(note_id)] = {
                 "at": _dt.now(_tz.utc).isoformat(),
                 "channel": sent_channel,
@@ -555,6 +675,7 @@ async def dispatch_reminder(
 # Router factory
 # ---------------------------------------------------------------------------
 
+
 def setup_note_routes(task_scheduler=None):
     # Expose the scheduler to module-level `dispatch_reminder` so reminders
     # can also push to the in-app notification queue (the polling system
@@ -578,6 +699,7 @@ def setup_note_routes(task_scheduler=None):
             return True
         try:
             from core.auth import AuthManager
+
             auth_mgr = getattr(request.app.state, "auth_manager", None) or AuthManager()
             if not getattr(auth_mgr, "is_configured", True):
                 return True
@@ -601,14 +723,16 @@ def setup_note_routes(task_scheduler=None):
             if archived is not None:
                 q = q.filter(Note.archived == archived)
             else:
-                q = q.filter(Note.archived == False)
+                q = q.filter(not Note.archived)
             if label:
                 q = q.filter(Note.label == label)
             # Archived view: most recently archived first. Active view: pin + manual order.
             if archived is True:
                 notes = q.order_by(Note.updated_at.desc()).all()
             else:
-                notes = q.order_by(Note.pinned.desc(), Note.sort_order.asc(), Note.updated_at.desc()).all()
+                notes = q.order_by(
+                    Note.pinned.desc(), Note.sort_order.asc(), Note.updated_at.desc()
+                ).all()
             return {"notes": [_note_to_dict(n) for n in notes]}
         finally:
             db.close()
@@ -802,6 +926,7 @@ def setup_note_routes(task_scheduler=None):
         """
         # Gate against anonymous callers — LLM synthesis can burn tokens.
         from src.auth_helpers import require_user as _ru
+
         user = _ru(request)
         body = await request.json()
         note_id = str(body.get("note_id") or "").strip()
@@ -822,9 +947,13 @@ def setup_note_routes(task_scheduler=None):
             if body.get("channel"):
                 _override["reminder_channel"] = body["channel"]
             if body.get("webhook_integration_id"):
-                _override["reminder_webhook_integration_id"] = body["webhook_integration_id"]
+                _override["reminder_webhook_integration_id"] = body[
+                    "webhook_integration_id"
+                ]
             if body.get("webhook_payload_template"):
-                _override["reminder_webhook_payload_template"] = body["webhook_payload_template"]
+                _override["reminder_webhook_payload_template"] = body[
+                    "webhook_payload_template"
+                ]
         else:
             db = SessionLocal()
             try:
@@ -838,7 +967,9 @@ def setup_note_routes(task_scheduler=None):
                 db.close()
 
         return await dispatch_reminder(
-            title=title, note_body=note_body, note_id=note_id,
+            title=title,
+            note_body=note_body,
+            note_id=note_id,
             owner=caller or "",
             queue_browser=False,
             settings_override=_override or None,
@@ -861,6 +992,7 @@ def setup_note_routes(task_scheduler=None):
         # explicit and gated on AuthManager.is_configured.
         try:
             from core.auth import AuthManager
+
             _allow_null = not AuthManager().is_configured
         except Exception:
             _allow_null = False
@@ -870,7 +1002,9 @@ def setup_note_routes(task_scheduler=None):
                 q = db.query(Note).filter(Note.id == nid)
                 if user is not None:
                     if _allow_null:
-                        q = q.filter((Note.owner == user) | (Note.owner == None))  # noqa: E711
+                        q = q.filter(
+                            (Note.owner == user) | (Note.owner is None)
+                        )  # noqa: E711
                     else:
                         q = q.filter(Note.owner == user)
                 note = q.first()

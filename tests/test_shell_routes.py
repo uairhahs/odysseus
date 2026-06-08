@@ -114,11 +114,11 @@ class TestFindLineBreak:
         assert _find_line_break(b"a\nb\nc") == (1, 1)
 
     def test_cr_before_newline_not_adjacent(self):
-        """\\r at pos 2, \\n at pos 5 — not CRLF, should return \\r pos."""
+        r"""\r at pos 2, \n at pos 5 — not CRLF, should return \r pos."""
         assert _find_line_break(b"ab\rcd\n") == (2, 1)
 
     def test_newline_before_cr(self):
-        """\\n comes before \\r — should return \\n."""
+        r"""\n comes before \r — should return \n."""
         assert _find_line_break(b"ab\ncd\r") == (2, 1)
 
 

@@ -17,6 +17,8 @@ import logging
 from src import bg_jobs
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _monitor_task = None
 POLL_INTERVAL_S = 5
@@ -30,11 +32,14 @@ async def _drain_agent(sess, messages):
     (final_prose, tool_events) — tool_events in the same shape the live chat
     saves, so the frontend rebuilds them as standard agent-thread tool cards."""
     from src.agent_loop import stream_agent_loop
+
     full = ""
     tool_events = []
     round_num = 1
     async for chunk in stream_agent_loop(
-        sess.endpoint_url, sess.model, messages,
+        sess.endpoint_url,
+        sess.model,
+        messages,
         headers=getattr(sess, "headers", None),
         context_length=getattr(sess, "context_length", 0) or 0,
         session_id=sess.id,
@@ -60,13 +65,15 @@ async def _drain_agent(sess, messages):
             round_num = d.get("round", round_num)
         elif d.get("type") == "tool_output":
             # Mirror the live chat's tool_event shape (chat_routes / chatRenderer).
-            tool_events.append({
-                "round": round_num,
-                "tool": d.get("tool"),
-                "command": d.get("command"),
-                "output": d.get("output"),
-                "exit_code": d.get("exit_code"),
-            })
+            tool_events.append(
+                {
+                    "round": round_num,
+                    "tool": d.get("tool"),
+                    "command": d.get("command"),
+                    "output": d.get("output"),
+                    "exit_code": d.get("exit_code"),
+                }
+            )
     return full, tool_events
 
 
@@ -74,8 +81,8 @@ async def _run_followup(rec: dict) -> bool:
     """Re-invoke the agent in the job's session with the result. Returns True
     if the follow-up completed (or there's nothing to do) — i.e. it's safe to
     mark followed_up. Returns False to retry on the next tick."""
-    from src.ai_interaction import get_session_manager
     from core.models import ChatMessage
+    from src.ai_interaction import get_session_manager
 
     sm = get_session_manager()
     if not sm:
@@ -84,7 +91,11 @@ async def _run_followup(rec: dict) -> bool:
     if not sess:
         # Session was deleted — nothing to continue. Consider it handled so we
         # don't retry forever.
-        logger.info("bg-followup: session %s gone for job %s — skipping", rec.get("session_id"), rec.get("id"))
+        logger.info(
+            "bg-followup: session %s gone for job %s — skipping",
+            rec.get("session_id"),
+            rec.get("id"),
+        )
         return True
 
     # Don't write into a session that's mid-stream. The followup appends to
@@ -93,11 +104,21 @@ async def _run_followup(rec: dict) -> bool:
     # Defer — return False so we retry on the next tick once the turn finishes.
     try:
         from src import agent_runs
+
         if agent_runs.is_active(sess.id):
-            logger.info("bg-followup: session %s busy (live turn) — deferring job %s", sess.id, rec.get("id"))
+            logger.info(
+                "bg-followup: session %s busy (live turn) — deferring job %s",
+                sess.id,
+                rec.get("id"),
+            )
             return False
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "bg-followup: error checking active session %s: %s",
+            sess.id,
+            e,
+            exc_info=True,
+        )
 
     inject = (
         f"[Background job {rec['id']} finished]\n\n"
@@ -115,18 +136,27 @@ async def _run_followup(rec: dict) -> bool:
     # rebuilds into the usual agent-thread tool cards (chatRenderer:1494). The
     # trigger isn't saved as its own message (it'd be an out-of-place bubble);
     # the raw job output is stashed in metadata for traceability instead.
-    sm.add_message(sess.id, ChatMessage(
-        "assistant", full,
-        metadata={
-            "tool_events": tool_events,
-            "model": sess.model,
-            "bg_job_id": rec["id"],
-            "bg_result": bg_jobs.result_text(rec)[:4000],
-        },
-    ))
+    sm.add_message(
+        sess.id,
+        ChatMessage(
+            "assistant",
+            full,
+            metadata={
+                "tool_events": tool_events,
+                "model": sess.model,
+                "bg_job_id": rec["id"],
+                "bg_result": bg_jobs.result_text(rec)[:4000],
+            },
+        ),
+    )
     sm.save_sessions()
-    logger.info("bg-followup: auto-continued session %s for job %s (%d chars, %d tools)",
-                sess.id, rec["id"], len(full), len(tool_events))
+    logger.info(
+        "bg-followup: auto-continued session %s for job %s (%d chars, %d tools)",
+        sess.id,
+        rec["id"],
+        len(full),
+        len(tool_events),
+    )
     return True
 
 
@@ -139,9 +169,14 @@ async def _loop():
                         bg_jobs.mark_followed_up(rec["id"])
                 except Exception as e:
                     # Idempotent: leave followed_up=False so the next tick retries.
-                    logger.warning("bg-followup failed for %s (will retry): %s", rec.get("id"), e)
+                    logger.warning(
+                        "bg-followup failed for %s (will retry): %s",
+                        rec.get("id"),
+                        e,
+                        exc_info=True,
+                    )
         except Exception as e:
-            logger.warning("bg-monitor tick error: %s", e)
+            logger.warning("bg-monitor tick error: %s", e, exc_info=True)
         await asyncio.sleep(POLL_INTERVAL_S)
 
 

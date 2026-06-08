@@ -15,6 +15,8 @@ from src.llm_core import llm_call_async
 from src.model_context import estimate_tokens, get_context_length
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _content_as_text(content: Any) -> str:

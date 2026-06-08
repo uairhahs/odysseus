@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from src.model_context import DEFAULT_CONTEXT, get_context_length
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 class LLMConfig:
@@ -1029,7 +1031,7 @@ def _configured_cached_model_ids(endpoint_url: str) -> List[str]:
         return []
     db = SessionLocal()
     try:
-        rows = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
+        rows = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
         for ep in rows:
             if _model_list_base(getattr(ep, "base_url", "")) != target:
                 continue
@@ -1045,7 +1047,8 @@ def _configured_cached_model_ids(endpoint_url: str) -> List[str]:
     finally:
         try:
             db.close()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error closing DB session: {e}")
             pass
     return []
 
@@ -1096,7 +1099,8 @@ def list_model_ids(
                     for m in (r.json().get("models") or [])
                     if m.get("name") or m.get("model")
                 ]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not fetch models from {base_chat_url}: {e}")
             pass
         return []
 
@@ -1206,7 +1210,7 @@ def llm_call(
         note_model_activity(target_url, model)
         r = httpx.post(target_url, headers=h, json=payload, timeout=timeout)
     except Exception as e:
-        raise HTTPException(502, f"POST {target_url} failed: {e}")
+        raise HTTPException(502, f"POST {target_url} failed: {e}") from e
     if not r.is_success:
         raise HTTPException(502, f"Upstream {target_url} -> {r.status_code}: {r.text}")
     data = r.json()
@@ -1220,10 +1224,10 @@ def llm_call(
             response = msg.get("content") or msg.get("reasoning_content") or ""
         _set_cached_response(cache_key, response)
         return response
-    except Exception:
+    except Exception as e:
         raise HTTPException(
             502, f"Unexpected schema from {target_url}: {str(data)[:400]}"
-        )
+        ) from e
 
 
 def _dedupe_candidates(candidates):
@@ -1415,10 +1419,10 @@ async def llm_call_async(
                     response = msg.get("content") or msg.get("reasoning_content") or ""
                 _set_cached_response(cache_key, response)
                 return response
-            except Exception:
+            except Exception as e:
                 raise HTTPException(
                     502, f"Unexpected schema from {target_url}: {str(data)[:400]}"
-                )
+                ) from e
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             _cooled = _mark_host_dead(target_url)
             duration = time.time() - start
@@ -1431,7 +1435,9 @@ async def llm_call_async(
                 f"LLM async connect to {target_url} failed after {duration:.2f}s: {e}{_tail}"
             )
             if _cooled or attempt >= max_retries:
-                raise HTTPException(503, f"Cannot reach {_host_key(target_url)}: {e}")
+                raise HTTPException(
+                    503, f"Cannot reach {_host_key(target_url)}: {e}"
+                ) from e
             await asyncio.sleep(LLMConfig.RETRY_DELAY)
         except (httpx.RequestError, httpx.HTTPStatusError) as e:
             duration = time.time() - start
@@ -1441,7 +1447,7 @@ async def llm_call_async(
             if attempt >= max_retries:
                 raise HTTPException(
                     502, f"POST {target_url} failed after {max_retries} attempts: {e}"
-                )
+                ) from e
             await asyncio.sleep(LLMConfig.RETRY_DELAY)
 
 
@@ -2107,7 +2113,8 @@ def _summarize_stream_error(err_chunk: Optional[str]) -> str:
                 status = j.get("status")
                 msg = (f"HTTP {status}: " if status else "") + str(txt)
                 return msg[:200].strip() or "primary model failed"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Error summarizing stream error chunk: {e}")
         pass
     return "primary model failed"
 

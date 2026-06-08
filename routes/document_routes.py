@@ -1,4 +1,4 @@
-"""Document routes — CRUD for living documents with version history."""
+# Document routes — CRUD for living documents with version history.
 
 import logging
 import uuid
@@ -11,9 +11,25 @@ from sqlalchemy import case, func, or_
 from core.database import Document, DocumentVersion
 from core.database import Session as DbSession
 from core.database import SessionLocal
+from routes.document_helpers import (
+    _PDF_RENDER_SCALE,
+    DocumentCreate,
+    DocumentPatch,
+    DocumentUpdate,
+    _assert_pdf_marker_upload_owned,
+    _derive_title,
+    _doc_to_dict,
+    _owner_session_filter,
+    _resolve_user_upload_path,
+    _slug,
+    _verify_doc_owner,
+    _version_to_dict,
+)
 from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _get_session_or_404(db, session_id: str, user: Optional[str]):
@@ -52,22 +68,6 @@ def _library_language_for_document(doc: Document) -> str:
     if find_source_upload_id(doc.current_content or ""):
         return "pdf"
     return doc.language or "text"
-
-
-from routes.document_helpers import (
-    _PDF_RENDER_SCALE,
-    DocumentCreate,
-    DocumentPatch,
-    DocumentUpdate,
-    _assert_pdf_marker_upload_owned,
-    _derive_title,
-    _doc_to_dict,
-    _owner_session_filter,
-    _resolve_user_upload_path,
-    _slug,
-    _verify_doc_owner,
-    _version_to_dict,
-)
 
 
 def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
@@ -170,7 +170,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error(f"Failed to create document: {e}")
-            raise HTTPException(500, f"Failed to create document: {e}")
+            raise HTTPException(500, f"Failed to create document: {e}") from e
         finally:
             db.close()
 
@@ -221,7 +221,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             raise
         except Exception as e:
             logger.error(f"PDF import save_upload failed: {e}")
-            raise HTTPException(500, f"Upload failed: {e}")
+            raise HTTPException(500, f"Upload failed: {e}") from e
 
         upload_id = meta["id"]
         pdf_path = _locate_current_user_upload(request, upload_id, user)
@@ -307,9 +307,9 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             # Archived view shows ONLY archived docs; the default view excludes
             # them (NULL = legacy rows that predate the column = not archived).
             _arch_cond = (
-                (Document.archived == True)
+                (Document.archived)
                 if archived
-                else or_(Document.archived == False, Document.archived.is_(None))
+                else or_(not Document.archived, Document.archived.is_(None))
             )
             # Language facet counts (owner-filtered). PDF documents are stored
             # as markdown wrappers, so group by the library display language
@@ -317,7 +317,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             lang_q = (
                 db.query(library_language_expr, func.count(Document.id))
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active == True)
+                .filter(Document.is_active)
                 .filter(_arch_cond)
             )
             lang_q = _owner_session_filter(lang_q, user)
@@ -328,7 +328,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             sc_q = (
                 db.query(func.count(func.distinct(Document.session_id)))
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active == True)
+                .filter(Document.is_active)
                 .filter(_arch_cond)
             )
             sc_q = _owner_session_filter(sc_q, user)
@@ -338,7 +338,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             q = (
                 db.query(Document, DbSession.name)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active == True)
+                .filter(Document.is_active)
                 .filter(_arch_cond)
             )
             q = _owner_session_filter(q, user)
@@ -361,7 +361,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if language:
                 if language == "text":
                     q = q.filter(
-                        (Document.language == None) | (Document.language == "text")
+                        (Document.language is None) | (Document.language == "text")
                     )
                 elif language == "pdf":
                     q = q.filter(pdf_marker_cond)
@@ -417,7 +417,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             }
         except Exception as e:
             logger.error(f"Failed to fetch document library: {e}")
-            raise HTTPException(500, f"Failed to fetch document library: {e}")
+            raise HTTPException(500, f"Failed to fetch document library: {e}") from e
         finally:
             db.close()
 
@@ -512,7 +512,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 body_text = strip_pdf_content_marker(_process_pdf(pdf_path, owner=user))
             except Exception as e:
                 logger.error(f"extract_pdf_text failed for {pdf_path}: {e}")
-                raise HTTPException(500, f"Extraction failed: {e}")
+                raise HTTPException(500, f"Extraction failed: {e}") from e
 
             if not body_text:
                 return {
@@ -701,7 +701,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, f"Failed to update document: {e}")
+            raise HTTPException(500, f"Failed to update document: {e}") from e
         finally:
             db.close()
 
@@ -734,7 +734,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                         from src.tool_implementations import clear_active_document
 
                         clear_active_document(doc_id)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Failed to clear active document {doc_id}: {e}")
                         pass
             db.commit()
             db.refresh(doc)
@@ -743,7 +744,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -764,15 +765,15 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 from src.tool_implementations import clear_active_document
 
                 clear_active_document(doc_id)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to clear active document {doc_id}: {e}")
             db.commit()
             return {"status": "deleted", "id": doc_id}
         except HTTPException:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -875,7 +876,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(500, str(e))
+            raise HTTPException(500, str(e)) from e
         finally:
             db.close()
 
@@ -889,8 +890,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             q = (
                 db.query(Document)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active == True)
-                .filter((Document.archived == False) | (Document.archived.is_(None)))
+                .filter(Document.is_active)
+                .filter((not Document.archived) | (Document.archived.is_(None)))
             )
             q = _owner_session_filter(q, user)
             docs = q.all()
@@ -902,6 +903,21 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             import re as _re
 
             from src.document_actions import _JUNK_TITLES
+
+            _HEADER_RE = _re.compile(
+                r"^(to|from|cc|bcc|subject|reply-to):\s*(.*)$", _re.I
+            )
+            _PLACEHOLDER_VALS = {
+                "",
+                "empty",
+                "(empty)",
+                "-",
+                "—",
+                "none",
+                "n/a",
+                "na",
+                "tbd",
+            }
 
             to_delete = []
             for doc in docs:
@@ -920,20 +936,6 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 # is a header label (To:/From:/Subject:/...) with no real
                 # value (blank, "empty", "(empty)", "-", "none", "n/a").
                 _is_email_stub = False
-                _HEADER_RE = _re.compile(
-                    r"^(to|from|cc|bcc|subject|reply-to):\s*(.*)$", _re.I
-                )
-                _PLACEHOLDER_VALS = {
-                    "",
-                    "empty",
-                    "(empty)",
-                    "-",
-                    "—",
-                    "none",
-                    "n/a",
-                    "na",
-                    "tbd",
-                }
                 if (
                     title in ("new email", "new mail", "new message")
                     or doc.language == "email"
@@ -991,9 +993,9 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             inactive_q = (
                 db.query(Document)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active == False)
+                .filter(not Document.is_active)
                 .filter(
-                    (Document.current_content == None)
+                    (Document.current_content is None)
                     | (Document.current_content == "")
                 )
             )
@@ -1012,7 +1014,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error(f"Document tidy failed: {e}")
-            raise HTTPException(500, f"Tidy failed: {e}")
+            raise HTTPException(500, f"Tidy failed: {e}") from e
         finally:
             db.close()
 
@@ -1038,8 +1040,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             q = (
                 db.query(Document)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active == True)
-                .filter((Document.archived == False) | (Document.archived.is_(None)))
+                .filter(Document.is_active)
+                .filter((not Document.archived) | (Document.archived.is_(None)))
             )
             q = _owner_session_filter(q, user)
             docs = q.all()
@@ -1123,7 +1125,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         except Exception as e:
             db.rollback()
             logger.error(f"AI tidy failed: {e}")
-            raise HTTPException(500, f"AI tidy failed: {e}")
+            raise HTTPException(500, f"AI tidy failed: {e}") from e
         finally:
             db.close()
 
@@ -1367,7 +1369,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         try:
             url, model_id, headers = _resolve_vl_model(vl_model, owner=user)
         except Exception as e:
-            raise HTTPException(503, f"No vision model available: {e}")
+            raise HTTPException(503, f"No vision model available: {e}") from e
 
         system_prompt = (
             "You analyze rendered PDF page images and propose values to fill in. "
@@ -1445,7 +1447,10 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                         w = float(item.get("w", 0))
                         h = float(item.get("h", 0))
                         value = str(item.get("value", "") or "")
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to parse annotation on page {page_index + 1}: {e}"
+                        )
                         continue
                     # Clamp + reject zero-size entries
                     if w <= 0.5 or h <= 0.3:
@@ -1530,7 +1535,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             except Exception as e:
                 logger.error(f"render_pdf fill_fields failed for {doc_id}: {e}")
                 _cleanup_temps()
-                raise HTTPException(500, f"PDF render failed: {e}")
+                raise HTTPException(500, f"PDF render failed: {e}") from e
 
             annotations = parse_markdown_annotations(doc.current_content or "")
             if annotations:
@@ -1568,6 +1573,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                     out_path = annotated_path
                 except Exception as e:
                     logger.error(f"stamp_annotations (render) failed for {doc_id}: {e}")
+                    _cleanup_temps()
+                    raise HTTPException(500, f"PDF render failed: {e}") from e
 
             return FileResponse(
                 out_path,
@@ -1675,7 +1682,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             except Exception as e:
                 logger.error(f"fill_fields failed for doc {doc_id}: {e}")
                 _cleanup_temps()
-                raise HTTPException(500, f"PDF fill failed: {e}")
+                raise HTTPException(500, f"PDF fill failed: {e}") from e
 
             out_path = filled_path
             if stamps:
@@ -1829,8 +1836,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                         continue
                     try:
                         stamps[fname] = base64.b64decode(s.data_png)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to decode signature {sid}: {e}")
 
             import os
 
@@ -1871,8 +1878,10 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                     for s in sig_rows:
                         try:
                             ann_signature_pngs[s.id] = base64.b64decode(s.data_png)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to decode annotation signature {s.id}: {e}"
+                            )
                 annotated_path = tempfile.NamedTemporaryFile(
                     suffix=".pdf", delete=False
                 ).name
@@ -1908,8 +1917,12 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 from routes.email_routes import _decode_header, _imap
             except Exception:
                 _imap = None
-                _decode_header = lambda x: x or ""
-                _q = lambda x: x or ""
+
+                def _decode_header(x):
+                    return x or ""
+
+                def _q(x):
+                    return x or ""
 
             to_addr = ""
             from_name = ""

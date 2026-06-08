@@ -5,7 +5,15 @@ import asyncio
 import sys
 from unittest.mock import MagicMock
 
-import pytest
+import src.context_compactor as cc
+from src.context_compactor import (
+    COMPACT_THRESHOLD,
+    SELF_SUMMARY_SYSTEM_PROMPT,
+    SUMMARY_MAX_TOKENS,
+    _content_as_text,
+    maybe_compact,
+    trim_for_context,
+)
 
 # Mock heavy dependencies before importing
 for mod in [
@@ -22,16 +30,6 @@ for mod in [
 ]:
     if mod not in sys.modules:
         sys.modules[mod] = MagicMock()
-
-import src.context_compactor as cc
-from src.context_compactor import (
-    COMPACT_THRESHOLD,
-    SELF_SUMMARY_SYSTEM_PROMPT,
-    SUMMARY_MAX_TOKENS,
-    _content_as_text,
-    maybe_compact,
-    trim_for_context,
-)
 
 
 class TestCompactThreshold:

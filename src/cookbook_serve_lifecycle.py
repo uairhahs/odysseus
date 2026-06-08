@@ -23,6 +23,8 @@ import httpx
 from core.constants import DATA_DIR, internal_api_base
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _internal_headers() -> dict:

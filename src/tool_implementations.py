@@ -1,9 +1,7 @@
-"""
-tool_implementations.py
+# tool_implementations.py
 
-Extracted tool implementation functions (do_* and helpers) from agent_tools.py.
-These handle the actual execution logic for each tool type.
-"""
+# Extracted tool implementation functions (do_* and helpers) from agent_tools.py.
+# These handle the actual execution logic for each tool type.
 
 import asyncio
 import json
@@ -29,6 +27,8 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
 
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -49,7 +49,7 @@ def _parse_tool_args(content):
         try:
             args = json.loads(content) if content.strip() else {}
         except (json.JSONDecodeError, TypeError) as e:
-            raise ValueError(str(e))
+            raise ValueError(str(e)) from e
     elif isinstance(content, dict):
         args = content
     else:
@@ -129,7 +129,7 @@ def _get_owned_document(
 ):
     q = db.query(Document).filter(Document.id == doc_id)
     if active_only:
-        q = q.filter(Document.is_active == True)
+        q = q.filter(Document.is_active)
     q = _owned_document_query(q, Document, owner)
     return q.first()
 
@@ -139,7 +139,7 @@ def _most_recent_owned_document(
 ):
     q = db.query(Document)
     if active_only:
-        q = q.filter(Document.is_active == True)
+        q = q.filter(Document.is_active)
     q = _owned_document_query(q, Document, owner)
     return q.order_by(Document.updated_at.desc()).first()
 
@@ -181,8 +181,8 @@ def _sniff_doc_language(text: str) -> str:
         try:
             _json.loads(s)
             return "json"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"JSON parsing failed: {e}")
     # Shebang
     first = s.split("\n", 1)[0].strip().lower()
     if first.startswith("#!"):
@@ -387,7 +387,7 @@ async def do_create_document(
 
             fire_event("document_created", _owner)
         except Exception:
-            logger.debug("document_created event dispatch failed", exc_info=True)
+            logger.warning("document_created event dispatch failed", exc_info=True)
 
         return {
             "action": "create",
@@ -835,7 +835,7 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
 
             fire_event("skill_added", owner)
         except Exception:
-            logger.debug("skill_added event dispatch failed", exc_info=True)
+            logger.warning("skill_added event dispatch failed", exc_info=True)
         verify_hint = ""
         if entry.get("status") == "draft":
             verify_hint = (
@@ -1429,8 +1429,8 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
             if mcp:
                 try:
                     await mcp.disconnect_server(sid)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"MCP disconnect failed for {name}: {e}")
             db.delete(srv)
             db.commit()
             return {"response": f"Deleted MCP server '{name}'", "exit_code": 0}
@@ -1734,7 +1734,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
 
     try:
         if action == "list":
-            q = db.query(Document).filter(Document.is_active == True)
+            q = db.query(Document).filter(Document.is_active)
             q = _owned_document_query(q, Document, owner)
             if args.get("search"):
                 q = q.filter(Document.title.ilike(f"%{args['search']}%"))
@@ -1981,9 +1981,7 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             if not wanted_slug:
                 return None
             best = None
-            for ep in (
-                db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
-            ):
+            for ep in db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all():
                 raw_models = []
                 try:
                     raw_models = _json.loads(ep.cached_models or "[]") or []
@@ -3173,7 +3171,7 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
                 else {}
             )
     except Exception as e:
-        logger.debug(f"cookbook env lookup failed for host={host!r}: {e}")
+        logger.warning(f"cookbook env lookup failed for host={host!r}: {e}")
         return {}
     if not isinstance(state, dict):
         return {}
@@ -3250,7 +3248,7 @@ async def _cookbook_register_task(
                 else {}
             )
     except Exception as e:
-        logger.debug(f"cookbook state read failed: {e}")
+        logger.warning(f"cookbook state read failed: {e}")
         return False
     if not isinstance(state, dict):
         state = {}
@@ -3298,7 +3296,7 @@ async def _cookbook_register_task(
             )
         return r.status_code < 400
     except Exception as e:
-        logger.debug(f"cookbook state write failed: {e}")
+        logger.warning(f"cookbook state write failed: {e}")
         return False
 
 
@@ -3620,7 +3618,6 @@ def _scan_running_model_processes() -> List[Dict[str, Any]]:
     [] on other platforms or if /proc isn't accessible. Each match returns
     a dict shaped like a cookbook task so the caller can merge cleanly.
     """
-    import os
 
     if not os.path.isdir("/proc"):
         return []
@@ -3684,7 +3681,7 @@ def _scan_running_model_processes() -> List[Dict[str, Any]]:
                     )
                     break
     except Exception as e:
-        logger.debug(f"_scan_running_model_processes failed: {e}")
+        logger.warning(f"_scan_running_model_processes failed: {e}")
     return out
 
 
@@ -3892,7 +3889,7 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
             )
             cookbook_tasks = (resp.json() or {}).get("tasks") or []
     except Exception as e:
-        logger.debug(f"cookbook tasks/status fetch failed: {e}")
+        logger.warning(f"cookbook tasks/status fetch failed: {e}")
 
     # Local process scan — runs in a worker thread so it doesn't block.
     external = await asyncio.to_thread(_scan_running_model_processes)
@@ -4036,7 +4033,7 @@ async def _cookbook_kill_session(
             )
             state = resp.json() or {}
     except Exception as e:
-        logger.debug(f"cookbook state lookup failed for {session_id}: {e}")
+        logger.warning(f"cookbook state lookup failed for {session_id}: {e}")
     if not isinstance(state, dict):
         state = {}
     matched = None
@@ -4107,7 +4104,7 @@ async def _cookbook_kill_session(
                         headers=headers,
                     )
             except Exception as e:
-                logger.debug(f"failed to mark {session_id} stopped in state: {e}")
+                logger.warning(f"failed to mark {session_id} stopped in state: {e}")
 
         suffix = " (was already gone)" if already_gone else ""
         return {"output": f"{verb} {target_label}{suffix}", "exit_code": 0}
@@ -4178,7 +4175,7 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
                 )
                 state = resp.json() or {}
         except Exception as e:
-            logger.debug(f"cookbook state lookup failed for {session_id}: {e}")
+            logger.warning(f"cookbook state lookup failed for {session_id}: {e}")
         if isinstance(state, dict):
             for t in state.get("tasks") or []:
                 if isinstance(t, dict) and (
@@ -4468,8 +4465,8 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
                 else ""
             )
             server_up = '"data"' in body or '"object"' in body
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Health check failed: {e}")
 
     # Read+modify+write cookbook state. APPEND a task entry; do NOT
     # overwrite the whole file (that'd nuke presets).
@@ -4827,7 +4824,7 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
                 m["host"] = host_label or "local"
             return ms or []
         except Exception as e:
-            logger.debug(f"list_cached_models scan({host_label}) failed: {e}")
+            logger.warning(f"list_cached_models scan({host_label}) failed: {e}")
             return []
 
     # When the caller specifies a host explicitly, scan only that one (old behaviour).
@@ -4849,7 +4846,7 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
                 )
             servers = (st_data.get("env", {}) or {}).get("servers") or []
         except Exception as e:
-            logger.debug(f"server list fetch failed: {e}")
+            logger.warning(f"server list fetch failed: {e}")
             st_data = {}
 
         def _dirs_for(server_record: Dict[str, Any]) -> str:
@@ -5274,7 +5271,8 @@ async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
                         "name": c.get("name") or email,
                         "source": "contacts",
                     }
-    except Exception:
+    except Exception as e:
+        logger.warning(f"CardDAV contact resolution failed: {e}")
         pass
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -5291,7 +5289,8 @@ async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
                             "name": c.get("name") or email,
                             "source": "email history",
                         }
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Email contact resolution failed: {e}")
             pass
 
     if not contacts:
@@ -5409,7 +5408,8 @@ def _load_vault_config() -> Dict:
     if p.exists():
         try:
             return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load vault config: {e}")
             pass
     return {}
 
@@ -5538,7 +5538,8 @@ async def do_vault_get(content: str, owner: Optional[str] = None) -> Dict:
                 f"Retrieved password for **{name}** — reason: {reason}",
                 category="Vault",
             )
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to log vault access to assistant: {e}")
         pass
 
     output = [
@@ -5587,7 +5588,8 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
     if p.exists():
         try:
             cfg = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load existing vault config: {e}")
             pass
     cfg["session"] = session
     from datetime import datetime as _dt
@@ -5598,7 +5600,8 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
         import os as _os
 
         _os.chmod(str(p), 0o600)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to set permissions on vault config: {e}")
         pass
 
     return {"output": "Vault unlocked. Session saved.", "exit_code": 0}

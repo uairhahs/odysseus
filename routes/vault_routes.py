@@ -1,17 +1,18 @@
-"""
-vault_routes.py
+# vault_routes.py
 
-Vaultwarden / Bitwarden CLI integration — config and unlock endpoints.
-Stores the BW_SESSION key in data/vault.json with restrictive permissions.
-"""
+# Vaultwarden / Bitwarden CLI integration — config and unlock endpoints.
+# Stores the BW_SESSION key in data/vault.json with restrictive permissions.
 
+
+import asyncio
 import json
 import logging
 import os
-import shutil
-import asyncio
-from pathlib import Path
+
+# import shutilq
 from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
@@ -19,6 +20,8 @@ from core.middleware import require_admin
 from core.platform_compat import IS_WINDOWS, safe_chmod, which_tool
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 VAULT_FILE = Path("data/vault.json")
 
@@ -50,6 +53,7 @@ def _find_bw() -> str:
     ):
         if "*" in candidate:
             import glob
+
             for m in glob.glob(candidate):
                 if os.path.isfile(m) and os.access(m, os.X_OK):
                     return m
@@ -63,8 +67,8 @@ def _load_config() -> dict:
         try:
             data = json.loads(VAULT_FILE.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load vault config: {e}")
     return {}
 
 
@@ -76,8 +80,9 @@ def _save_config(cfg: dict):
     safe_chmod(str(VAULT_FILE), 0o600)
 
 
-async def _run_bw(args: list, session: str = None, input_text: str = None,
-                  bw_password: str = None) -> tuple:
+async def _run_bw(
+    args: list, session: str = None, input_text: str = None, bw_password: str = None
+) -> tuple:
     env = {}
     env.update(os.environ)
     if session:
@@ -91,21 +96,32 @@ async def _run_bw(args: list, session: str = None, input_text: str = None,
     bw_path = _find_bw()
     try:
         proc = await asyncio.create_subprocess_exec(
-            bw_path, *args,
+            bw_path,
+            *args,
             stdin=asyncio.subprocess.PIPE if input_text else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
     except FileNotFoundError:
-        return "", "bw CLI not installed (install `nodejs-bitwarden-cli` or `bitwarden-cli`)", 127
+        return (
+            "",
+            "bw CLI not installed (install `nodejs-bitwarden-cli` or `bitwarden-cli`)",
+            127,
+        )
     except Exception as e:
         return "", f"Failed to launch bw: {e}", 1
     try:
-        stdout, stderr = await proc.communicate(input=input_text.encode() if input_text else None)
+        stdout, stderr = await proc.communicate(
+            input=input_text.encode() if input_text else None
+        )
     except Exception as e:
         return "", f"bw subprocess error: {e}", 1
-    return stdout.decode(errors="replace").strip(), stderr.decode(errors="replace").strip(), proc.returncode
+    return (
+        stdout.decode(errors="replace").strip(),
+        stderr.decode(errors="replace").strip(),
+        proc.returncode,
+    )
 
 
 class VaultConfig(BaseModel):
@@ -231,7 +247,8 @@ def setup_vault_routes():
 async def _check_bw_installed() -> bool:
     try:
         proc = await asyncio.create_subprocess_exec(
-            _find_bw(), "--version",
+            _find_bw(),
+            "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

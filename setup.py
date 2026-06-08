@@ -204,7 +204,7 @@ def check_arch():
     # interpreter running under Rosetta on Apple Silicon (the case we must catch).
     try:
         translated = subprocess.run(
-            ["sysctl", "-n", "sysctl.proc_translated"],
+            ["sysctl", "-n", "sysctl.proc_translated"],  # noqa: S603 S607
             capture_output=True,
             text=True,
             timeout=5,

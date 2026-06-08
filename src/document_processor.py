@@ -11,6 +11,8 @@ from typing import Any, Dict, List
 from src.llm_core import llm_call
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 MAX_INLINE_ATTACHMENT_CHARS = 24000
 MIN_INLINE_ATTACHMENT_SLICE = 500
@@ -289,12 +291,12 @@ _PDF_CONTENT_MARKER = "\n\n[PDF content]:"
 
 
 def strip_pdf_content_marker(text: str) -> str:
-    """Remove the leading ``[PDF content]:`` wrapper that ``_process_pdf`` adds.
+    r"""Remove the leading ``[PDF content]:`` wrapper that ``_process_pdf`` adds.
 
     Uses ``str.removeprefix`` rather than ``str.lstrip(chars)``: ``lstrip``
-    treats its argument as a *set of characters*, so ``lstrip("\\n[PDF content]:")``
+    treats its argument as a *set of characters*, so ``lstrip("\n[PDF content]:")``
     keeps chewing into the page text that follows the marker. For example
-    ``"\\n\\n[PDF content]:\\n\\n[Page 1 text]:\\nto the board"`` would lose the
+    ``"\n\n[PDF content]:\n\n[Page 1 text]:\nto the board"`` would lose the
     leading "to" because 't' and 'o' are in the marker's character set.
     """
     return (text or "").removeprefix(_PDF_CONTENT_MARKER).strip()
@@ -338,7 +340,8 @@ def _resolve_vl_model(configured: str, owner: str | None = None) -> tuple:
     for candidate in candidates:
         try:
             return _resolve_model(candidate, owner=owner)
-        except (ValueError, Exception):
+        except (ValueError, Exception) as e:
+            logger.warning("Failed to resolve model %s: %s", candidate, e)
             continue
 
     raise ValueError("No vision model available")

@@ -72,7 +72,7 @@ def _load_helpers():
         "RuntimeError": RuntimeError,
         "list": list,
     }
-    exec(compile(module, str(_SCRIPT), "exec"), ns)
+    exec(compile(module, str(_SCRIPT), "exec"), ns)  # noqa: S102
     return ns
 
 

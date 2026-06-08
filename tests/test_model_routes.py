@@ -12,33 +12,6 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from tests.helpers.import_state import clear_fake_endpoint_resolver_modules
-
-# Other tests stub this module during collection. These helper tests need
-# the real URL normalization helpers so Anthropic /v1 handling is covered.
-clear_fake_endpoint_resolver_modules()
-
-if "core.database" not in sys.modules:
-    _core_db = types.ModuleType("core.database")
-    for _name in [
-        "SessionLocal",
-        "ModelEndpoint",
-        "Session",
-        "ChatMessage",
-        "Document",
-        "DocumentVersion",
-        "GalleryImage",
-        "GalleryAlbum",
-        "Note",
-        "CalendarCal",
-        "CalendarEvent",
-        "ScheduledTask",
-        "TaskRun",
-        "McpServer",
-    ]:
-        setattr(_core_db, _name, MagicMock())
-    sys.modules["core.database"] = _core_db
-
 import routes.model_routes as model_routes
 import src.database as src_database
 import src.endpoint_resolver as endpoint_resolver
@@ -65,6 +38,32 @@ from routes.model_routes import (
     _visible_models,
 )
 from src.llm_core import ANTHROPIC_MODELS
+from tests.helpers.import_state import clear_fake_endpoint_resolver_modules
+
+# Other tests stub this module during collection. These helper tests need
+# the real URL normalization helpers so Anthropic /v1 handling is covered.
+clear_fake_endpoint_resolver_modules()
+
+if "core.database" not in sys.modules:
+    _core_db = types.ModuleType("core.database")
+    for _name in [
+        "SessionLocal",
+        "ModelEndpoint",
+        "Session",
+        "ChatMessage",
+        "Document",
+        "DocumentVersion",
+        "GalleryImage",
+        "GalleryAlbum",
+        "Note",
+        "CalendarCal",
+        "CalendarEvent",
+        "ScheduledTask",
+        "TaskRun",
+        "McpServer",
+    ]:
+        setattr(_core_db, _name, MagicMock())
+    sys.modules["core.database"] = _core_db
 
 # ── speech endpoint settings ──
 

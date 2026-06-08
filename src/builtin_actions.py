@@ -1,12 +1,13 @@
-"""
-builtin_actions.py
+# builtin_actions.py
 
-Registry of built-in automation actions that can be executed by the task
-scheduler without needing an LLM call.
-"""
+# Registry of built-in automation actions that can be executed by the task
+# scheduler without needing an LLM call.
+
 
 import logging
 import os
+import shutil
+import subprocess
 from datetime import datetime
 from typing import Tuple
 
@@ -15,6 +16,8 @@ from core.platform_compat import IS_WINDOWS, find_bash
 from src.auth_helpers import owner_filter
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 class TaskNoop(BaseException):
@@ -319,22 +322,55 @@ async def action_consolidate_memory(owner: str, **kwargs) -> Tuple[str, bool]:
         return str(e), False
 
 
+def get_local_shell() -> list[str]:
+    """Return the appropriate shell prefix for the current platform."""
+    if IS_WINDOWS:
+        return find_windows_shell()
+    return ["bash", "-c"]
+
+
+def find_windows_shell() -> list[str]:
+    """Return the best available shell prefix on Windows."""
+    bash = find_bash()
+    if bash:
+        return [bash, "-c"]
+    if shutil.which("pwsh"):
+        return ["pwsh", "-Command"]
+    if shutil.which("powershell"):
+        return ["powershell", "-Command"]
+    return ["cmd.exe", "/c"]
+
+
 # Registry: action name -> async function(owner, **kwargs) -> (result_str, success_bool)
+def _validate_sub_shell(argv) -> dict:
+    # shell=True requires argv to be a single string.
+    # Callers must not pass untrusted input through this path.
+    if not isinstance(argv, str):
+        raise ValueError("sub_shell=True requires argv to be a string, not a list")
+    # intentional, validated above
+    kwargs = dict(shell=True)  # noqa: S604
+    return kwargs
 
 
 async def _run_subprocess(
-    argv, *, shell: bool = False, timeout: int = 120, label: str = "Command"
+    argv, *, sub_shell: bool = False, timeout: int = 120, label: str = "Command"
 ) -> Tuple[str, bool]:
     """Shared subprocess runner. Wraps the blocking subprocess.run in
     asyncio.to_thread so the event loop stays responsive."""
     import asyncio
-    import subprocess
 
     try:
+        if sub_shell:
+            kwargs = _validate_sub_shell(argv)
+        else:
+            if isinstance(argv, str):
+                argv = argv.split()
+            kwargs = dict(shell=False)
+
         result = await asyncio.to_thread(
             subprocess.run,
             argv,
-            shell=shell,
+            **kwargs,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -357,17 +393,10 @@ async def action_ssh_command(
         return "No command specified", False
     if host in ("localhost", "127.0.0.1", "local"):
         if IS_WINDOWS:
-            bash = find_bash()
-            if bash:
-                return await _run_subprocess(
-                    [bash, "-c", command], timeout=120, label="Command"
-                )
+            shell_prefix = find_windows_shell()
             return await _run_subprocess(
-                command, shell=True, timeout=120, label="Command"
+                [*shell_prefix, command], timeout=120, label="Command"
             )
-        return await _run_subprocess(
-            ["bash", "-c", command], timeout=120, label="Command"
-        )
     return await _run_subprocess(
         ["ssh", "-o", "ConnectTimeout=10", host, command],
         timeout=120,
@@ -383,11 +412,9 @@ async def action_run_script(
         return "No script specified", False
     target_host = (host or os.getenv("ODYSSEUS_SCRIPT_HOST", "localhost")).strip()
     if target_host in ("", "localhost", "127.0.0.1", "local"):
-        if IS_WINDOWS and find_bash():
-            return await _run_subprocess(
-                [find_bash(), "-c", script], timeout=300, label="Script"
-            )
-        return await _run_subprocess(script, shell=True, timeout=300, label="Script")
+        return await _run_subprocess(
+            [*get_local_shell(), script], timeout=300, label="Script"
+        )
     return await _run_subprocess(
         ["ssh", target_host, script], timeout=300, label="Script"
     )
@@ -397,11 +424,9 @@ async def action_run_local(owner: str, script: str = "", **kwargs) -> Tuple[str,
     """Run a script locally (no SSH)."""
     if not script:
         return "No script specified", False
-    if IS_WINDOWS and find_bash():
-        return await _run_subprocess(
-            [find_bash(), "-c", script], timeout=300, label="Script"
-        )
-    return await _run_subprocess(script, shell=True, timeout=300, label="Script")
+    return await _run_subprocess(
+        [*get_local_shell(), script], timeout=300, label="Script"
+    )
 
 
 async def action_tidy_research(owner: str, **kwargs) -> Tuple[str, bool]:
@@ -832,7 +857,11 @@ async def action_classify_events(owner: str, **kwargs) -> Tuple[str, bool]:
             # Persist heuristic results before LLM pass (in case LLM is slow/unavailable)
             try:
                 db.commit()
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "commit failed after heuristic classification, before LLM classification: %s",
+                    e,
+                )
                 pass
 
             # Pass 2: batch LLM classification (10 events per call)
@@ -1045,12 +1074,14 @@ async def action_learn_sender_signatures(owner: str, **kwargs) -> Tuple[str, boo
                                 "from_address": from_addr,
                             }
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Failed to process email UID %s: %s", uid, e)
                         continue
             finally:
                 try:
                     conn.logout()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Failed to logout from IMAP server: %s", e)
                     pass
             return results
 
@@ -1120,13 +1151,16 @@ async def action_learn_sender_signatures(owner: str, **kwargs) -> Tuple[str, boo
                                 continue
                             text = raw.decode("utf-8", errors="replace")
                             bodies.append(text[:4000])
-                        except Exception:
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to fetch email UID %s: %s", mm["uid"], e
+                            )
                             continue
                 finally:
                     try:
                         conn2.logout()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning("Failed to logout from IMAP server: %s", e)
                 return bodies
 
             try:
@@ -1314,8 +1348,8 @@ async def action_daily_brief(owner: str, **kwargs) -> Tuple[str, bool]:
             finally:
                 try:
                     conn.logout()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to logout from IMAP server: %s", e)
         except Exception as ee:
             logger.debug(f"daily_brief: email fetch failed: {ee}")
 
@@ -1329,8 +1363,10 @@ async def action_daily_brief(owner: str, **kwargs) -> Tuple[str, bool]:
                     for t in pending[:3]:
                         if t:
                             todo_lines.append(f"{n.title or 'Checklist'}: {t}")
-                except Exception:
-                    continue
+                except Exception as e:
+                    logger.warning(
+                        "Failed to process todo items for note %s: %s", n.id, e
+                    )
             elif n.pinned and n.title:
                 todo_lines.append(n.title)
 
@@ -1610,7 +1646,6 @@ async def action_ping_notes(owner: str, **kwargs) -> Tuple[str, bool]:
     """
     try:
         import json as _json
-        import time as _time
         from datetime import datetime as _dt
         from datetime import timedelta as _td
         from datetime import timezone as _tz
@@ -1634,7 +1669,10 @@ async def action_ping_notes(owner: str, **kwargs) -> Tuple[str, bool]:
         if _legacy.exists() and not STATE.exists():
             try:
                 STATE.write_text(_legacy.read_text(encoding="utf-8"), encoding="utf-8")
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "ping_notes: legacy state migration failed, starting fresh: %s", e
+                )
                 pass
         # Scanner ticks every 60s in _note_pings_loop. 90s window guarantees
         # every note's due time lands inside at least one tick's window.
@@ -1700,8 +1738,10 @@ async def action_ping_notes(owner: str, **kwargs) -> Tuple[str, bool]:
                             last_dt = last_dt.replace(tzinfo=_tz.utc)
                         if last_dt >= reping_cutoff:
                             continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse last ping time for note %s: %s", n.id, e
+                        )
                 # Compose + dispatch.
                 title = (n.title or "Reminder").strip() or "Reminder"
                 body_parts = []
@@ -1720,8 +1760,10 @@ async def action_ping_notes(owner: str, **kwargs) -> Tuple[str, bool]:
                             body_parts.append(
                                 "Pending:\n" + "\n".join(f"- {t}" for t in pending[:8])
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to process todo items for note %s: %s", n.id, e
+                        )
                 body = "\n\n".join(p for p in body_parts if p) or title
                 try:
                     from routes.note_routes import dispatch_reminder
@@ -1781,14 +1823,11 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
         import asyncio as _aio
         import email as _email_mod
         import json as _json
-        import os as _os
         import re as _re
         import time as _time
         from datetime import datetime as _dt
         from datetime import timedelta as _td
         from pathlib import Path as _P
-
-        import httpx
 
         from core.database import EmailAccount as _EA
         from core.database import SessionLocal as _SL
@@ -1880,8 +1919,9 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
             except Exception:
                 cache = {"uids": {}}
 
-            def _scan_one(account=acc, cache_uids=cache.get("uids", {})):
+            def _scan_one(account=acc, _cache=cache):
                 """Sync IMAP work runs in a thread."""
+                cache_uids = _cache.get("uids", {})
                 results = []
                 conn = _imap_connect(account.id)
                 try:
@@ -1985,7 +2025,10 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
                                     body_snippet = (
                                         msg.get_payload(decode=True) or b""
                                     ).decode("utf-8", errors="ignore")[:1600]
-                            except Exception:
+                            except Exception as ex:
+                                logger.warning(
+                                    "Failed to decode email UID %s: %s", uid, ex
+                                )
                                 body_snippet = ""
                             results[-1].update(
                                 {
@@ -2003,8 +2046,8 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
                 finally:
                     try:
                         conn.logout()
-                    except Exception:
-                        pass
+                    except Exception as ex:
+                        logger.warning("Failed to logout from IMAP server: %s", ex)
                 return results
 
             try:

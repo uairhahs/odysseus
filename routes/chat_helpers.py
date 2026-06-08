@@ -1,4 +1,4 @@
-"""Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
+# Shared helpers for chat routes — context building, post-response tasks, auth resolution.
 
 import asyncio
 import json
@@ -22,6 +22,8 @@ from src.llm_core import normalize_model_id
 from src.prompt_security import untrusted_context_message
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 # ── Data containers ────────────────────────────────────────────────────── #
@@ -235,9 +237,7 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     current_url = sess.endpoint_url or ""
     db = SessionLocal()
     try:
-        endpoints = (
-            db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
-        )
+        endpoints = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
     finally:
         db.close()
 
@@ -293,7 +293,10 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
                 "endpoint_url": chat_url,
                 "endpoint_name": ep.name,
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Endpoint {ep.name} failed ping: {current_url} to {base}: {e}"
+            )
             continue
 
     return None
@@ -416,7 +419,7 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
             target_url = getattr(sess, "endpoint_url", "") or ""
             if not target_url:
                 return
-            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
+            q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled)
             if owner:
                 # Missing headers usually means "recover from the saved endpoint".
                 # Scope that lookup to the session owner, otherwise two users
@@ -476,14 +479,15 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
 
     db = SessionLocal()
     try:
-        endpoints = (
-            db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
-        )
+        endpoints = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled).all()
         for ep in endpoints:
             try:
                 if normalize_base(getattr(ep, "base_url", "") or "") != session_base:
                     continue
             except Exception:
+                logger.warning(
+                    f"Failed to normalize endpoint URL for {ep.name}, skipping cache match: {getattr(ep, 'base_url', '')}"
+                )
                 continue
 
             raw_models = getattr(ep, "cached_models", None)
@@ -495,7 +499,10 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
                     if isinstance(raw_models, str)
                     else raw_models
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Failed to parse cached models for {ep.name}, skipping cache match: {e}"
+                )
                 continue
 
             matched = _match_cached_model_id(requested, models)

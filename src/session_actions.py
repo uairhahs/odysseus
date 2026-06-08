@@ -11,6 +11,8 @@ import re
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Names that indicate a throwaway/test session
 _THROWAWAY_NAMES = {
@@ -86,7 +88,7 @@ async def run_auto_sort(
         rows = (
             db.query(DbSession)
             .filter(
-                DbSession.archived == False,
+                not DbSession.archived,
                 *([DbSession.owner == owner] if owner else []),
             )
             .all()
@@ -173,7 +175,7 @@ async def run_auto_sort(
         remaining = (
             db.query(DbSession)
             .filter(
-                DbSession.archived == False,
+                not DbSession.archived,
                 *([DbSession.owner == owner] if owner else []),
             )
             .all()

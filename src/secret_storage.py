@@ -18,7 +18,6 @@ unchanged. That lets legacy rows coexist with new ones until a
 single migration pass rewrites them.
 """
 
-import os
 import logging
 from pathlib import Path
 
@@ -27,6 +26,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from core.platform_compat import safe_chmod
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 _KEY_PATH = Path(__file__).resolve().parent.parent / "data" / ".app_key"
 _PREFIX = "enc:"
@@ -73,7 +74,9 @@ def decrypt(value: str) -> str:
     if not value.startswith(_PREFIX):
         return value
     try:
-        return _get_fernet().decrypt(value[len(_PREFIX):].encode("ascii")).decode("utf-8")
+        return (
+            _get_fernet().decrypt(value[len(_PREFIX) :].encode("ascii")).decode("utf-8")
+        )
     except InvalidToken:
         logger.error("Failed to decrypt stored secret — wrong key or corrupt token")
         return ""

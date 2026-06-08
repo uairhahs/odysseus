@@ -2,8 +2,7 @@ use_default_settings: true
 
 server:
   # False Positive: Base64 High Entropy String
-  # trunk-ignore(checkov/CKV_SECRET_6)
-  secret_key: "__SEARXNG_SECRET__"
+  secret_key: "__SEARXNG_SECRET__" # checkov:skip=CKV_SECRET_6: placeholder replaced at runtime
 
 search:
   formats:

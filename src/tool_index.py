@@ -26,6 +26,8 @@ except ImportError:
     np = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Tools that are ALWAYS included regardless of retrieval results.
 # These are the most commonly needed and should never be missing.
@@ -288,13 +290,15 @@ class ToolIndex:
                 existing = lane.collection.get(where={"tool_type": "mcp"})
                 if existing and existing["ids"]:
                     lane.collection.delete(ids=existing["ids"])
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Old MCP tool cleanup skipped for {lane.name}: {e}")
                 pass
 
         # Get current MCP tools
         try:
             all_tools = mcp_mgr.get_tool_descriptions_for_prompt(disabled_map or {})
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get MCP tool descriptions: {e}")
             all_tools = ""
 
         if not all_tools:

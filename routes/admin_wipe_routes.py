@@ -13,27 +13,34 @@ import json
 import logging
 import os
 import shutil
+
 from fastapi import APIRouter, HTTPException, Request
 
-from core.middleware import require_admin
 from core.database import (
-    SessionLocal,
-    Session as DbSession,
-    ChatMessage as DbChatMessage,
+    CalendarCal,
+    CalendarEvent,
+)
+from core.database import ChatMessage as DbChatMessage
+from core.database import (
+    Document,
+    DocumentVersion,
+    GalleryAlbum,
+    GalleryImage,
     Memory,
     Note,
     ScheduledTask,
-    TaskRun,
-    Document,
-    DocumentVersion,
-    GalleryImage,
-    GalleryAlbum,
-    CalendarEvent,
-    CalendarCal,
 )
+from core.database import Session as DbSession
+from core.database import (
+    SessionLocal,
+    TaskRun,
+)
+from core.middleware import require_admin
 from src.constants import DATA_DIR
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 def _wipe_memory_files():
@@ -82,8 +89,8 @@ def setup_admin_wipe_routes(session_manager):
                 db.commit()
                 try:
                     session_manager.sessions.clear()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Session manager clear skipped: {e}")
                 return {"status": "deleted", "kind": kind, "count": count}
 
             if kind == "memory":
@@ -96,6 +103,7 @@ def setup_admin_wipe_routes(session_manager):
                 # initialised in every deployment.
                 try:
                     from src.memory_vector import get_memory_vector_store
+
                     mv = get_memory_vector_store()
                     if mv and hasattr(mv, "clear"):
                         mv.clear()
@@ -119,8 +127,8 @@ def setup_admin_wipe_routes(session_manager):
                 if os.path.exists(legacy):
                     try:
                         os.remove(legacy)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.warning(f"Could not remove {legacy}: {e}")
                 return {"status": "deleted", "kind": kind, "count": count}
 
             if kind == "notes":
@@ -168,8 +176,8 @@ def setup_admin_wipe_routes(session_manager):
             raise
         except Exception as e:
             db.rollback()
-            logger.exception(f"Wipe {kind} failed")
-            raise HTTPException(500, f"Wipe {kind} failed: {e}")
+            logger.exception(f"Wipe {kind} failed: {e}")
+            raise HTTPException(500, f"Wipe {kind} failed: {e}") from e
         finally:
             db.close()
 

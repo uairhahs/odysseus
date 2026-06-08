@@ -12,6 +12,8 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 MARKITDOWN_MISSING = (
     "Office/EPUB document extraction requires markitdown. Install optional "

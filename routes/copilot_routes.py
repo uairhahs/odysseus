@@ -20,21 +20,23 @@ All routes are admin-gated (endpoint/provider management is an admin action).
 """
 
 import json
-import time
-import uuid
 import logging
 import threading
+import time
+import uuid
 from typing import Dict, Optional
 
 import httpx
-from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi import APIRouter, Form, HTTPException, Request
 
-from core.database import SessionLocal, ModelEndpoint
+from core.database import ModelEndpoint, SessionLocal
 from core.middleware import require_admin
-from src.auth_helpers import get_current_user
 from src import copilot
+from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 # Pending device-flow logins, keyed by an opaque poll_id. The device_code is a
 # bearer-like secret, so it lives here (server memory) rather than in the
@@ -106,9 +108,10 @@ def _provision_endpoint(token: str, base: str, owner: Optional[str]) -> Dict:
     # Best-effort: refresh the model cache so the new endpoint shows up.
     try:
         from routes.model_routes import _invalidate_models_cache
+
         _invalidate_models_cache()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to invalidate models cache: {e}")
     return result
 
 
@@ -127,9 +130,11 @@ def setup_copilot_routes() -> APIRouter:
             data = copilot.request_device_code(host)
         except httpx.HTTPStatusError as e:
             status = e.response.status_code if e.response is not None else "unknown"
-            raise HTTPException(502, f"GitHub device-code request failed (HTTP {status})")
+            raise HTTPException(
+                502, f"GitHub device-code request failed (HTTP {status})"
+            ) from e
         except Exception as e:
-            raise HTTPException(502, f"GitHub device-code request failed: {e}")
+            raise HTTPException(502, f"GitHub device-code request failed: {e}") from e
 
         device_code = data.get("device_code")
         if not device_code:
@@ -181,14 +186,20 @@ def setup_copilot_routes() -> APIRouter:
 
         token = data.get("access_token")
         if token:
-            base = copilot.enterprise_base(pending["enterprise_url"]) if pending["enterprise_url"] else copilot.COPILOT_BASE
+            base = (
+                copilot.enterprise_base(pending["enterprise_url"])
+                if pending["enterprise_url"]
+                else copilot.COPILOT_BASE
+            )
             try:
                 result = _provision_endpoint(token, base, pending["owner"])
             except Exception as e:
                 logger.exception("Copilot endpoint provisioning failed")
                 with _PENDING_LOCK:
                     _PENDING.pop(poll_id, None)
-                raise HTTPException(500, f"Login succeeded but provisioning failed: {e}")
+                raise HTTPException(
+                    500, f"Login succeeded but provisioning failed: {e}"
+                ) from e
             with _PENDING_LOCK:
                 _PENDING.pop(poll_id, None)
             return {"status": "authorized", "endpoint": result}

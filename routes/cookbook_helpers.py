@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from core.platform_compat import _ssh_exec_argv
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 # HuggingFace repo IDs are <org>/<name>, both alphanumerics plus ._-

@@ -1,27 +1,31 @@
-"""Cross-platform OS compatibility helpers.
+# Cross-platform OS compatibility helpers.
 
-Odysseus began as a Linux/macOS/Docker-only app. This module centralizes the
-small set of OS differences needed to run it *natively* on Windows so the rest
-of the codebase can stay platform-agnostic. Import from here instead of
-sprinkling ``os.name == "nt"`` checks (and POSIX-only calls) across modules.
+# Odysseus began as a Linux/macOS/Docker-only app. This module centralizes the
+# small set of OS differences needed to run it *natively* on Windows so the rest
+# of the codebase can stay platform-agnostic. Import from here instead of
+# sprinkling ``os.name == "nt"`` checks (and POSIX-only calls) across modules.
 
-Design rules:
-  * Stdlib + ctypes only — no new third-party deps (no psutil/pywinpty).
-  * POSIX behaviour is unchanged; Windows gets a faithful equivalent or a
-    safe, documented no-op.
-"""
+# Design rules:
+#   * Stdlib + ctypes only — no new third-party deps (no psutil/pywinpty).
+#   * POSIX behaviour is unchanged; Windows gets a faithful equivalent or a
+#     safe, documented no-op.
+
 
 from __future__ import annotations
 
+import logging
 import ntpath
 import os
-import sys
 import platform
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import List, Optional
 
+logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 IS_WINDOWS = os.name == "nt"
 IS_POSIX = not IS_WINDOWS
 # Allows APFEL support and ARM-native binary recommendations on Apple Silicon Macs.
@@ -122,23 +126,24 @@ def kill_process_tree(pid: Optional[int]) -> None:
     if IS_WINDOWS:
         try:
             subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S603 S607
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to kill process tree: {e}")
         return
     import signal
 
     try:
         os.killpg(os.getpgid(pid), signal.SIGTERM)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to kill process group: {e}")
         try:
             os.kill(pid, signal.SIGTERM)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to kill process: {e}")
 
 
 # ── Shell / executable resolution ───────────────────────────────────────────
@@ -215,9 +220,9 @@ def _is_windows_bash_stub(path: str) -> bool:
 
 
 def git_bash_path(path: str | Path) -> str:
-    """Convert a path to POSIX style suitable for Git Bash on Windows.
+    r"""Convert a path to POSIX style suitable for Git Bash on Windows.
 
-    Transforms drive letters (e.g., 'C:\\path') to POSIX '/c/path',
+    Transforms drive letters (e.g., 'C:\path') to POSIX '/c/path',
     and uses forward slashes.
     """
     p = Path(path)
@@ -300,8 +305,8 @@ def is_wsl() -> bool:
             with open("/proc/version", "r") as f:
                 if "microsoft" in f.read().lower():
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to determine if running in WSL: {e}")
     return False
 
 
@@ -341,8 +346,8 @@ def get_wsl_windows_user_profile() -> Optional[str]:
         r = run_wsl_windows_powershell("Write-Output $env:USERPROFILE", timeout=5)
         if r.returncode == 0 and r.stdout.strip():
             return translate_path(r.stdout.strip())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to retrieve Windows user profile from WSL: {e}")
 
     try:
         users_dir = "/mnt/c/Users"
@@ -358,8 +363,8 @@ def get_wsl_windows_user_profile() -> Optional[str]:
                     path = os.path.join(users_dir, entry)
                     if os.path.isdir(path):
                         return path
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to retrieve Windows user profile from WSL: {e}")
     return None
 
 

@@ -8,13 +8,15 @@ different embedding models must never share one collection.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 LANE_FASTEMBED = "fastembed"
 LANE_CUSTOM = "custom"
@@ -62,9 +64,10 @@ def reset_embedding_lane_state() -> None:
     """Reset process-local embedding lane state after endpoint config changes."""
     try:
         from src.embeddings import reset_http_embed_state
+
         reset_http_embed_state()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to reset embedding lane state: {e}")
 
 
 def collection_name(base_name: str, lane_name: str) -> str:
@@ -76,7 +79,9 @@ def _fingerprint(lane_name: str, url: str, model: str, dimension: int) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def _metadata(lane_name: str, url: str, model: str, dimension: int, fingerprint: str) -> Dict[str, Any]:
+def _metadata(
+    lane_name: str, url: str, model: str, dimension: int, fingerprint: str
+) -> Dict[str, Any]:
     return {
         "hnsw:space": "cosine",
         "embedding_lane": lane_name,
@@ -90,6 +95,7 @@ def _metadata(lane_name: str, url: str, model: str, dimension: int, fingerprint:
 def _load_custom_endpoint() -> Dict[str, str]:
     try:
         from src.embeddings import _load_persisted_endpoint
+
         persisted = _load_persisted_endpoint()
     except Exception:
         persisted = {}
@@ -103,6 +109,7 @@ def _load_custom_endpoint() -> Dict[str, str]:
     if persisted.get("api_key"):
         try:
             from src.secret_storage import decrypt
+
             api_key = decrypt(api_key)
         except Exception:
             logger.warning("Could not decrypt saved embedding endpoint API key")
@@ -133,7 +140,9 @@ def _encode_with_client(client: Any, texts: Sequence[str]) -> List[List[float]]:
     return vecs.tolist() if hasattr(vecs, "tolist") else [list(v) for v in vecs]
 
 
-def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any], client: Any):
+def _get_or_reset_collection(
+    chroma_client, name: str, metadata: Dict[str, Any], client: Any
+):
     try:
         collection = chroma_client.get_collection(name)
     except Exception:
@@ -141,8 +150,10 @@ def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any],
 
     current = collection.metadata or {}
     if not (
-        current.get("embedding_fingerprint") not in (None, metadata["embedding_fingerprint"])
-        or current.get("embedding_dimension") not in (None, metadata["embedding_dimension"])
+        current.get("embedding_fingerprint")
+        not in (None, metadata["embedding_fingerprint"])
+        or current.get("embedding_dimension")
+        not in (None, metadata["embedding_dimension"])
         or current.get("embedding_lane") not in (None, metadata["embedding_lane"])
     ):
         return collection
@@ -155,9 +166,14 @@ def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any],
     )
     preserved = {"ids": [], "documents": [], "metadatas": [], "embeddings": []}
     try:
-        preserved = collection.get(include=["documents", "metadatas", "embeddings"]) or preserved
+        preserved = (
+            collection.get(include=["documents", "metadatas", "embeddings"])
+            or preserved
+        )
     except Exception as e:
-        raise RuntimeError(f"Could not preserve documents before resetting {name}: {e}") from e
+        raise RuntimeError(
+            f"Could not preserve documents before resetting {name}: {e}"
+        ) from e
 
     ids = preserved.get("ids") or []
     docs = preserved.get("documents") or []
@@ -166,19 +182,23 @@ def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any],
     if ids and docs:
         try:
             for start in range(0, len(ids), 100):
-                batch_ids = ids[start:start + 100]
-                batch_docs = docs[start:start + 100]
-                batch_metas = metas[start:start + 100]
+                batch_ids = ids[start : start + 100]
+                batch_docs = docs[start : start + 100]
+                batch_metas = metas[start : start + 100]
                 if len(batch_metas) < len(batch_ids):
                     batch_metas += [{}] * (len(batch_ids) - len(batch_metas))
-                prepared_batches.append((
-                    batch_ids,
-                    batch_docs,
-                    batch_metas,
-                    _encode_with_client(client, batch_docs),
-                ))
+                prepared_batches.append(
+                    (
+                        batch_ids,
+                        batch_docs,
+                        batch_metas,
+                        _encode_with_client(client, batch_docs),
+                    )
+                )
         except Exception as e:
-            raise RuntimeError(f"Could not re-embed preserved rows for {name}: {e}") from e
+            raise RuntimeError(
+                f"Could not re-embed preserved rows for {name}: {e}"
+            ) from e
 
     chroma_client.delete_collection(name)
     collection = chroma_client.get_or_create_collection(name=name, metadata=metadata)
@@ -192,17 +212,21 @@ def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any],
                 embeddings=embeddings,
             )
     except Exception as e:
-        logger.warning("Could not write reset collection %s; restoring previous rows: %s", name, e)
+        logger.warning(
+            "Could not write reset collection %s; restoring previous rows: %s", name, e
+        )
         try:
             chroma_client.delete_collection(name)
-            restored = chroma_client.get_or_create_collection(name=name, metadata=current)
+            restored = chroma_client.get_or_create_collection(
+                name=name, metadata=current
+            )
             old_embeddings = preserved.get("embeddings") or []
             if ids and docs and old_embeddings:
                 for start in range(0, len(ids), 100):
-                    batch_ids = ids[start:start + 100]
-                    batch_docs = docs[start:start + 100]
-                    batch_metas = metas[start:start + 100]
-                    batch_embeddings = old_embeddings[start:start + 100]
+                    batch_ids = ids[start : start + 100]
+                    batch_docs = docs[start : start + 100]
+                    batch_metas = metas[start : start + 100]
+                    batch_embeddings = old_embeddings[start : start + 100]
                     if len(batch_metas) < len(batch_ids):
                         batch_metas += [{}] * (len(batch_ids) - len(batch_metas))
                     restored.add(
@@ -212,7 +236,9 @@ def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any],
                         embeddings=batch_embeddings,
                     )
         except Exception as restore_error:
-            logger.warning("Could not restore previous collection %s: %s", name, restore_error)
+            logger.warning(
+                "Could not restore previous collection %s: %s", name, restore_error
+            )
         raise RuntimeError(f"Could not write reset collection {name}: {e}") from e
     if prepared_batches:
         logger.info("Re-embedded %s rows after resetting %s", len(ids), name)
@@ -220,7 +246,9 @@ def _get_or_reset_collection(chroma_client, name: str, metadata: Dict[str, Any],
     return collection
 
 
-def _create_lane(chroma_client, base_name: str, lane_name: str, client: Any) -> EmbeddingLane:
+def _create_lane(
+    chroma_client, base_name: str, lane_name: str, client: Any
+) -> EmbeddingLane:
     dimension = int(client.get_sentence_embedding_dimension())
     model = getattr(client, "model", "")
     url = getattr(client, "url", "")
@@ -294,14 +322,14 @@ def migrate_legacy_collection(base_name: str, lanes: Sequence[EmbeddingLane]) ->
             all_metas += [{}] * (len(ids) - len(all_metas))
         missing = [
             (row_id, doc, meta)
-            for row_id, doc, meta in zip(ids, docs, all_metas)
+            for row_id, doc, meta in zip(ids, docs, all_metas, strict=False)
             if row_id not in existing_ids
         ]
         if not missing:
             continue
 
         for start in range(0, len(missing), 100):
-            batch = missing[start:start + 100]
+            batch = missing[start : start + 100]
             batch_ids = [row_id for row_id, _doc, _meta in batch]
             batch_docs = [doc for _row_id, doc, _meta in batch]
             batch_metas = [meta or {} for _row_id, _doc, meta in batch]
@@ -324,14 +352,21 @@ def migrate_legacy_collection(base_name: str, lanes: Sequence[EmbeddingLane]) ->
                 )
                 break
         else:
-            logger.info("Backfilled %s %s lane rows from legacy collection %s", len(missing), lane.name, base_name)
+            logger.info(
+                "Backfilled %s %s lane rows from legacy collection %s",
+                len(missing),
+                lane.name,
+                base_name,
+            )
 
 
 def lane_count(lanes: Sequence[EmbeddingLane]) -> int:
     return max((lane.count() for lane in lanes), default=0)
 
 
-def dedupe_results(results: Iterable[Dict[str, Any]], id_key: str = "id", limit: Optional[int] = None) -> List[Dict[str, Any]]:
+def dedupe_results(
+    results: Iterable[Dict[str, Any]], id_key: str = "id", limit: Optional[int] = None
+) -> List[Dict[str, Any]]:
     seen = set()
     out: List[Dict[str, Any]] = []
     for row in results:
@@ -374,7 +409,9 @@ def query_lanes(
             out.append((lane, results))
         except Exception as e:
             failures.append(f"{lane.name}: {e}")
-            logger.warning("%s lane query failed for %s: %s", lane.name, lane.collection_name, e)
+            logger.warning(
+                "%s lane query failed for %s: %s", lane.name, lane.collection_name, e
+            )
     if raise_if_all_failed and attempted and not out and failures:
         raise RuntimeError("; ".join(failures))
     return out

@@ -16,6 +16,8 @@ import bcrypt
 import pyotp
 
 logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
 
 
 from core.atomic_io import atomic_write_json as _atomic_write_json  # noqa: E402
