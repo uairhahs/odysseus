@@ -81,6 +81,14 @@ export VLLM_USE_FLASHINFER_SAMPLER="${VLLM_USE_FLASHINFER_SAMPLER:-0}"
 # Also ensure the uv-managed .venv is in PATH so dependencies are found
 export PATH="/app/.venv/bin:/app/.local/bin:${PATH}"
 
+# If the host-mounted .venv is empty or missing, or if it is not uv-managed,
+# bootstrap it from pyproject.toml so runtime dependencies stay available
+# across recreate.
+if [ ! -x /app/.venv/bin/python ] || [ ! -x /app/.venv/bin/uv ]; then
+	echo "▶ Bootstrapping uv-managed project venv..."
+	gosu "${PUID}:${PGID}" uv sync --frozen || true
+fi
+
 # Run first-time setup as the app user so data/ files get the right ownership.
 # setup.py is idempotent — skips auth.json / .env if they already exist.
 # || true so a setup failure never prevents the container from starting.

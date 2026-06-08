@@ -23,6 +23,9 @@ services:
       # (vLLM, torch, sglang, etc.) reuse cached wheels on container recreate
       # instead of redownloading them.
       - ./data/uv-cache:/app/.cache/uv:z
+      # uv-managed project venv — persist this so installed dependencies survive
+      # container recreate and avoid losing the environment on a fresh bring-up.
+      - ./data/.venv:/app/.venv:z
       # Cookbook-installed Python CLIs/packages (vLLM, llama-cpp-python, etc.)
       # land under /app/.local for the odysseus user. Persist them so a
       # container recreate does not silently remove installed serve engines.
@@ -79,6 +82,16 @@ services:
         condition: service_healthy
       chromadb:
         condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:7000/api/ready'', timeout=5).read()"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     restart: unless-stopped
 
   chromadb:

@@ -523,10 +523,12 @@ def setup_cookbook_routes() -> APIRouter:
             remote_runner = f".{session_id}_run.sh"
             runner_lines = ["#!/bin/bash"]
             runner_lines.extend(_user_shell_path_bootstrap())
+            runner_lines.append('ODYSSEUS_TMPDIR="${TMPDIR:-/tmp}"')
+            runner_lines.append('ODYSSEUS_LOG_DIR="$ODYSSEUS_TMPDIR/odysseus-tmux"')
             runner_lines.append(
-                'ODYSSEUS_EXIT_FILE="/tmp/odysseus-tmux/%s.exit"' % session_id
+                f'ODYSSEUS_EXIT_FILE="$ODYSSEUS_LOG_DIR/{session_id}.exit"'
             )
-            runner_lines.append("mkdir -p /tmp/odysseus-tmux 2>/dev/null || true")
+            runner_lines.append('mkdir -p "$ODYSSEUS_LOG_DIR" 2>/dev/null || true')
             runner_lines.append('rm -f "$ODYSSEUS_EXIT_FILE" 2>/dev/null || true')
             runner_lines.append("# Auto-detect environment")
             runner_lines.append("deactivate 2>/dev/null; hash -r")
@@ -628,8 +630,10 @@ def setup_cookbook_routes() -> APIRouter:
                 lines.append(_safe_env_prefix(req.env_prefix))
             else:
                 lines.append("deactivate 2>/dev/null; hash -r")
-            lines.append('ODYSSEUS_EXIT_FILE="/tmp/odysseus-tmux/%s.exit"' % session_id)
-            lines.append("mkdir -p /tmp/odysseus-tmux 2>/dev/null || true")
+            lines.append('ODYSSEUS_TMPDIR="${TMPDIR:-/tmp}"')
+            lines.append('ODYSSEUS_LOG_DIR="$ODYSSEUS_TMPDIR/odysseus-tmux"')
+            lines.append(f'ODYSSEUS_EXIT_FILE="$ODYSSEUS_LOG_DIR/{session_id}.exit"')
+            lines.append('mkdir -p "$ODYSSEUS_LOG_DIR" 2>/dev/null || true')
             lines.append('rm -f "$ODYSSEUS_EXIT_FILE" 2>/dev/null || true')
             # Show whether the HF token reached this run (masked) — tells a gated
             # "not authorized" failure apart from a missing token.
@@ -1248,14 +1252,16 @@ def setup_cookbook_routes() -> APIRouter:
             # the post-crash interactive shell's neofetch banner ALSO gets
             # teed into the log file and `tail -N` returns ONLY the banner —
             # the actual traceback ends up earlier than the tail window.
-            runner_lines.append("mkdir -p /tmp/odysseus-tmux 2>/dev/null || true")
+            runner_lines.append('ODYSSEUS_TMPDIR="${TMPDIR:-/tmp}"')
+            runner_lines.append('ODYSSEUS_LOG_DIR="$ODYSSEUS_TMPDIR/odysseus-tmux"')
+            runner_lines.append('mkdir -p "$ODYSSEUS_LOG_DIR" 2>/dev/null || true')
             runner_lines.append(
-                'ODYSSEUS_EXIT_FILE="/tmp/odysseus-tmux/%s.exit"' % session_id
+                f'ODYSSEUS_EXIT_FILE="$ODYSSEUS_LOG_DIR/{session_id}.exit"'
             )
             runner_lines.append('rm -f "$ODYSSEUS_EXIT_FILE" 2>/dev/null || true')
             runner_lines.append("exec 3>&1 4>&2")
             runner_lines.append(
-                f"exec > >(tee -a /tmp/odysseus-tmux/{session_id}.log) 2>&1"
+                f'exec > >(tee -a "$ODYSSEUS_LOG_DIR/{session_id}.log") 2>&1'
             )
             runner_lines.extend(_user_shell_path_bootstrap())
             runner_lines.append('ODYSSEUS_PREFLIGHT_EXIT=""')
@@ -2701,7 +2707,7 @@ def setup_cookbook_routes() -> APIRouter:
 
                 if remote_host:
                     remote_exit_path = (
-                        f"/tmp/odysseus-tmux/{session_id}.exit"  # noqa: S108
+                        f"${{TMPDIR:-/tmp}}/odysseus-tmux/{session_id}.exit"
                     )
                     ssh_base = ["ssh"]
                     if ssh_port and ssh_port != "22":
@@ -2723,7 +2729,7 @@ def setup_cookbook_routes() -> APIRouter:
                         return int(out) if re.fullmatch(r"-?\d+", out or "") else None
                     return None
 
-                ep = Path(f"/tmp/odysseus-tmux/{session_id}.exit")  # noqa: S108
+                ep = TMUX_LOG_DIR / f"{session_id}.exit"
                 if not ep.exists():
                     return None
                 out = ep.read_text(encoding="utf-8", errors="replace").strip()

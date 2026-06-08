@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
 from collections import namedtuple
@@ -94,6 +95,20 @@ def _venv_activate_prefix(venv: str | None) -> str:
         raise ValueError("invalid venv path")
     act = venv if venv.endswith("/bin/activate") else venv.rstrip("/") + "/bin/activate"
     return f". {act} && "
+
+
+def _uv_exec_list() -> list[str]:
+    """Return the uv executable argv, falling back to the current Python if needed."""
+    if shutil.which("uv"):
+        return ["uv"]
+    return [sys.executable, "-m", "uv"]
+
+
+def _uv_exec_shell() -> str:
+    """Return a shell-safe uv invocation string for shell-quoted commands."""
+    if shutil.which("uv"):
+        return "uv"
+    return shlex.join([sys.executable, "-m", "uv"])
 
 
 logger = logging.getLogger(__name__)
@@ -1339,14 +1354,17 @@ def setup_shell_routes() -> APIRouter:
         # existing reconnect-loop success detection already handles.
         if action == "remove":
             # Remove is fast — run synchronously.
+            extras_venv = Path.home() / ".local" / "odysseus-extras"
             uv_name = re.split(r"[<>=!~]", pip_name, maxsplit=1)[0].strip()
             uv_name = uv_name.split("[", 1)[0].strip()
             proc = await asyncio.create_subprocess_exec(
-                "uv",
+                *_uv_exec_list(),
                 "pip",
                 "uninstall",
+                "--no-project",
                 "-y",
                 uv_name,
+                env={**os.environ, "VIRTUAL_ENV": str(extras_venv)},
                 cwd=str(project_root),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -1361,9 +1379,21 @@ def setup_shell_routes() -> APIRouter:
         session_id = f"dep-{uuid.uuid4().hex[:8]}"
         pkg_q = shlex.quote(pip_name)
         upgrade_flag = " -U" if action == "update" else ""
+        # Cookbook optional extras install into a persistent venv at
+        # ~/.local/odysseus-extras so they survive container recreation and
+        # are never wiped by `uv sync` (which only manages the project venv).
+        # The extras venv is created on first install if it doesn't exist.
+        extras_venv = Path.home() / ".local" / "odysseus-extras"
+        extras_uv = extras_venv / "bin" / "uv"
+        uv_shell = _uv_exec_shell()
+        create_venv_cmd = f"[ -d {shlex.quote(str(extras_venv))} ] || {uv_shell} venv --no-project {shlex.quote(str(extras_venv))}"
+        extras_uv_path = shlex.quote(str(extras_uv))
         shell_cmd = (
-            "export UV_HTTP_TIMEOUT=300; "
-            f"uv pip install --link-mode=copy{upgrade_flag} {pkg_q} 2>&1 | cat; "
+            f"export UV_HTTP_TIMEOUT=300; "
+            f"{create_venv_cmd} && "
+            f"export VIRTUAL_ENV={shlex.quote(str(extras_venv))}; "
+            f"export PATH={shlex.quote(str(extras_venv / 'bin'))}:$PATH; "
+            f"{extras_uv_path} pip install --no-project --link-mode=copy{upgrade_flag} {pkg_q} 2>&1 | cat; "
             "_dep_rc=$?; "
             'printf "\\n=== Process exited with code %s ===\\n" "$_dep_rc"; '
             'exit "$_dep_rc"'
@@ -1390,7 +1420,17 @@ def setup_shell_routes() -> APIRouter:
             pass
 
         # Synchronous fallback (no tmux).
-        install_cmd = f"uv pip install --no-cache-dir --link-mode=copy{' -U' if action == 'update' else ''} {shlex.quote(pip_name)} 2>&1 | cat"
+        extras_venv = Path.home() / ".local" / "odysseus-extras"
+        extras_uv = extras_venv / "bin" / "uv"
+        uv_shell = _uv_exec_shell()
+        create_venv_cmd = f"[ -d {shlex.quote(str(extras_venv))} ] || {uv_shell} venv --no-project {shlex.quote(str(extras_venv))}"
+        extras_uv_path = shlex.quote(str(extras_uv))
+        install_cmd = (
+            f"export VIRTUAL_ENV={shlex.quote(str(extras_venv))}; "
+            f"export PATH={shlex.quote(str(extras_venv / 'bin'))}:$PATH; "
+            f"{create_venv_cmd} && "
+            f"{extras_uv_path} pip install --no-cache-dir --link-mode=copy{' -U' if action == 'update' else ''} {shlex.quote(pip_name)} 2>&1 | cat"
+        )
         proc = await asyncio.create_subprocess_exec(
             "bash",
             "-lc",

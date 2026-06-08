@@ -8,9 +8,12 @@ import json
 import logging
 import os
 import re
+
+# from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.constants import internal_api_base
+from routes.shell_routes import TMUX_LOG_DIR
 from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS
 
 
@@ -4138,6 +4141,8 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
     flashinfer version mismatch, OOM, missing kernels, etc.) and decide
     whether to relaunch via serve_model with new flags.
     """
+    import base64
+    import re as _re
     import shlex
 
     import httpx
@@ -4146,26 +4151,28 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
         args = _parse_tool_args(content)
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
+
     session_id = (args.get("session_id") or "").strip()
     if not session_id:
         return {
             "error": "session_id is required (from list_served_models)",
             "exit_code": 1,
         }
-    import re as _re
 
     if not _re.fullmatch(r"[a-zA-Z0-9_-]+", session_id):
         return {"error": "Invalid session_id format", "exit_code": 1}
+
     try:
         tail = int(args.get("tail") or 400)
     except (TypeError, ValueError):
         tail = 400
     tail = max(20, min(tail, 4000))
+
     headers = _internal_headers()
     remote = (args.get("remote_host") or args.get("host") or "").strip()
     sport = (args.get("ssh_port") or "").strip()
-    # Resolve host from cookbook state if caller didn't pass one — same
-    # lookup _cookbook_kill_session uses.
+
+    # Resolve host from cookbook state if caller didn't pass one.
     if not remote:
         state: Dict[str, Any] = {}
         try:
@@ -4173,9 +4180,15 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
                 resp = await client.get(
                     f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers
                 )
+                resp.raise_for_status()
                 state = resp.json() or {}
         except Exception as e:
             logger.warning(f"cookbook state lookup failed for {session_id}: {e}")
+            return {
+                "error": f"Could not resolve remote host for session '{session_id}': cookbook state lookup failed ({e}). "
+                "Pass remote_host explicitly.",
+                "exit_code": 1,
+            }
         if isinstance(state, dict):
             for t in state.get("tasks") or []:
                 if isinstance(t, dict) and (
@@ -4185,33 +4198,41 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
                     if not sport:
                         sport = t.get("sshPort") or ""
                     break
-    # Prefer the persisted /tmp/odysseus-tmux/SESSION.log file over the
-    # live tmux pane. The pane is what the user would see scrolling on
-    # their screen — including the post-crash neofetch banner and the
-    # idle bash prompt that overwrites the actual traceback the moment
-    # vllm exits. The log file is the raw stdout/stderr of the wrapped
-    # process and survives the crash unchanged. We only fall back to
-    # the pane when the log file doesn't exist (older sessions launched
-    # before the tmux+tee wrapper was added).
-    log_path = f"/tmp/odysseus-tmux/{session_id}.log"
-    pane_inner = (
-        f"tmux capture-pane -t {shlex.quote(session_id)} -p -S -{tail} 2>/dev/null"
+
+    log_path = TMUX_LOG_DIR / f"{session_id}.log"
+
+    # Build the inner shell command. We prefer the persisted log file over the
+    # live tmux pane because the pane scrollback may be limited and gets
+    # polluted with post-crash shell prompts/banners. Only fall back to the
+    # pane when the log file is absent or empty.
+    #
+    # We set tmux history-limit high for the capture so older sessions without
+    # a log file still return a useful amount of output.
+    quoted_log = shlex.quote(str(log_path))
+    quoted_sid = shlex.quote(session_id)
+    file_cmd = f"tail -n {tail} {quoted_log} 2>/dev/null"
+    pane_cmd = (
+        f"tmux set-option -t {quoted_sid} history-limit 50000 2>/dev/null; "
+        f"tmux capture-pane -t {quoted_sid} -p -S -{tail} 2>/dev/null"
     )
-    file_inner = f"tail -n {tail} {shlex.quote(log_path)} 2>/dev/null"
-    inner = (
-        f"if [ -s {shlex.quote(log_path)} ]; then {file_inner}; "
-        f"else {pane_inner}; fi"
-    )
+    inner = f"if [ -s {quoted_log} ]; then {file_cmd}; " f"else {pane_cmd}; fi"
+
     if remote:
+        # Encode the inner command as base64 to avoid all shell-quoting
+        # hazards when tunnelling through SSH (nested single-quotes, special
+        # chars in paths, etc.).
+        encoded = base64.b64encode(inner.encode()).decode()
         _pf = f"-p {shlex.quote(str(sport))} " if sport and str(sport) != "22" else ""
         cmd = (
             f"ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "
-            f"{_pf}{shlex.quote(remote)} {shlex.quote(inner)}"
+            f"{_pf}{shlex.quote(remote)} "
+            f'"eval \\"$(echo {encoded} | base64 -d)\\""'
         )
         host_label = remote
     else:
         cmd = inner
         host_label = "local"
+
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
@@ -4228,6 +4249,7 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
         output_text = (data.get("stdout") or "").strip()
         stderr_text = (data.get("stderr") or "").strip()
         rc = data.get("exit_code")
+
         if rc not in (None, 0) and not output_text:
             already_gone = any(
                 s in (stderr_text or "").lower()
@@ -4245,34 +4267,57 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
                     "host": host_label,
                 }
             return {
-                "error": f"capture-pane failed on {host_label}: {stderr_text or f'exit {rc}'}",
+                "error": f"capture failed on {host_label}: {stderr_text or f'exit {rc}'}",
                 "exit_code": 1,
             }
-        # Dedupe download-progress noise. A 100-shard HF download produces
-        # tens of thousands of `model-NN-of-MM.safetensors: 91%|...` lines
-        # that all look the same to the agent and drown the actual error.
-        # Keep only one sample per (file, decile-percent) bucket.
-        import re as _re2
 
+        # Dedupe download-progress noise. HF tqdm lines can have leading
+        # whitespace and misc punctuation, so cast a wider net than before.
         lines = output_text.splitlines()
-        dedup_lines = []
-        seen_progress = set()
-        progress_re = _re2.compile(r"^([\w./\-]+):\s+(\d+)%")
+        dedup_lines: list[str] = []
+        seen_progress: set = set()
+        progress_re = _re.compile(r"([\w./\-]+):\s+(\d+)%")
         for ln in lines:
-            m = progress_re.match(ln.strip())
+            m = progress_re.search(ln)
             if m:
-                key = (m.group(1), int(m.group(2)) // 10)  # bucket by 10%
+                key = (m.group(1), int(m.group(2)) // 10)
                 if key in seen_progress:
                     continue
                 seen_progress.add(key)
             dedup_lines.append(ln)
         output_text = "\n".join(dedup_lines)
-        # Hard cap so the agent doesn't blow its token budget.
+
+        # Truncate, but bias toward keeping the region around the last
+        # error/traceback rather than blindly keeping the tail.
         MAX_CHARS = 8000
         if len(output_text) > MAX_CHARS:
-            output_text = "…(earlier output truncated)…\n" + output_text[-MAX_CHARS:]
+            # Find the last occurrence of a crash marker.
+            crash_markers = (
+                "Traceback",
+                "Error:",
+                "CUDA error",
+                "RuntimeError",
+                "Exception",
+            )
+            best_pos = -1
+            for marker in crash_markers:
+                pos = output_text.rfind(marker)
+                if pos > best_pos:
+                    best_pos = pos
+            if best_pos != -1:
+                # Keep from a little before the marker to the end, capped at MAX_CHARS.
+                start = max(0, best_pos - 500)
+                snippet = output_text[start:]
+                if len(snippet) > MAX_CHARS:
+                    snippet = snippet[:MAX_CHARS]
+                output_text = "…(earlier output truncated)…\n" + snippet
+            else:
+                output_text = (
+                    "…(earlier output truncated)…\n" + output_text[-MAX_CHARS:]
+                )
+
         return {
-            "output": output_text or "(empty pane)",
+            "output": output_text or "(empty)",
             "session_id": session_id,
             "host": host_label,
             "tail_lines": tail,

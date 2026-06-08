@@ -1,12 +1,13 @@
-"""Codex integration routes.
+# Codex integration routes.
 
-These are small HTTP surfaces intended for the Codex plugin/MCP bridge. They
-reuse existing Odysseus helpers and enforce API-token scopes before touching
-user data.
-"""
+# These are small HTTP surfaces intended for the Codex plugin/MCP bridge. They
+# reuse existing Odysseus helpers and enforce API-token scopes before touching
+# user data.
+
 
 import asyncio
 import json
+import shlex
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -16,6 +17,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from core.constants import DATA_DIR
+from routes.shell_routes import TMUX_LOG_DIR
 from src.auth_helpers import require_authenticated_request, require_user
 from src.tool_implementations import do_manage_notes
 
@@ -575,14 +577,14 @@ def setup_codex_routes(
         # moment vllm exits; the log file is the raw stdout/stderr and
         # survives unchanged. Falls back to pane for older tasks predating
         # the tee-to-log runner change.
-        log_path = f"/tmp/odysseus-tmux/{session_id}.log"
+        log_path = TMUX_LOG_DIR / f"{session_id}.log"
+        quoted_log_path = shlex.quote(str(log_path))
         inner = (
-            f"if [ -s {log_path} ]; then tail -n {tail} {log_path}; "
+            f"if [ -s {quoted_log_path} ]; then tail -n {tail} {quoted_log_path}; "
             f"else tmux capture-pane -t {session_id} -p -S -{tail}; fi"
         )
         if host:
             port_flag = f"-p {ssh_port} " if ssh_port and ssh_port != "22" else ""
-            import shlex
 
             cmd = f"ssh {port_flag}{host} {shlex.quote(inner)}"
         else:

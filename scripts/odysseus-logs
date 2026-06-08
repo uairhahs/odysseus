@@ -1,36 +1,39 @@
-#!/usr/bin/env python3
-"""odysseus-logs — unified view of log files across the app.
+# odysseus-logs
+# unified view of log files across the app.
 
-Right now logs live in two places:
-  - logs/                       app-level (compound.log, future runtime)
-  - /tmp/odysseus-tmux/*.log    per-tmux-session model download/serve logs
+# Right now logs live in two places:
+#   - logs/                       app-level (compound.log, future runtime)
+#   - /tmp/odysseus-tmux/*.log    per-tmux-session model download/serve logs
 
-This CLI surfaces them so you don't have to remember which directory
-holds what.
+# This CLI surfaces them so you don't have to remember which directory
+# holds what.
 
-    odysseus-logs list                    # every log we know about
-    odysseus-logs tail NAME               # tail -f a specific log
-    odysseus-logs tail NAME --lines 200   # last N lines only (no follow)
-    odysseus-logs cat NAME                # print full content
-    odysseus-logs clean                   # delete tmux logs older than 7 days
-"""
+#     odysseus-logs list                    # every log we know about
+#     odysseus-logs tail NAME               # tail -f a specific log
+#     odysseus-logs tail NAME --lines 200   # last N lines only (no follow)
+#     odysseus-logs cat NAME                # print full content
+#     odysseus-logs clean                   # delete tmux logs older than 7 days
+
 from __future__ import annotations
 
 import os
 import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
 from cli import quiet_logs, emit, fail, common_parser, run, REPO_ROOT as _REPO_ROOT
 
-quiet_logs()
 
-import argparse, json, subprocess, time
+# import argparse
+# import json
+import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
 
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
+quiet_logs()
 _APP_LOGS = _REPO_ROOT / "logs"
-_TMUX_LOGS = Path("/tmp/odysseus-tmux")
+_TMUX_LOGS = Path(os.environ.get("TMPDIR", "/tmp")) / "odysseus-tmux"
 
 
 def _enumerate() -> list[dict]:
@@ -83,9 +86,9 @@ def cmd_tail(args):
         fail(f"no log matching {args.name!r}; run `odysseus-logs list`")
     if args.follow:
         # Exec tail -f so signals + buffering are native.
-        os.execvp("tail", ["tail", "-n", str(args.lines), "-f", str(p)])
+        os.execvp("tail", ["tail", "-n", str(args.lines), "-f", str(p)]) #  noqa: S603
     # Non-follow: print last N lines + exit.
-    proc = subprocess.run(["tail", "-n", str(args.lines), str(p)],
+    proc = subprocess.run(["tail", "-n", str(args.lines), str(p)], #noqa: S603
                           capture_output=True, text=True)
     sys.stdout.write(proc.stdout)
     sys.exit(proc.returncode)

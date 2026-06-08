@@ -347,10 +347,10 @@ def cmd_download(args) -> None:
 
     if args.host:
         # Remote — let the remote shell decide log location.
-        remote_log = f"/tmp/odysseus-tmux/{session_id}.log"
+        remote_log = f"${{TMPDIR:-/tmp}}/odysseus-tmux/{session_id}.log"
         hf_cmd = " ".join(map(_shell_quote, cmd_parts))
         remote_shell_cmd = (
-            f"mkdir -p /tmp/odysseus-tmux && "
+            f"mkdir -p ${{TMPDIR:-/tmp}}/odysseus-tmux && "
             f"tmux new-session -d -s {_shell_quote(session_id)} "
             f"bash -lc {_shell_quote(f'{hf_cmd} 2>&1 | tee {remote_log}; echo DONE')}"
         )

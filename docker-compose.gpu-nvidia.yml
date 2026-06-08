@@ -34,6 +34,9 @@ services:
       # (vLLM, torch, sglang, etc.) reuse cached wheels on container recreate
       # instead of redownloading them.
       - ./data/uv-cache:/app/.cache/uv:z
+      # uv-managed project venv — persist this so installed dependencies survive
+      # container recreate and avoid losing the environment on a fresh bring-up.
+      - ./data/.venv:/app/.venv:z
       # Cookbook-installed Python CLIs/packages (vLLM, llama-cpp-python, etc.)
       # land under /app/.local for the odysseus user. Persist them so a
       # container recreate does not silently remove installed serve engines.
