@@ -33,11 +33,22 @@ RUN if [ "$INSTALL_OPTIONAL" = "true" ]; then \
       uv sync --frozen; \
     fi
 
+# Copy lockfiles before the rest of the source code to cache the npm layer
+COPY package.json package-lock.json ./
+
+# Use 'npm ci' for deterministic, lockfile-bound installation
+# --omit=dev ensures we don't install unnecessary build-time tools in production
+# IMPORTANT: Install Playwright browsers and OS dependencies.
+RUN npm ci --omit=dev &&\
+    npx playwright install --with-deps chromium
+
 # Copy app code
 COPY . .
 
-# Create data directory (mount a volume here for persistence)
-RUN mkdir -p data logs services/cache/search
+# Verify the tool is available locally (--no-install prevents dynamic downloads)
+# and create necessary data directories
+RUN npx --no-install @playwright/mcp --version \
+    && mkdir -p data logs services/cache/search
 
 # Entrypoint that drops to PUID/PGID (default 1000:1000) and repairs
 # ownership on the bind-mounted /app/data and /app/logs. Without this,
