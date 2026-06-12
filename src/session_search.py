@@ -221,7 +221,7 @@ def _search_like(
         )
     )
     if not include_archived:
-        q = q.filter(not DBSession.archived)
+        q = q.filter(DBSession.archived.is_(False))
     if restrict_owner:
         q = _owner_filter(q, owner, include_legacy_owner)
     rows = q.order_by(DBChatMessage.timestamp.desc()).limit(limit).all()

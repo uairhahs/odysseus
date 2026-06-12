@@ -8,7 +8,7 @@ and the task scheduler / builtin actions system.
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -97,8 +97,10 @@ async def run_auto_sort(
         for row in rows:
             if getattr(row, "is_important", False):
                 continue
-            created_at = row.created_at or row.updated_at or datetime.utcnow()
-            is_fresh = (datetime.utcnow() - created_at) < _FRESH_EMPTY_SESSION_GRACE
+            created_at = row.created_at or row.updated_at or datetime.now(timezone.utc)
+            is_fresh = (
+                datetime.now(timezone.utc) - created_at
+            ) < _FRESH_EMPTY_SESSION_GRACE
             if (row.name or "").strip() == "Incognito":
                 deleted_throwaway += 1
                 db.delete(row)
@@ -287,7 +289,7 @@ async def run_auto_sort(
                     )
                     if db_sess:
                         db_sess.folder = folder_name
-                        db_sess.updated_at = datetime.utcnow()
+                        db_sess.updated_at = datetime.now(timezone.utc)
                         updated += 1
         db.commit()
 

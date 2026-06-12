@@ -371,7 +371,7 @@ def cmd_download(args) -> None:
                 "repo": args.repo,
                 "host": args.host,
                 "remote_log_path": remote_log,
-                "tail_cmd": f"ssh {args.host} tail -f {remote_log}",
+                "tail_cmd": f"ssh {args.host} 'tail -f {remote_log}'",
                 "kill_cmd": f"odysseus-cookbook kill {session_id} --host {args.host}",
             },
             args,

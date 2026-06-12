@@ -9,8 +9,10 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
+
+from sqlalchemy import null
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -86,7 +88,7 @@ async def _handle_event(event_name: str, owner: Optional[str] = None):
         if resolved_owner:
             filters.append(ScheduledTask.owner == resolved_owner)
         else:
-            filters.append(ScheduledTask.owner == None)  # noqa: E711
+            filters.append(ScheduledTask.owner.is_(null()))
 
         tasks = db.query(ScheduledTask).filter(*filters).all()
         if not tasks:
@@ -103,7 +105,7 @@ async def _handle_event(event_name: str, owner: Optional[str] = None):
                 # behind a model call, `next_run <= now` makes the trigger
                 # survive reboot instead of losing the event after the counter
                 # has already reset.
-                task.next_run = datetime.utcnow()
+                task.next_run = datetime.now(timezone.utc)
                 db.commit()
                 # Fire the task
                 if _task_scheduler:

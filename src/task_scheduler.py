@@ -9,12 +9,14 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Tuple
 
+from sqlalchemy import false
+
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 
 
-def _utcnow() -> datetime:
+def _now() -> datetime:
     """Return naive UTC for task DB fields without using deprecated APIs."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -98,12 +100,12 @@ def compute_next_run(
     # "now" used for comparisons. When tz is set we work entirely in local tz
     # and convert to UTC at the end. Otherwise we use naive UTC (legacy).
     if tz is not None:
-        now_utc = after or _utcnow()
+        now_utc = after or _now()
         if now_utc.tzinfo is None:
             now_utc = now_utc.replace(tzinfo=timezone.utc)
         now = now_utc.astimezone(tz)
     else:
-        now = after or _utcnow()
+        now = after or _now()
 
     def _to_utc_naive(dt: datetime) -> datetime:
         """Convert a tz-aware datetime to naive UTC for DB storage."""
@@ -405,7 +407,7 @@ class TaskScheduler:
                 run.status = "aborted"
                 run.error = message
                 run.result = run.result or message
-                run.finished_at = _utcnow()
+                run.finished_at = _now()
                 db.commit()
                 return True
             finally:
@@ -434,7 +436,7 @@ class TaskScheduler:
                 "task_id": task_id,
                 "owner": owner,
                 "body": (body[:500] + "…") if body and len(body) > 500 else body,
-                "timestamp": _utcnow().isoformat() + "Z",
+                "timestamp": _now().isoformat() + "Z",
             }
         )
         # Cap at 50 to avoid unbounded growth
@@ -484,7 +486,7 @@ class TaskScheduler:
                     .all()
                 )
                 if stale:
-                    now = _utcnow()
+                    now = _now()
                     for r in stale:
                         old_status = r.status or "running"
                         r.status = "aborted"
@@ -509,7 +511,7 @@ class TaskScheduler:
 
             db = _SL()
             try:
-                now = _utcnow()
+                now = _now()
                 overdue = (
                     db.query(_ST)
                     .filter(
@@ -723,7 +725,7 @@ class TaskScheduler:
                 .filter(
                     Note.due_date.isnot(None),
                     Note.due_date != "",
-                    Note.archived == False,  # noqa: E712
+                    Note.archived.is_(false()),
                 )
                 .distinct()
             )
@@ -763,7 +765,7 @@ class TaskScheduler:
                         .first()
                     )
                     if next_run and next_run[0]:
-                        delta = (next_run[0] - _utcnow()).total_seconds()
+                        delta = (next_run[0] - _now()).total_seconds()
                         sleep_for = max(1.0, min(60.0, delta))
                 finally:
                     _db.close()
@@ -776,7 +778,7 @@ class TaskScheduler:
 
         db = SessionLocal()
         try:
-            now = _utcnow()
+            now = _now()
             async with self._executing_lock:
                 # Snapshot under the lock so we don't race with mid-iteration adds.
                 executing_snapshot = set(self._executing)
@@ -827,7 +829,7 @@ class TaskScheduler:
             run = TaskRun(
                 id=run_id,
                 task_id=task_id,
-                started_at=_utcnow(),
+                started_at=_now(),
                 status="queued",
                 result="Queued — waiting for a free slot…",
             )
@@ -876,7 +878,7 @@ class TaskScheduler:
                 stale = db.query(TaskRun).filter(TaskRun.id == run_id).first()
                 if stale and stale.status == "queued":
                     stale.status = "skipped"
-                    stale.finished_at = _utcnow()
+                    stale.finished_at = _now()
                     stale.error = f"Task no longer active (status={task.status if task else 'deleted'})"
                     db.commit()
                 return
@@ -887,7 +889,7 @@ class TaskScheduler:
             run = db.query(TaskRun).filter(TaskRun.id == run_id).first()
             if run:
                 run.status = "running"
-                run.started_at = _utcnow()
+                run.started_at = _now()
                 run.result = "Starting…"
                 db.commit()
             else:
@@ -896,7 +898,7 @@ class TaskScheduler:
                 run = TaskRun(
                     id=run_id,
                     task_id=task.id,
-                    started_at=_utcnow(),
+                    started_at=_now(),
                     status="running",
                     result="Starting…",
                 )
@@ -942,7 +944,7 @@ class TaskScheduler:
                 )
                 if count > 2:
                     delay_seconds = max(delay_seconds, 40 * 60)
-                when = _utcnow() + timedelta(seconds=delay_seconds)
+                when = _now() + timedelta(seconds=delay_seconds)
                 logger.info(
                     "Task '%s' deferred for %ss after %s quiet-window hit(s): %s",
                     task.name,
@@ -963,15 +965,15 @@ class TaskScheduler:
                     run_obj.status = "aborted"
                     run_obj.error = "Stopped by user"
                     run_obj.result = run_obj.result or "Stopped by user"
-                    run_obj.finished_at = _utcnow()
-                task.last_run = _utcnow()
+                    run_obj.finished_at = _now()
+                task.last_run = _now()
                 if (task.trigger_type or "schedule") == "schedule":
                     task.next_run = compute_next_run(
                         task.schedule,
                         task.scheduled_time,
                         task.scheduled_day,
                         task.scheduled_date,
-                        after=_utcnow(),
+                        after=_now(),
                         cron_expression=task.cron_expression,
                         tz_name=_resolve_task_timezone(db, task),
                     )
@@ -988,15 +990,15 @@ class TaskScheduler:
                 logger.info(f"Task '{task.name}' no-op: {noop}")
                 run.status = "skipped"
                 run.result = str(noop)
-                run.finished_at = _utcnow()
-                task.last_run = _utcnow()
+                run.finished_at = _now()
+                task.last_run = _now()
                 if (task.trigger_type or "schedule") == "schedule":
                     task.next_run = compute_next_run(
                         task.schedule,
                         task.scheduled_time,
                         task.scheduled_day,
                         task.scheduled_date,
-                        after=_utcnow(),
+                        after=_now(),
                         cron_expression=task.cron_expression,
                         tz_name=_resolve_task_timezone(db, task),
                     )
@@ -1005,10 +1007,10 @@ class TaskScheduler:
                 db.commit()
                 return
 
-            run.finished_at = _utcnow()
+            run.finished_at = _now()
 
             # Update task
-            task.last_run = _utcnow()
+            task.last_run = _now()
             task.run_count = (task.run_count or 0) + 1
             self._task_defer_counts.pop(task_id, None)
 
@@ -1019,7 +1021,7 @@ class TaskScheduler:
                     task.scheduled_time,
                     task.scheduled_day,
                     task.scheduled_date,
-                    after=_utcnow(),
+                    after=_now(),
                     cron_expression=task.cron_expression,
                     tz_name=_resolve_task_timezone(db, task),
                 )
@@ -1105,21 +1107,21 @@ class TaskScheduler:
                 if run_obj and run_obj.status in ("running", "success"):
                     run_obj.status = "error"
                     run_obj.error = err_text[:2000]
-                    run_obj.finished_at = _utcnow()
+                    run_obj.finished_at = _now()
                 # Advance next_run even on failure so a broken task doesn't
                 # busy-loop the scheduler every tick with a stale past date.
                 task_obj = (
                     db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
                 )
                 if task_obj and (task_obj.trigger_type or "schedule") == "schedule":
-                    task_obj.last_run = _utcnow()
+                    task_obj.last_run = _now()
                     try:
                         task_obj.next_run = compute_next_run(
                             task_obj.schedule,
                             task_obj.scheduled_time,
                             task_obj.scheduled_day,
                             task_obj.scheduled_date,
-                            after=_utcnow(),
+                            after=_now(),
                             cron_expression=task_obj.cron_expression,
                             tz_name=_resolve_task_timezone(db, task_obj),
                         )
@@ -1158,7 +1160,7 @@ class TaskScheduler:
                             _r.error = f"commit_failed: {type(commit_err).__name__}: {commit_err}"[
                                 :2000
                             ]
-                            _r.finished_at = _utcnow()
+                            _r.finished_at = _now()
                         _t = (
                             _recover_db.query(ScheduledTask)
                             .filter(ScheduledTask.id == task_id)
@@ -1167,8 +1169,8 @@ class TaskScheduler:
                         if _t and (_t.trigger_type or "schedule") == "schedule":
                             # Push next_run forward 5min as a safe stall so the
                             # scheduler doesn't immediately re-dispatch.
-                            _t.next_run = _utcnow() + _td(minutes=5)
-                            _t.last_run = _utcnow()
+                            _t.next_run = _now() + _td(minutes=5)
+                            _t.last_run = _now()
                         _recover_db.commit()
                     except Exception as recover_err:
                         logger.error(
@@ -1396,14 +1398,12 @@ class TaskScheduler:
                 from datetime import timezone
                 from zoneinfo import ZoneInfo
 
-                now = (
-                    _utcnow().replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz_name))
-                )
+                now = _now().replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz_name))
             else:
-                now = _utcnow()
+                now = _now()
             time_str = now.strftime("%A, %B %d %Y, %H:%M")
         except Exception as e:
-            now = _utcnow()
+            now = _now()
             time_str = now.strftime("%H:%M UTC")
             logger.warning(f"Failed to format time for task {task.id}: {e}")
 
@@ -1650,8 +1650,8 @@ class TaskScheduler:
                 model=model,
                 owner=task.owner,
                 folder="Tasks",
-                created_at=_utcnow(),
-                updated_at=_utcnow(),
+                created_at=_now(),
+                updated_at=_now(),
             )
             db.add(sess)
             task.session_id = session_id
@@ -1692,13 +1692,13 @@ class TaskScheduler:
                 from zoneinfo import ZoneInfo
 
                 now_local = (
-                    _utcnow().replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz_name))
+                    _now().replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz_name))
                 )
                 time_str = now_local.strftime("%A, %B %d %Y, %H:%M %Z")
             else:
-                time_str = _utcnow().strftime("%A, %B %d %Y, %H:%M UTC")
+                time_str = _now().strftime("%A, %B %d %Y, %H:%M UTC")
         except Exception:
-            time_str = _utcnow().strftime("%A, %B %d %Y, %H:%M UTC")
+            time_str = _now().strftime("%A, %B %d %Y, %H:%M UTC")
         system_prompt = f"Current time: {time_str}\n\n{system_prompt}"
 
         # Compute tool filter from CrewMember.enabled_tools if set
@@ -1837,8 +1837,8 @@ class TaskScheduler:
                 model=model_name or "",
                 owner=task.owner,
                 folder="Tasks",
-                created_at=_utcnow(),
-                updated_at=_utcnow(),
+                created_at=_now(),
+                updated_at=_now(),
             )
             db.add(sess)
             task.session_id = session_id
@@ -1865,7 +1865,7 @@ class TaskScheduler:
             session_id=session_id,
             role="user",
             content=user_content,
-            timestamp=_utcnow(),
+            timestamp=_now(),
             meta_data=msg_meta,
         )
         assistant_msg = ChatMessage(
@@ -1873,7 +1873,7 @@ class TaskScheduler:
             session_id=session_id,
             role="assistant",
             content=result or "",
-            timestamp=_utcnow(),
+            timestamp=_now(),
             meta_data=msg_meta,
         )
         db.add(user_msg)
@@ -2187,8 +2187,8 @@ class TaskScheduler:
                 model=model,
                 owner=task.owner,
                 folder="Tasks",
-                created_at=_utcnow(),
-                updated_at=_utcnow(),
+                created_at=_now(),
+                updated_at=_now(),
             )
             db.add(sess)
             task.session_id = session_id
@@ -2564,7 +2564,7 @@ class TaskScheduler:
                             defs["scheduled_time"],
                             None,
                             None,
-                            after=_utcnow(),
+                            after=_now(),
                             cron_expression=defs["cron_expression"],
                             tz_name=_resolve_task_timezone(db, task),
                         )
@@ -2602,7 +2602,7 @@ class TaskScheduler:
                                 task.scheduled_time,
                                 task.scheduled_day,
                                 task.scheduled_date,
-                                after=_utcnow(),
+                                after=_now(),
                                 cron_expression=task.cron_expression,
                                 tz_name=_resolve_task_timezone(db, task),
                             )
@@ -2623,7 +2623,7 @@ class TaskScheduler:
                         defs["scheduled_time"],
                         None,
                         None,
-                        after=_utcnow(),
+                        after=_now(),
                         cron_expression=defs["cron_expression"],
                     )
                 ships_paused = bool(defs.get("ship_paused"))
@@ -2765,8 +2765,8 @@ class TaskScheduler:
                 is_important=True,
                 mode="agent",
                 folder="Assistant",
-                created_at=_utcnow(),
-                updated_at=_utcnow(),
+                created_at=_now(),
+                updated_at=_now(),
             )
             db.add(sess)
             db.flush()

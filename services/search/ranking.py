@@ -15,7 +15,8 @@ _AGE_FORMATS = ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S")
 
 def _utcnow_naive() -> datetime:
     """Naive UTC 'now'. Matches the naive, UTC-style published dates parsed below,
-    and is safe on Python 3.14 where ``datetime.utcnow()`` is removed (#1116)."""
+    and is safe on Python 3.14 where ``datetime.now(timezone.utc)`` is removed (#1116).
+    """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 

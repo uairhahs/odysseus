@@ -41,8 +41,8 @@ _PRIVATE_NETWORKS = [
 ]
 
 
-def _utcnow() -> datetime:
-    """Return naive UTC for existing DB columns while avoiding datetime.utcnow()."""
+def _now() -> datetime:
+    """Return naive UTC for existing DB columns while avoiding datetime.now(timezone.utc)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
@@ -286,7 +286,7 @@ class WebhookManager:
             return
 
         body = json.dumps(
-            {"event": event, "timestamp": _utcnow().isoformat(), "data": payload}
+            {"event": event, "timestamp": _now().isoformat(), "data": payload}
         )
         headers = {
             "Content-Type": "application/json",
@@ -302,7 +302,7 @@ class WebhookManager:
             resp = await self._client.post(url, content=body, headers=headers)
             db.query(Webhook).filter(Webhook.id == webhook_id).update(
                 {
-                    "last_triggered_at": _utcnow(),
+                    "last_triggered_at": _now(),
                     "last_status_code": resp.status_code,
                     "last_error": None,
                 }
@@ -313,7 +313,7 @@ class WebhookManager:
             try:
                 db.query(Webhook).filter(Webhook.id == webhook_id).update(
                     {
-                        "last_triggered_at": _utcnow(),
+                        "last_triggered_at": _now(),
                         "last_status_code": None,
                         "last_error": sanitize_error(str(e)),
                     }

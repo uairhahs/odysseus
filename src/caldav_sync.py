@@ -425,8 +425,8 @@ def _sync_blocking(
             result["errors"].append(f"No calendars and URL fallback failed: {e}")
             return result
 
-    start = datetime.utcnow() - timedelta(days=_LOOKBACK_DAYS)
-    end = datetime.utcnow() + timedelta(days=_LOOKAHEAD_DAYS)
+    start = datetime.now(timezone.utc) - timedelta(days=_LOOKBACK_DAYS)
+    end = datetime.now(timezone.utc) + timedelta(days=_LOOKAHEAD_DAYS)
 
     db = SessionLocal()
     try:

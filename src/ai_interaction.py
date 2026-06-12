@@ -531,7 +531,7 @@ async def do_list_sessions(
         def _rel(ts):
             if not ts:
                 return "never"
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             try:
                 if ts.tzinfo is not None:
                     now = datetime.now(timezone.utc)

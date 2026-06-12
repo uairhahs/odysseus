@@ -1,15 +1,16 @@
-# builtin_actions.py
+# Builtin Actions
 
 # Registry of built-in automation actions that can be executed by the task
 # scheduler without needing an LLM call.
-
 
 import logging
 import os
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Tuple
+
+from sqlalchemy import false
 
 from core.constants import DATA_DIR, internal_api_base
 from core.platform_compat import IS_WINDOWS, find_bash
@@ -551,7 +552,7 @@ async def action_tidy_calendar(owner: str, **kwargs) -> Tuple[str, bool]:
                         json.dumps(
                             {
                                 "last_created_at": newest.isoformat(),
-                                "last_run_at": datetime.utcnow().isoformat(),
+                                "last_run_at": datetime.now(timezone.utc).isoformat(),
                                 "scanned": len(events),
                                 "removed": len(removed),
                             },
@@ -781,7 +782,7 @@ async def action_classify_events(owner: str, **kwargs) -> Tuple[str, bool]:
 
         db = SessionLocal()
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             horizon = now + timedelta(days=30)
             events = (
                 db.query(CalendarEvent)
@@ -1114,7 +1115,7 @@ async def action_learn_sender_signatures(owner: str, **kwargs) -> Tuple[str, boo
         except Exception:
             cached = {}
 
-        cutoff_iso = (_dt.utcnow() - _td(days=30)).isoformat()
+        cutoff_iso = (_dt.now(timezone.utc) - _td(days=30)).isoformat()
         eligible: list[tuple[str, list[dict]]] = []
         for addr, msgs in by_sender.items():
             if len(msgs) < 3:
@@ -1232,7 +1233,7 @@ async def action_learn_sender_signatures(owner: str, **kwargs) -> Tuple[str, boo
                         addr,
                         cached_sig,
                         len(bodies),
-                        _dt.utcnow().isoformat(),
+                        _dt.now(timezone.utc).isoformat(),
                         model,
                         "llm",
                     ),
@@ -1293,7 +1294,7 @@ async def action_daily_brief(owner: str, **kwargs) -> Tuple[str, bool]:
                 )
             events = ev_q.order_by(CalendarEvent.dtstart).all()
             # ----- Notes: pinned + non-archived todos with at least one undone item -----
-            n_q = db.query(Note).filter(Note.archived == False)  # noqa: E712
+            n_q = db.query(Note).filter(Note.archived.is_(false()))  # noqa: E712
             if owner:
                 n_q = owner_filter(n_q, Note, owner, include_shared=_allow_null)
             notes = n_q.all()
@@ -1848,7 +1849,7 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
         CACHE_DIR = _P("data/email_urgency_cache")
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        AGE_CUTOFF = _dt.utcnow() - _td(days=7)
+        AGE_CUTOFF = _dt.now(timezone.utc) - _td(days=7)
         TRIAGE_VERSION = 3
         CATEGORY_TAGS = {
             "newsletter",
@@ -1885,11 +1886,13 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
         db = _SL()
         try:
             from sqlalchemy import and_ as _and
+            from sqlalchemy import null
             from sqlalchemy import or_ as _or
+            from sqlalchemy import true
 
-            q = db.query(_EA).filter(_EA.enabled == True)  # noqa: E712
+            q = db.query(_EA).filter(_EA.enabled.is_(true()))
             if owner:
-                unowned = _or(_EA.owner == None, _EA.owner == "")  # noqa: E711
+                unowned = _or(_EA.owner.is_(null()), _EA.owner == "")
                 same_mailbox = _or(_EA.imap_user == owner, _EA.from_address == owner)
                 q = q.filter(_or(_EA.owner == owner, _and(unowned, same_mailbox)))
             accounts = q.all()
@@ -2305,7 +2308,7 @@ async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
                                 _json.dumps(_new_tags),
                                 _spam,
                                 _v.get("reason", ""),
-                                _dt2.utcnow().isoformat(),
+                                _dt2.now(timezone.utc).isoformat(),
                             ),
                         )
                 _conn.commit()

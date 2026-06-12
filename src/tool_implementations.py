@@ -8,9 +8,12 @@ import json
 import logging
 import os
 import re
+from datetime import timezone
 
 # from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from sqlalchemy import false
 
 from core.constants import internal_api_base
 from routes.shell_routes import TMUX_LOG_DIR
@@ -1276,8 +1279,8 @@ async def do_manage_endpoints(content: str, owner: Optional[str] = None) -> Dict
                 base_url=base_url,
                 api_key=api_key,
                 is_enabled=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             db.add(ep)
             db.commit()
@@ -1387,8 +1390,8 @@ async def do_manage_mcp(content: str, owner: Optional[str] = None) -> Dict:
                 args=json.dumps(cmd_args) if isinstance(cmd_args, list) else cmd_args,
                 env=json.dumps(env) if isinstance(env, dict) else env,
                 is_enabled=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             db.add(srv)
             db.commit()
@@ -1573,8 +1576,8 @@ async def do_manage_webhooks(content: str, owner: Optional[str] = None) -> Dict:
                 url=url,
                 events=events,
                 is_active=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             db.add(hook)
             db.commit()
@@ -1659,8 +1662,8 @@ async def do_manage_tokens(content: str, owner: Optional[str] = None) -> Dict:
                 token_hash=token_hash,
                 token_prefix=raw_token[:8],
                 is_active=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             db.add(t)
             db.commit()
@@ -1720,7 +1723,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
             now = (
                 datetime.now(timezone.utc)
                 if ts.tzinfo is not None
-                else datetime.utcnow()
+                else datetime.now(timezone.utc)
             )
             diff = (now - ts).total_seconds()
         except Exception:
@@ -2402,7 +2405,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
                 # also creates a separate note reminder for the same title/time,
                 # keep the existing note so the user gets only one dispatch.
                 existing_q = db.query(Note).filter(
-                    Note.archived == False,  # noqa: E712
+                    Note.archived.is_(false()),
                     Note.due_date == due_iso,
                 )
                 if owner is not None:
@@ -2652,7 +2655,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
         is_utc: bool = False,
     ) -> tuple[Optional[str], Optional[str]]:
         remind_at = dtstart - timedelta(minutes=minutes_before)
-        now = datetime.utcnow() if is_utc else datetime.now()
+        now = datetime.now(timezone.utc) if is_utc else datetime.now()
         if dtstart <= now:
             return None, "event already passed"
         if remind_at <= now:
@@ -2670,7 +2673,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
         due_date = remind_at.isoformat() + ("Z" if is_utc else "")
         expected_title = f"Reminder: {summary}"
         existing_q = db.query(Note).filter(
-            Note.archived == False,  # noqa: E712
+            Note.archived.is_(false()),
             Note.due_date == due_date,
         )
         if owner is not None:
@@ -2722,7 +2725,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
                 if start_raw:
                     start_dt = _parse_dt(start_raw)
                 else:
-                    start_dt = datetime.utcnow().replace(
+                    start_dt = datetime.now(timezone.utc).replace(
                         hour=0, minute=0, second=0, microsecond=0
                     )
                 if end_raw:
@@ -5639,7 +5642,7 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
     cfg["session"] = session
     from datetime import datetime as _dt
 
-    cfg["unlocked_at"] = _dt.utcnow().isoformat()
+    cfg["unlocked_at"] = _dt.now(timezone.utc).isoformat()
     p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     try:
         import os as _os

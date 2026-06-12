@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
 
-def _utcnow() -> datetime:
+def _now() -> datetime:
     """Naive UTC for this module's DB-bound timestamps.
 
     Mirrors the naive DateTime columns these values are compared against,
@@ -53,7 +53,7 @@ async def archive_inactive_sessions(
     Returns:
         Number of sessions archived
     """
-    cutoff_date = _utcnow() - timedelta(days=CleanupConfig.ARCHIVE_AFTER_DAYS)
+    cutoff_date = _now() - timedelta(days=CleanupConfig.ARCHIVE_AFTER_DAYS)
     archived_count = 0
 
     from src.database import Session as DbSession
@@ -69,7 +69,7 @@ async def archive_inactive_sessions(
 
         for session in sessions_to_archive:
             session.archived = True
-            session.updated_at = _utcnow()
+            session.updated_at = _now()
             archived_count += 1
 
         if archived_count > 0:
@@ -98,7 +98,7 @@ async def cleanup_old_sessions(
     Returns:
         Tuple of (number of sessions deleted, space freed in MB)
     """
-    cutoff_date = _utcnow() - timedelta(days=CleanupConfig.DELETE_AFTER_DAYS)
+    cutoff_date = _now() - timedelta(days=CleanupConfig.DELETE_AFTER_DAYS)
     deleted_count = 0
     space_freed = 0
 
@@ -195,8 +195,8 @@ async def get_cleanup_preview(owner: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Dictionary containing preview information
     """
-    cutoff_archive = _utcnow() - timedelta(days=CleanupConfig.ARCHIVE_AFTER_DAYS)
-    cutoff_delete = _utcnow() - timedelta(days=CleanupConfig.DELETE_AFTER_DAYS)
+    cutoff_archive = _now() - timedelta(days=CleanupConfig.ARCHIVE_AFTER_DAYS)
+    cutoff_delete = _now() - timedelta(days=CleanupConfig.DELETE_AFTER_DAYS)
 
     sessions_to_archive = []
     sessions_to_delete = []

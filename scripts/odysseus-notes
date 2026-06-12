@@ -11,18 +11,24 @@ Reads the same SQLite the web UI uses. Output JSON; pipe-friendly.
 """
 
 from __future__ import annotations
+
+import argparse
+import json
+import os
 import sys
-import os, sys
+import uuid
+
+from cli import emit, fail, quiet_logs, run
+from sqlalchemy import false, true
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "_lib"))
-from cli import quiet_logs, emit, fail, common_parser, run, REPO_ROOT as _REPO_ROOT
+
 quiet_logs()
 
-import argparse, json, logging, os, sys, uuid
-from datetime import datetime
-from pathlib import Path
 
 try:
-    from core.database import SessionLocal, Note
+    from core.database import Note, SessionLocal
+
     quiet_logs()
 except ModuleNotFoundError as e:
     sys.stderr.write(f"error: {e}\nhint: run from repo root with venv active.\n")
@@ -62,12 +68,14 @@ def cmd_list(args):
     try:
         q = db.query(Note)
         if not args.archived:
-            q = q.filter(Note.archived == False)  # noqa: E712
+            q = q.filter(Note.archived.is_(false()))  # noqa: E712
         if args.label:
             q = q.filter(Note.label == args.label)
         if args.pinned:
-            q = q.filter(Note.pinned == True)  # noqa: E712
-        q = q.order_by(Note.pinned.desc(), Note.sort_order.asc(), Note.updated_at.desc()).limit(args.limit)
+            q = q.filter(Note.pinned.is_(true()))  # noqa: E712
+        q = q.order_by(
+            Note.pinned.desc(), Note.sort_order.asc(), Note.updated_at.desc()
+        ).limit(args.limit)
         emit([_serialize(n) for n in q.all()], args)
     finally:
         db.close()
@@ -88,9 +96,13 @@ def cmd_search(args):
     db = SessionLocal()
     try:
         like = f"%{args.query}%"
-        rows = db.query(Note).filter(
-            (Note.title.ilike(like)) | (Note.content.ilike(like))
-        ).order_by(Note.updated_at.desc()).limit(args.limit).all()
+        rows = (
+            db.query(Note)
+            .filter((Note.title.ilike(like)) | (Note.content.ilike(like)))
+            .order_by(Note.updated_at.desc())
+            .limit(args.limit)
+            .all()
+        )
         emit([_serialize(n) for n in rows], args)
     finally:
         db.close()
