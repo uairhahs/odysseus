@@ -595,6 +595,17 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                     else True
                 )
             )
+            # Validate chained task belongs to same owner
+            if req.then_task_id:
+                chain_target = (
+                    db.query(ScheduledTask)
+                    .filter(ScheduledTask.id == req.then_task_id)
+                    .first()
+                )
+                if not chain_target:
+                    raise HTTPException(400, "Chained task not found")
+                if chain_target.owner != user:
+                    raise HTTPException(403, "Cannot chain to another user's task")
             task = ScheduledTask(
                 id=task_id,
                 owner=user,
@@ -795,6 +806,16 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             if req.trigger_count is not None:
                 task.trigger_count = req.trigger_count
             if req.then_task_id is not None:
+                if req.then_task_id:
+                    chain_target = (
+                        db.query(ScheduledTask)
+                        .filter(ScheduledTask.id == req.then_task_id)
+                        .first()
+                    )
+                    if not chain_target:
+                        raise HTTPException(400, "Chained task not found")
+                    if chain_target.owner != user:
+                        raise HTTPException(403, "Cannot chain to another user's task")
                 task.then_task_id = _validate_then_task_id(
                     db, req.then_task_id, user, current_task_id=task.id
                 )
