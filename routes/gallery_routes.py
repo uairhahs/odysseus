@@ -1,4 +1,4 @@
-# Gallery routes — browsable library for photos and AI-generated images.
+"""Gallery routes — browsable library for photos and AI-generated images."""
 
 import hashlib
 import logging
@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from sqlalchemy import true
 
 from core.database import GalleryAlbum, GalleryImage, ModelEndpoint
 from core.database import Session as DbSession
@@ -76,7 +77,7 @@ def _visible_image_endpoint_query(db, owner: str | None):
 
     q = db.query(ModelEndpoint).filter(
         ModelEndpoint.model_type == "image",
-        ModelEndpoint.is_enabled == True,  # noqa: E712
+        ModelEndpoint.is_enabled.is_(true()),  # noqa: E712
     )
     return owner_filter(q, ModelEndpoint, owner)
 
@@ -741,7 +742,7 @@ def setup_gallery_routes() -> APIRouter:
         try:
             q = db.query(GalleryImage).filter(
                 GalleryImage.is_active,
-                (GalleryImage.ai_tags is None) | (GalleryImage.ai_tags == ""),
+                (GalleryImage.ai_tags.is_(None)) | (GalleryImage.ai_tags == ""),
             )
             if user:
                 q = q.filter(GalleryImage.owner == user)

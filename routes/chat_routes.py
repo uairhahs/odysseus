@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -16,7 +15,7 @@ from core.database import ChatMessage as DBChatMessage
 from core.database import Document as DBDocument
 from core.database import ModelEndpoint
 from core.database import Session as DBSession
-from core.database import SessionLocal, get_session_mode, set_session_mode
+from core.database import SessionLocal, get_session_mode, set_session_mode, utcnow_naive
 from core.exceptions import SessionNotFoundError
 from core.models import ChatMessage
 from routes.chat_helpers import (
@@ -101,7 +100,7 @@ def _clear_orphaned_session_endpoint(sess, owner: str | None = None) -> bool:
         if db_session:
             db_session.endpoint_url = ""
             db_session.model = ""
-            db_session.updated_at = datetime.utcnow()
+            db_session.updated_at = utcnow_naive()
             db.commit()
         sess.endpoint_url = ""
         sess.model = ""
@@ -236,7 +235,7 @@ def _recover_empty_session_model(
         db_session = db.query(DBSession).filter(DBSession.id == session_id).first()
         if db_session:
             db_session.model = model
-            db_session.updated_at = datetime.utcnow()
+            db_session.updated_at = utcnow_naive()
             db.commit()
         sess.model = model
         logger.info(

@@ -1,4 +1,4 @@
-# Calendar routes — local SQLite-backed calendar CRUD.
+"""Calendar routes — local SQLite-backed calendar CRUD."""
 
 import logging
 import os as _os
@@ -15,7 +15,7 @@ from sqlalchemy import and_, or_
 from core.database import CalendarCal, CalendarEvent, SessionLocal
 from src.auth_helpers import require_user
 from src.upload_limits import read_upload_limited
-from src.user_time import (  # set_user_tz_name,; set_user_tz_offset,
+from src.user_time import (
     get_user_tz_name,
     get_user_tz_offset,
     now_user_local,

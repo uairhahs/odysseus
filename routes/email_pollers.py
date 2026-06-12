@@ -1,19 +1,19 @@
-# email_pollers.py
+"""email_pollers.py
 
-# Background loops that periodically scan IMAP and act on mail:
+Background loops that periodically scan IMAP and act on mail:
 
-#     - `_auto_summarize_pass` / `_auto_summarize_pass_single` — daily/hourly
-#       summary + AI-reply + spam-classification pass over recently received mail.
-#     - `_auto_summarize_poller` — driver that wakes the pass on a 30-min cadence.
-#     - `_scheduled_email_poller` — polls the `scheduled_emails` SQLite for
-#       due rows and delivers them via SMTP.
-#     - `_start_poller` — entry point called once at app startup; spawns both
-#       pollers + handles the deferred-start trick when the event loop is not
-#       yet running.
+    - `_auto_summarize_pass` / `_auto_summarize_pass_single` — daily/hourly
+      summary + AI-reply + spam-classification pass over recently received mail.
+    - `_auto_summarize_poller` — driver that wakes the pass on a 30-min cadence.
+    - `_scheduled_email_poller` — polls the `scheduled_emails` SQLite for
+      due rows and delivers them via SMTP.
+    - `_start_poller` — entry point called once at app startup; spawns both
+      pollers + handles the deferred-start trick when the event loop is not
+      yet running.
 
-# Pure helpers live in `email_helpers.py`. Routes themselves live in
-# `email_routes.py`.
-
+Pure helpers live in `email_helpers.py`. Routes themselves live in
+`email_routes.py`.
+"""
 
 import email as email_mod
 import email.utils  # the `email` binding is referenced as email.utils.parseaddr inside the pass
@@ -24,9 +24,11 @@ import logging
 import re
 
 # import smtplib
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+from sqlalchemy import true
 
 from routes.email_helpers import (  # _pre_retrieve_context,
     _EMAIL_REPLY_SYS_PROMPT_BASE,
@@ -52,6 +54,21 @@ from routes.email_helpers import (  # _pre_retrieve_context,
     _strip_think,
 )
 from src.llm_core import llm_call_async
+
+# Background loops that periodically scan IMAP and act on mail:
+
+#     - `_auto_summarize_pass` / `_auto_summarize_pass_single` — daily/hourly
+#       summary + AI-reply + spam-classification pass over recently received mail.
+#     - `_auto_summarize_poller` — driver that wakes the pass on a 30-min cadence.
+#     - `_scheduled_email_poller` — polls the `scheduled_emails` SQLite for
+#       due rows and delivers them via SMTP.
+#     - `_start_poller` — entry point called once at app startup; spawns both
+#       pollers + handles the deferred-start trick when the event loop is not
+#       yet running.
+
+# Pure helpers live in `email_helpers.py`. Routes themselves live in
+# `email_routes.py`.
+
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -176,7 +193,7 @@ async def _auto_summarize_pass(
             try:
                 rows = (
                     db.query(_EA)
-                    .filter(_EA.enabled == True)  # noqa: E712
+                    .filter(_EA.enabled.is_(true()))
                     .order_by(_EA.is_default.desc(), _EA.created_at.asc())
                     .all()
                 )
@@ -256,7 +273,9 @@ async def _auto_summarize_pass_single(
         conn = _imap_connect(account_id, owner=account_owner)
         from datetime import timedelta as _td
 
-        since = (datetime.utcnow() - _td(days=max(1, days_back))).strftime("%d-%b-%Y")
+        since = (datetime.now(timezone.utc) - _td(days=max(1, days_back))).strftime(
+            "%d-%b-%Y"
+        )
         # uid_list carries real IMAP UIDs, matching the email UI/read routes.
         # Using sequence numbers here made background-cached replies miss when
         # the user clicked the same visible message in the UI.
@@ -599,7 +618,7 @@ async def _auto_summarize_pass_single(
                                         sender,
                                         summary,
                                         model,
-                                        datetime.utcnow().isoformat(),
+                                        datetime.now(timezone.utc).isoformat(),
                                     ),
                                 )
                                 _c.commit()
@@ -677,7 +696,7 @@ async def _auto_summarize_pass_single(
                                     _folder,
                                     reply,
                                     model,
-                                    datetime.utcnow().isoformat(),
+                                    datetime.now(timezone.utc).isoformat(),
                                 ),
                             )
                             _c.commit()
@@ -1022,7 +1041,7 @@ async def _auto_summarize_pass_single(
                                 account_owner or "",
                                 uid.decode() if isinstance(uid, bytes) else str(uid),
                                 _cal_run_count,
-                                datetime.utcnow().isoformat(),
+                                datetime.now(timezone.utc).isoformat(),
                             ),
                         )
                         _cc.commit()
@@ -1111,7 +1130,7 @@ async def _auto_summarize_pass_single(
                                         urgency,
                                         reason,
                                         1 if urgency in ("critical", "high") else 0,
-                                        datetime.utcnow().isoformat(),
+                                        datetime.now(timezone.utc).isoformat(),
                                     ),
                                 )
                                 _uc.commit()
@@ -1198,9 +1217,9 @@ async def _auto_summarize_pass_single(
                                     outer_alert["From"] = cfg["from_address"]
                                     outer_alert["To"] = to_addr
                                     outer_alert["Subject"] = alert_subject
-                                    outer_alert["Date"] = datetime.utcnow().strftime(
-                                        "%a, %d %b %Y %H:%M:%S +0000"
-                                    )
+                                    outer_alert["Date"] = datetime.now(
+                                        timezone.utc
+                                    ).strftime("%a, %d %b %Y %H:%M:%S +0000")
                                     outer_alert["X-Priority"] = "1"
                                     outer_alert["Importance"] = "high"
                                     outer_alert.attach(
@@ -1366,7 +1385,7 @@ async def _auto_summarize_pass_single(
                                         spam_reason,
                                         moved_to,
                                         model,
-                                        datetime.utcnow().isoformat(),
+                                        datetime.now(timezone.utc).isoformat(),
                                     ),
                                 )
                                 _c.commit()
@@ -1461,7 +1480,7 @@ def _scheduled_poll_once() -> dict:
     sent = []
     failed = []
     try:
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         conn = sqlite3.connect(SCHEDULED_DB)
         cols = [
             row[1]
@@ -1503,7 +1522,7 @@ def _scheduled_poll_once() -> dict:
                 if r[2]:
                     outer["Cc"] = r[2]
                 outer["Subject"] = r[4] or ""
-                outer["Date"] = datetime.utcnow().strftime(
+                outer["Date"] = datetime.now(timezone.utc).strftime(
                     "%a, %d %b %Y %H:%M:%S +0000"
                 )
                 outer["X-Odysseus-Origin"] = "odysseus-ui"

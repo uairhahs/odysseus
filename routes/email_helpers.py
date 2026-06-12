@@ -33,6 +33,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy import and_, null, or_, true
 
 from src.auth_helpers import _auth_disabled, get_current_user
 from src.secret_storage import decrypt as _decrypt
@@ -676,9 +677,8 @@ def _get_email_config(account_id: str | None = None, owner: str = "") -> dict:
     def _owner_or_matching_legacy_account(query):
         if not owner:
             return query
-        from sqlalchemy import and_, or_
 
-        unowned = or_(_EA.owner == None, _EA.owner == "")  # noqa: E711
+        unowned = or_(_EA.owner.is_(null()), _EA.owner == "")  # noqa: E711
         same_mailbox = or_(_EA.imap_user == owner, _EA.from_address == owner)
         return query.filter(or_(_EA.owner == owner, and_(unowned, same_mailbox)))
 
@@ -705,7 +705,7 @@ def _get_email_config(account_id: str | None = None, owner: str = "") -> dict:
                 q = _owner_or_matching_legacy_account(q)
                 row = q.first()
             if row is None:
-                q = db.query(_EA).filter(_EA.enabled == True)  # noqa: E712
+                q = db.query(_EA).filter(_EA.enabled.is_(true()))
                 q = _owner_or_matching_legacy_account(q)
                 row = q.order_by(_EA.created_at.asc()).first()
             if row is not None:
@@ -798,7 +798,7 @@ def _list_email_accounts() -> list[dict]:
         try:
             rows = (
                 db.query(_EA)
-                .filter(_EA.enabled == True)  # noqa: E712
+                .filter(_EA.enabled.is_(true()))
                 .order_by(_EA.is_default.desc(), _EA.created_at.asc())
                 .all()
             )

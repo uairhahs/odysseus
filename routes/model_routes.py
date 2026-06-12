@@ -9,7 +9,6 @@ import re
 import socket
 import time as _time
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 
@@ -20,7 +19,7 @@ from pydantic import BaseModel
 
 from core.database import ModelEndpoint
 from core.database import Session as DbSession
-from core.database import SessionLocal
+from core.database import SessionLocal, utcnow_naive
 from core.middleware import require_admin
 from src.auth_helpers import _auth_disabled, owner_filter
 from src.endpoint_resolver import (
@@ -2511,7 +2510,7 @@ def setup_model_routes(model_discovery):
         for row in rows:
             if _session_uses_endpoint_url(row.endpoint_url or "", base_url):
                 row.headers = {}
-                row.updated_at = datetime.utcnow()
+                row.updated_at = utcnow_naive()
                 cleared += 1
         return cleared
 

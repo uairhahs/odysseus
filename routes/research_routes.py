@@ -1,17 +1,17 @@
 # Research background task routes — /api/research/*
-
 import asyncio
 import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import true
 
 from src.auth_helpers import _auth_disabled, get_current_user
 from src.endpoint_resolver import resolve_endpoint
@@ -80,7 +80,7 @@ def _owned_enabled_endpoint(db, owner, endpoint_id=None):
     from src.auth_helpers import owner_filter
     from src.database import ModelEndpoint
 
-    q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+    q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled.is_(true()))
     if endpoint_id:
         q = q.filter(ModelEndpoint.id == endpoint_id)
     return owner_filter(q, ModelEndpoint, owner).first()
@@ -703,7 +703,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         # The user can open the visual report for source details; keeping sources
         # out of the chat context saves tokens and avoids the AI fabricating
         # citations.
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         primer = (
             f"[Research context — {date_str}]\n\n"
             f"The user previously ran a deep research investigation. Use the "

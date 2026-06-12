@@ -4,13 +4,13 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
 
 from core.database import Document, GalleryImage
 from core.database import Session as DbSession
-from core.database import SessionLocal
+from core.database import SessionLocal, utcnow_naive
 from core.models import ChatMessage
 from core.session_manager import SessionManager
 from src.auth_helpers import _auth_disabled, effective_user, get_current_user
@@ -175,7 +175,7 @@ def _persist_session_headers(session_id: str, headers: dict | None) -> None:
         db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
         if db_session:
             db_session.headers = headers or {}
-            db_session.updated_at = datetime.utcnow()
+            db_session.updated_at = utcnow_naive()
             db.commit()
     except Exception:
         db.rollback()
@@ -241,10 +241,7 @@ def setup_session_routes(
         # purge exists only to catch ghosts the frontend missed (tab close,
         # crash). Only clean up rows old enough to be definitely orphaned.
         try:
-            from datetime import datetime as _dt
-            from datetime import timedelta as _td
-
-            _cutoff = _dt.utcnow() - _td(minutes=10)
+            _cutoff = utcnow_naive() - timedelta(minutes=10)
             _purge_db = SessionLocal()
             try:
                 from core.database import ChatMessage as _DbMsg
@@ -302,7 +299,7 @@ def setup_session_routes(
                     DbSession.mode,
                     DbSession.message_count,
                 )
-                .filter(not DbSession.archived, DbSession.owner == user)
+                .filter(DbSession.archived.is_(False), DbSession.owner == user)
                 .all()
             )
             for row in rows:
@@ -338,7 +335,7 @@ def setup_session_routes(
                 for r in db.query(Document.session_id)
                 .filter(
                     Document.is_active,
-                    Document.current_content is not None,
+                    Document.current_content.isnot(None),
                     func.trim(Document.current_content) != "",
                     Document.owner == user,
                 )
@@ -348,7 +345,7 @@ def setup_session_routes(
             img_session_ids = set(
                 r[0]
                 for r in db.query(GalleryImage.session_id)
-                .filter(GalleryImage.session_id is not None, GalleryImage.owner == user)
+                .filter(GalleryImage.session_id.isnot(None), GalleryImage.owner == user)
                 .distinct()
                 .all()
             )
@@ -557,7 +554,7 @@ def setup_session_routes(
                 db_session = db.query(DbSession).filter(DbSession.id == sid).first()
                 if db_session:
                     db_session.folder = folder if folder else None
-                    db_session.updated_at = datetime.utcnow()
+                    db_session.updated_at = utcnow_naive()
                     db.commit()
                     result["folder"] = folder if folder else None
             finally:
@@ -608,7 +605,7 @@ def setup_session_routes(
                     db_session.model = model
                     db_session.endpoint_url = endpoint_url
                     db_session.headers = session.headers or {}
-                    db_session.updated_at = datetime.utcnow()
+                    db_session.updated_at = utcnow_naive()
                     db.commit()
             finally:
                 db.close()
@@ -745,7 +742,7 @@ def setup_session_routes(
                 db_session = db.query(DbSession).filter(DbSession.id == sid).first()
                 if db_session:
                     db_session.archived = True
-                    db_session.updated_at = datetime.utcnow()
+                    db_session.updated_at = utcnow_naive()
                     db.commit()
 
                     # Update in memory if it exists
@@ -779,7 +776,7 @@ def setup_session_routes(
             if not db_session:
                 raise HTTPException(404, f"Session {sid} not found")
             db_session.archived = False
-            db_session.updated_at = datetime.utcnow()
+            db_session.updated_at = utcnow_naive()
             db.commit()
             # Reload into session manager so it appears in the active list
             try:
@@ -1022,7 +1019,7 @@ def setup_session_routes(
                 )
                 if db_session:
                     db_session.is_important = important
-                    db_session.updated_at = datetime.utcnow()
+                    db_session.updated_at = utcnow_naive()
                     db.commit()
 
                     # Update in memory if it exists
@@ -1113,7 +1110,7 @@ def setup_session_routes(
             metadata={
                 "compacted": True,
                 "summarized_count": len(older),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utcnow_naive().isoformat() + "Z",
             },
         )
         new_history = [summary_msg] + recent
@@ -1192,7 +1189,7 @@ def setup_session_routes(
         try:
             rows = (
                 db.query(DbSession)
-                .filter(not DbSession.archived, DbSession.owner == user)
+                .filter(DbSession.archived.is_(False), DbSession.owner == user)
                 .limit(2000)
                 .all()
             )
@@ -1461,7 +1458,7 @@ def setup_session_routes(
                 )
                 if db_session:
                     db_session.folder = folder_name
-                    db_session.updated_at = datetime.utcnow()
+                    db_session.updated_at = utcnow_naive()
                     updated += 1
             db.commit()
         except Exception as e:

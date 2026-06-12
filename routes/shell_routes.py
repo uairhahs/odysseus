@@ -10,11 +10,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from collections import namedtuple
 from pathlib import Path
 from typing import Any, Dict
 
+from core.constants import DATA_DIR
 from core.platform_compat import IS_APPLE_SILICON, which_tool
 
 # POSIX-only: `pty`/`fcntl` transitively import `termios`, which does NOT exist
@@ -997,6 +999,19 @@ def setup_shell_routes() -> APIRouter:
         import site
         import sys
 
+        # Load persistent install records to bridge the gap between tmux exit
+        # and importlib/PATH refresh (extras venv, link-mode=copy).
+        _state_path = Path(DATA_DIR) / "cookbook_state.json"
+        _persistent_installed = {}
+        if _state_path.exists():
+            try:
+                _state = _json.loads(_state_path.read_text(encoding="utf-8"))
+                _persistent_installed = _state.get("installed_deps") or {}
+            except Exception as e:
+                logger.warning(
+                    "Failed to load persistent install records: %s", e, exc_info=True
+                )
+
         _prepend_user_install_bins_to_path()
         importlib.invalidate_caches()
         try:
@@ -1231,6 +1246,21 @@ def setup_shell_routes() -> APIRouter:
                     note = _package_status_note(pkg["name"], probe)
                     if note:
                         pkg["status_note"] = note
+
+            # Persist-override: if the probe says False but we have a recent
+            # record of a successful install on this host, trust the record.
+            # TTL: 24h. After that, we assume the environment is stable or the
+            # install was reverted/broken, and fall back to the live probe.
+            if not pkg.get("installed") and pkg.get("pip"):
+                _rec = _persistent_installed.get(pkg["pip"])
+                if isinstance(_rec, dict) and _rec.get("host") == (host or ""):
+                    _ts = _rec.get("ts") or 0
+                    if time.time() - _ts < 86400:
+                        pkg["installed"] = True
+                        pkg["status_note"] = (
+                            pkg.get("status_note") or ""
+                        ) + " (just installed)"
+
             elif pkg.get("kind") == "system":
                 if pkg["name"] == "APFEL":
                     pkg["applicable"] = IS_APPLE_SILICON
@@ -1355,6 +1385,11 @@ def setup_shell_routes() -> APIRouter:
         if action == "remove":
             # Remove is fast — run synchronously.
             extras_venv = Path.home() / ".local" / "odysseus-extras"
+            if not extras_venv.exists():
+                return {
+                    "ok": True,
+                    "output": "Nothing to remove (extras venv does not exist).",
+                }
             uv_name = re.split(r"[<>=!~]", pip_name, maxsplit=1)[0].strip()
             uv_name = uv_name.split("[", 1)[0].strip()
             proc = await asyncio.create_subprocess_exec(
@@ -1384,16 +1419,14 @@ def setup_shell_routes() -> APIRouter:
         # are never wiped by `uv sync` (which only manages the project venv).
         # The extras venv is created on first install if it doesn't exist.
         extras_venv = Path.home() / ".local" / "odysseus-extras"
-        extras_uv = extras_venv / "bin" / "uv"
         uv_shell = _uv_exec_shell()
         create_venv_cmd = f"[ -d {shlex.quote(str(extras_venv))} ] || {uv_shell} venv --no-project {shlex.quote(str(extras_venv))}"
-        extras_uv_path = shlex.quote(str(extras_uv))
         shell_cmd = (
             f"export UV_HTTP_TIMEOUT=300; "
             f"{create_venv_cmd} && "
             f"export VIRTUAL_ENV={shlex.quote(str(extras_venv))}; "
             f"export PATH={shlex.quote(str(extras_venv / 'bin'))}:$PATH; "
-            f"{extras_uv_path} pip install --no-project --link-mode=copy{upgrade_flag} {pkg_q} 2>&1 | cat; "
+            f"{uv_shell} pip install --no-project --link-mode=copy{upgrade_flag} {pkg_q} 2>&1 | cat; "
             "_dep_rc=$?; "
             'printf "\\n=== Process exited with code %s ===\\n" "$_dep_rc"; '
             'exit "$_dep_rc"'
@@ -1429,7 +1462,7 @@ def setup_shell_routes() -> APIRouter:
             f"export VIRTUAL_ENV={shlex.quote(str(extras_venv))}; "
             f"export PATH={shlex.quote(str(extras_venv / 'bin'))}:$PATH; "
             f"{create_venv_cmd} && "
-            f"{extras_uv_path} pip install --no-cache-dir --link-mode=copy{' -U' if action == 'update' else ''} {shlex.quote(pip_name)} 2>&1 | cat"
+            f"{uv_shell} pip install --no-cache-dir --link-mode=copy{' -U' if action == 'update' else ''} {shlex.quote(pip_name)} 2>&1 | cat"
         )
         proc = await asyncio.create_subprocess_exec(
             "bash",

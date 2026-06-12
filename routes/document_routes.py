@@ -1,4 +1,4 @@
-# Document routes — CRUD for living documents with version history.
+"""Document routes — CRUD for living documents with version history."""
 
 import logging
 import uuid
@@ -361,7 +361,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if language:
                 if language == "text":
                     q = q.filter(
-                        (Document.language is None) | (Document.language == "text")
+                        (Document.language.is_(None)) | (Document.language == "text")
                     )
                 elif language == "pdf":
                     q = q.filter(pdf_marker_cond)
@@ -993,9 +993,9 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             inactive_q = (
                 db.query(Document)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(not Document.is_active)
+                .filter(Document.is_active.is_(False))
                 .filter(
-                    (Document.current_content is None)
+                    (Document.current_content.is_(None))
                     | (Document.current_content == "")
                 )
             )

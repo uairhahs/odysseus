@@ -43,10 +43,10 @@ def _select_api_chat_fallback_endpoint(db, token_owner: Optional[str]):
             ModelEndpoint.owner.desc(), ModelEndpoint.created_at
         ).first()
     return (
-        query.filter(ModelEndpoint.owner is None)
+        query.filter(ModelEndpoint.owner.is_(None))
         .order_by(ModelEndpoint.created_at)
         .first()
-    )  # noqa: E711
+    )
 
 
 def _caller_owns_session(sess_owner, caller) -> bool:

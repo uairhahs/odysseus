@@ -1,15 +1,15 @@
-# email_routes.py
+"""email_routes.py
 
-# FastAPI route handlers for the email feature. All non-route logic
-# (IMAP connection helpers, message parsing, account config, the
-# auto-summarize + scheduled-email pollers, Pydantic models) lives in:
+FastAPI route handlers for the email feature. All non-route logic
+(IMAP connection helpers, message parsing, account config, the
+auto-summarize + scheduled-email pollers, Pydantic models) lives in:
 
-#     routes/email_helpers.py   — synchronous helpers + models + constants
-#     routes/email_pollers.py   — background loops, started by `_start_poller`
+    routes/email_helpers.py   — synchronous helpers + models + constants
+    routes/email_pollers.py   — background loops, started by `_start_poller`
 
-# Importing from the helpers module brings in everything those route
-# handlers need. The split is mechanical — no behavior change.
-
+Importing from the helpers module brings in everything those route
+handlers need. The split is mechanical — no behavior change.
+"""
 
 import asyncio
 import email as email_mod
@@ -22,7 +22,7 @@ import re
 import smtplib
 import sqlite3 as _sql3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html.parser import HTMLParser as _HTMLParser
@@ -154,7 +154,7 @@ def _record_email_received_events(
         from src.event_bus import fire_event
 
         account_key = (account_id or "default").strip() or "default"
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat()
         keys = []
         for e in emails:
             key = (e.get("message_id") or e.get("uid") or "").strip()
@@ -344,7 +344,7 @@ def _resolve_send_config(account_id: str | None = None, owner: str = "") -> dict
         try:
             q = db.query(_EA).filter(_EA.enabled)  # noqa: E712
             if owner:
-                unowned = or_(_EA.owner == None, _EA.owner == "")  # noqa: E711
+                unowned = or_(_EA.owner.is_(None), _EA.owner == "")  # noqa: E711
                 same_mailbox = or_(_EA.imap_user == owner, _EA.from_address == owner)
                 q = q.filter(or_(_EA.owner == owner, and_(unowned, same_mailbox)))
             for row in q.order_by(_EA.is_default.desc(), _EA.created_at.asc()).all():
@@ -613,7 +613,7 @@ def setup_email_routes():
         holds the same conn handle, and we lock to serialize access).
 
         SECURITY: `owner` is forwarded to `_imap_connect` so the fallback
-        config lookup (when `account_id` is None) is scoped to this user's
+        config lookup (when `account_id`.is_(None)) is scoped to this user's
         accounts only. The pool key is (account_id, owner) so two users
         with `account_id=None` don't share a pooled connection.
         """
@@ -806,7 +806,7 @@ def setup_email_routes():
                 from datetime import datetime as _dt
                 from datetime import timedelta as _td
 
-                _since = (_dt.utcnow() - _td(days=30)).strftime("%d-%b-%Y")
+                _since = (_dt.now(timezone.utc) - _td(days=30)).strftime("%d-%b-%Y")
                 status, data = _imap_uid_search(
                     conn, f'(UNANSWERED SINCE "{_since}"{from_clause})'
                 )
@@ -816,7 +816,7 @@ def setup_email_routes():
                 from datetime import datetime as _dt
                 from datetime import timedelta as _td
 
-                _before = (_dt.utcnow() - _td(days=30)).strftime("%d-%b-%Y")
+                _before = (_dt.now(timezone.utc) - _td(days=30)).strftime("%d-%b-%Y")
                 status, data = _imap_uid_search(
                     conn, f'(UNANSWERED BEFORE "{_before}"{from_clause})'
                 )
@@ -1893,7 +1893,7 @@ def setup_email_routes():
                 from src.pdf_forms import extract_fields, has_form_fields
 
                 upload_id = f"{uuid.uuid4().hex}.pdf"
-                today = datetime.utcnow().strftime("%Y/%m/%d")
+                today = datetime.now(timezone.utc).strftime("%Y/%m/%d")
                 dated_dir = _os.path.join(UPLOAD_DIR, today)
                 _os.makedirs(dated_dir, exist_ok=True)
                 dest_path = _os.path.join(dated_dir, upload_id)
@@ -2449,7 +2449,9 @@ def setup_email_routes():
         if cc:
             outer["Cc"] = cc
         outer["Subject"] = subject or ""
-        outer["Date"] = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
+        outer["Date"] = datetime.now(timezone.utc).strftime(
+            "%a, %d %b %Y %H:%M:%S +0000"
+        )
         _apply_odysseus_headers(outer, odysseus_kind or "scheduled", odysseus_ref)
         if in_reply_to:
             outer["In-Reply-To"] = in_reply_to
@@ -2493,14 +2495,16 @@ def setup_email_routes():
                 parsed_at = _dt.fromisoformat(send_at.replace("Z", "+00:00"))
             except ValueError:
                 return {"success": False, "error": "send_at must be ISO8601"}
-            now_utc = _dt.now(_tz.utc) if parsed_at.tzinfo else _dt.utcnow()
+            if not parsed_at.tzinfo:
+                parsed_at = parsed_at.replace(tzinfo=_tz.utc)
+            now_utc = _dt.now(_tz.utc)
             # Tiny 30s grace so a user clicking Send right at the chosen
             # minute doesn't trip the past-time guard.
             if parsed_at < now_utc:
                 return {"success": False, "error": "send_at must be in the future"}
             # Normalize to naive UTC before storing: the poller selects due
             # rows with a lexicographic string compare against a naive
-            # datetime.utcnow().isoformat(), so storing the raw client string
+            # datetime.now(timezone.utc).isoformat(), so storing the raw client string
             # makes "+02:00" schedules fire hours late, negative offsets fire
             # hours early, and a "Z" suffix compares after the fractional
             # seconds of the poller timestamp.
@@ -2527,7 +2531,7 @@ def setup_email_routes():
                     req.get("references") or None,
                     json.dumps(req.get("attachments") or []),
                     send_at,
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     req.get("account_id") or None,
                     req.get("odysseus_kind") or "scheduled",
                     owner or "",
@@ -2704,7 +2708,9 @@ def setup_email_routes():
         if req.cc:
             outer["Cc"] = req.cc
         outer["Subject"] = req.subject
-        outer["Date"] = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
+        outer["Date"] = datetime.now(timezone.utc).strftime(
+            "%a, %d %b %Y %H:%M:%S +0000"
+        )
         outer["Message-ID"] = email.utils.make_msgid(domain="odysseus.local")
 
         if req.in_reply_to:
@@ -2921,7 +2927,7 @@ def setup_email_routes():
         if req.bcc:
             msg["Bcc"] = req.bcc
         msg["Subject"] = req.subject
-        msg["Date"] = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
+        msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
 
         if req.in_reply_to:
             msg["In-Reply-To"] = req.in_reply_to
@@ -3201,7 +3207,7 @@ def setup_email_routes():
                             sender,
                             content,
                             model,
-                            datetime.utcnow().isoformat(),
+                            datetime.now(timezone.utc).isoformat(),
                         ),
                     )
                     _c.commit()
@@ -3491,7 +3497,7 @@ def setup_email_routes():
                             source_folder,
                             reply,
                             model,
-                            datetime.utcnow().isoformat(),
+                            datetime.now(timezone.utc).isoformat(),
                         ),
                     )
                     _c.commit()
@@ -3660,7 +3666,7 @@ def setup_email_routes():
             q = db.query(EmailAccount)
             if owner:
                 unowned = or_(
-                    EmailAccount.owner is None, EmailAccount.owner == ""
+                    EmailAccount.owner.is_(None), EmailAccount.owner == ""
                 )  # noqa: E711
                 same_mailbox = or_(
                     EmailAccount.imap_user == owner, EmailAccount.from_address == owner

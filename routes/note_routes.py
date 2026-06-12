@@ -1,13 +1,16 @@
 # routes/note_routes.py
-"""Google Keep-style notes / checklists API."""
+
+# Google Keep-style notes / checklists API
 
 import json
 import logging
 import uuid
+from datetime import timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import true
 from sqlalchemy.orm.attributes import flag_modified
 
 from core.database import Note, SessionLocal
@@ -353,10 +356,10 @@ async def dispatch_reminder(
 
                     db = _SL()
                     try:
-                        q = db.query(_EA).filter(_EA.enabled == True)  # noqa: E712
+                        q = db.query(_EA).filter(_EA.enabled.is_(true()))
                         if owner:
                             unowned = or_(
-                                _EA.owner is None, _EA.owner == ""
+                                _EA.owner.is_(None), _EA.owner == ""
                             )  # noqa: E711
                             same_mailbox = or_(
                                 _EA.imap_user == owner, _EA.from_address == owner
@@ -423,7 +426,9 @@ async def dispatch_reminder(
                     else _t
                 )
                 msg["Subject"] = f"Reminder (Odysseus): {_t}"
-                msg["Date"] = _dt.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
+                msg["Date"] = _dt.now(timezone.utc).strftime(
+                    "%a, %d %b %Y %H:%M:%S +0000"
+                )
                 msg["X-Odysseus-Origin"] = "odysseus-ui"
                 msg["X-Odysseus-Kind"] = "reminder"
                 msg["X-Odysseus-Ref"] = str(note_id)
@@ -723,7 +728,7 @@ def setup_note_routes(task_scheduler=None):
             if archived is not None:
                 q = q.filter(Note.archived == archived)
             else:
-                q = q.filter(not Note.archived)
+                q = q.filter(Note.archived.is_(False))
             if label:
                 q = q.filter(Note.label == label)
             # Archived view: most recently archived first. Active view: pin + manual order.
@@ -1003,7 +1008,7 @@ def setup_note_routes(task_scheduler=None):
                 if user is not None:
                     if _allow_null:
                         q = q.filter(
-                            (Note.owner == user) | (Note.owner is None)
+                            (Note.owner == user) | (Note.owner.is_(None))
                         )  # noqa: E711
                     else:
                         q = q.filter(Note.owner == user)
