@@ -168,10 +168,11 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
-    # Add manual DNS
+    # If you do not set them, Compose interprets the empty strings and effectively ignores those lines.
+    # Docker will then revert to the daemon's standard default behavior (inheriting from the host or falling back to 8.8.8.8).
     dns:
-      - 8.8.8.8
-      - 1.1.1.1
+      - ${PRIMARY_DNS:-}
+      - ${SECONDARY_DNS:-}
 
   ntfy:
     container_name: odysseus-ntfy

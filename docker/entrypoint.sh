@@ -86,13 +86,15 @@ export PATH="/app/.venv/bin:/app/.local/bin:${PATH}"
 # across recreate.
 if [ ! -x /app/.venv/bin/python ] || [ ! -x /app/.venv/bin/uv ]; then
 	echo "▶ Bootstrapping uv-managed project venv..."
-	gosu "${PUID}:${PGID}" uv sync --frozen || true
+	gosu "${PUID}:${PGID}" uv sync --frozen
 fi
 
 # Run first-time setup as the app user so data/ files get the right ownership.
 # setup.py is idempotent — skips auth.json / .env if they already exist.
-# || true so a setup failure never prevents the container from starting.
-gosu "${PUID}:${PGID}" python /app/setup.py 2>/dev/null || true
+# || echo "${WARN_MSG}" so a setup failure never prevents the container from starting.
+# but the warning is logged
+WARN_MSG="WARNING: uv sync failed, dependencies may be missing"
+gosu "${PUID}:${PGID}" python /app/setup.py 2>/dev/null || echo "${WARN_MSG}"
 
 # Drop root and run the actual app. `gosu` is preferred over `su` /
 # `sudo` because it cleans up the process tree (no extra shell layer)
