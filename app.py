@@ -37,7 +37,7 @@ from core.database import ApiToken
 from core.database import ChatMessage as _DbMsg
 from core.database import GalleryImage
 from core.database import Session as _DbSess
-from core.database import SessionLocal
+from core.database import SessionLocal, utcnow_naive
 from core.exceptions import (
     InvalidFileUploadError,
     LLMServiceError,
@@ -74,7 +74,7 @@ from routes.compare_routes import setup_compare_routes
 from routes.contacts_routes import setup_contacts_routes
 
 # Cookbook (model download/serve/cache, cookbook state sync)
-from routes.cookbook_routes import setup_cookbook_routes
+from routes.cookbook_routes import cookbook_router
 
 # GitHub Copilot device-flow login
 from routes.copilot_routes import setup_copilot_routes
@@ -328,6 +328,7 @@ if AUTH_ENABLED:
         "/api/auth/settings",
         "/api/auth/integrations/presets",
         "/api/health",
+        "/api/ready",
         "/api/version",
         "/login",
     }
@@ -520,7 +521,7 @@ if AUTH_ENABLED:
                                 try:
                                     _db.query(ApiToken).filter(
                                         ApiToken.id == tid
-                                    ).update({"last_used_at": datetime.utcnow()})
+                                    ).update({"last_used_at": utcnow_naive()})
                                     _db.commit()
                                 finally:
                                     _db.close()
@@ -844,7 +845,7 @@ app.include_router(calendar_router)
 
 app.include_router(setup_shell_routes())
 
-app.include_router(setup_cookbook_routes())
+app.include_router(cookbook_router)
 
 app.include_router(setup_hwfit_routes())
 
@@ -1290,7 +1291,8 @@ async def _startup_event():
                 hour = int(get_setting("skill_audit_hour", 2) or 2)
             except Exception:
                 hour = 2
-            now = datetime.now()
+            # This is display-only, not a DB write.
+            now = datetime.now().astimezone()
             nxt = now.replace(hour=hour % 24, minute=0, second=0, microsecond=0)
             if nxt <= now:
                 nxt += timedelta(days=1)

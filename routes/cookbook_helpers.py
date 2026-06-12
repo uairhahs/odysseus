@@ -1246,12 +1246,15 @@ async def run_ssh_command_async(
     connect_timeout: int | None = None,
     strict_host_key_checking: bool | None = None,
     stdin_data: bytes | None = None,
+    strict: bool = True,
 ) -> tuple[int, bytes, bytes]:
     """Run an ssh command with centralized timeout and stderr/stdout capture.
     Async version of core.platform_compat.run_ssh_command_sync.
     """
     import asyncio
 
+    if strict_host_key_checking is None:
+        strict_host_key_checking = strict
     proc = await asyncio.create_subprocess_exec(
         *_ssh_exec_argv(
             remote,

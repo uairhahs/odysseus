@@ -21,8 +21,13 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.orm import backref, relationship, sessionmaker
+from sqlalchemy.orm import (
+    backref,
+    declarative_base,
+    declared_attr,
+    relationship,
+    sessionmaker,
+)
 from sqlalchemy.types import TypeDecorator
 
 logger = logging.getLogger(__name__)
@@ -2454,7 +2459,9 @@ def get_session_stats():
     with get_db_session() as db:
         stats = {
             "total_sessions": db.query(Session).count(),
-            "active_sessions": db.query(Session).filter(not Session.archived).count(),
+            "active_sessions": db.query(Session)
+            .filter(Session.archived.is_(False))
+            .count(),
             "archived_sessions": db.query(Session).filter(Session.archived).count(),
             "total_messages": db.query(ChatMessage).count(),
             "total_memories": db.query(Memory).count(),

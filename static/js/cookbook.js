@@ -860,15 +860,27 @@ async function _fetchDependencies() {
     // back to the plain Install prompt after a re-render.
     const _selectedHost = _depHost || "";
     const _pendingDepPips = new Set();
+    const _recentlyDonePips = new Set();
     try {
       const _tasks = _loadTasks();
+      const _now = Date.now();
       (_tasks || []).forEach((t) => {
         if (!t || !t.payload || !t.payload._dep) return;
-        if (t.status !== "running" && t.status !== "queued") return;
         const _taskHost = t.remoteHost || "";
         if (_taskHost !== _selectedHost) return;
         const _pip = String(t.payload.repo_id || "").trim();
-        if (_pip) _pendingDepPips.add(_pip);
+        if (!_pip) return;
+        if (t.status === "running" || t.status === "queued") {
+          _pendingDepPips.add(_pip);
+        } else if (
+          t.status === "done" &&
+          t._lastStatusFlipAt &&
+          _now - t._lastStatusFlipAt < 30000
+        ) {
+          // Recently finished — keep showing "Installed" rather than flipping
+          // back to "Install" while the package list is still refreshing.
+          _recentlyDonePips.add(_pip);
+        }
       });
     } catch {}
 
@@ -879,6 +891,9 @@ async function _fetchDependencies() {
       const hasCustomUpdate = !!pkg.update_cmd;
       if (!pkg.installed && _pendingDepPips.has(pkg.pip || "")) {
         return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Install task is running">Installing...</span>`;
+      }
+      if (!pkg.installed && _recentlyDonePips.has(pkg.pip || "")) {
+        return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Just installed">Installed</span>`;
       }
       if (pkg.installed && isSystemDep && !hasCustomUpdate)
         return `<span class="cookbook-dep-tag cookbook-dep-installed" title="Found on selected server">Installed</span>`;

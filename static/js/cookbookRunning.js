@@ -977,6 +977,15 @@ function _updateTask(sessionId, updates) {
 
 function _refreshDepsAfterInstall(task) {
   if (!task || task.type !== "download" || !task.payload?._dep) return;
+  const pipName = String(task.payload.repo_id || "").trim();
+  if (pipName) {
+    fetch("/api/cookbook/dep-installed", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pip: pipName, host: task.remoteHost || "" }),
+    }).catch((e) => console.warn("Failed to persist dep install:", e));
+  }
   try {
     _refreshDependencies?.({
       host: task.remoteHost || "",
@@ -3451,7 +3460,16 @@ async function _reconnectTask(el, task) {
           // leaving lastOutput empty. A failing install always prints an error
           // before exiting, so empty output + dead session = silently succeeded.
           // Mark done immediately rather than spinning in an infinite backoff.
-          if (!lastOutput.trim() && (task.payload?._dep || _isPipTask)) {
+          // BUT: only do this after at least one successful snapshot was received
+          // (failCount > 0 means we had prior polls that returned output, and
+          // THIS poll is the first failed one — so the session just ended).
+          // On the very first poll (no prior snapshot) the session may still be
+          // starting; skip the shortcut so the log has a chance to appear.
+          if (
+            !lastOutput.trim() &&
+            (task.payload?._dep || _isPipTask) &&
+            failCount >= failThreshold
+          ) {
             _updateTask(task.sessionId, {
               status: "done",
               _doneConfirmAt: null,
