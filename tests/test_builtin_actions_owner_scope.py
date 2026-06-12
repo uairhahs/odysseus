@@ -4,20 +4,68 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+import sqlalchemy
+from sqlalchemy.sql.elements import False_, Null, True_
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
+
+
+class _Predicate:
+    def __init__(self, check):
+        self._check = check
+
+    def __call__(self, row):
+        return self._check(row)
+
+    def __or__(self, other):
+        return _Predicate(lambda row: self(row) or other(row))
 
 
 class _Column:
-    def __eq__(self, _other):
-        return True
+    def __init__(self, name):
+        self.name = name
 
-    def __ne__(self, _other):
-        return True
+    def __eq__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
 
-    def __ge__(self, _other):
-        return True
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
-    def __le__(self, _other):
-        return True
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    # ADD THESE METHODS to support >, >=, <, <= comparisons
+    def __gt__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) > val)
+
+    def __ge__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) >= val)
+
+    def __lt__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) < val)
+
+    def __le__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) <= val)
 
 
 class _Query:
@@ -50,7 +98,9 @@ class _Db:
         self.closed = True
 
 
-def _resolver_spy(monkeypatch, utility_result=("", "", {}), default_result=("http://llm", "model", {})):
+def _resolver_spy(
+    monkeypatch, utility_result=("", "", {}), default_result=("http://llm", "model", {})
+):
     from src import endpoint_resolver
 
     calls = []
@@ -65,7 +115,9 @@ def _resolver_spy(monkeypatch, utility_result=("", "", {}), default_result=("htt
         return []
 
     monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", fake_resolve)
-    monkeypatch.setattr(endpoint_resolver, "resolve_utility_fallback_candidates", fake_fallbacks)
+    monkeypatch.setattr(
+        endpoint_resolver, "resolve_utility_fallback_candidates", fake_fallbacks
+    )
     return calls, fallback_calls
 
 
@@ -75,8 +127,9 @@ async def test_classify_events_resolves_llm_for_task_owner(monkeypatch):
     from src.builtin_actions import action_classify_events
 
     class FakeCalendarEvent:
-        dtstart = _Column()
-        status = _Column()
+        enabled = _Column("enabled")
+        dtstart = _Column("dtstart")
+        status = _Column("status")
 
     event = SimpleNamespace(
         summary="Demo presentation",
@@ -87,7 +140,9 @@ async def test_classify_events_resolves_llm_for_task_owner(monkeypatch):
         location="",
     )
     db = _Db({FakeCalendarEvent: [event]})
-    calls, _fallback_calls = _resolver_spy(monkeypatch, utility_result=("http://llm", "model", {}))
+    calls, _fallback_calls = _resolver_spy(
+        monkeypatch, utility_result=("http://llm", "model", {})
+    )
 
     monkeypatch.setattr(database, "CalendarEvent", FakeCalendarEvent)
     monkeypatch.setattr(database, "SessionLocal", lambda: db)
@@ -118,8 +173,12 @@ async def test_learn_sender_signatures_resolves_llm_for_task_owner(monkeypatch):
         def logout(self):
             return None
 
-    calls, _fallback_calls = _resolver_spy(monkeypatch, utility_result=("", "", {}), default_result=("", "", {}))
-    monkeypatch.setattr(email_helpers, "_imap_connect", lambda _account_id=None: FakeImap())
+    calls, _fallback_calls = _resolver_spy(
+        monkeypatch, utility_result=("", "", {}), default_result=("", "", {})
+    )
+    monkeypatch.setattr(
+        email_helpers, "_imap_connect", lambda _account_id=None: FakeImap()
+    )
 
     message, ok = await action_learn_sender_signatures("alice")
 
@@ -129,22 +188,36 @@ async def test_learn_sender_signatures_resolves_llm_for_task_owner(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_check_email_urgency_resolves_llm_candidates_for_task_owner(monkeypatch, tmp_path):
+async def test_check_email_urgency_resolves_llm_candidates_for_task_owner(
+    monkeypatch, tmp_path
+):
     from core import database
     from src.builtin_actions import TaskNoop, action_check_email_urgency
 
     class FakeEmailAccount:
-        enabled = _Column()
-        owner = _Column()
-        imap_user = _Column()
-        from_address = _Column()
+        enabled = _Column("enabled")
+        owner = _Column("owner")
+        imap_user = _Column("imap_user")
+        from_address = _Column("from_address")
 
     db = _Db({FakeEmailAccount: []})
-    calls, fallback_calls = _resolver_spy(monkeypatch, utility_result=("http://llm", "model", {}))
+    calls, fallback_calls = _resolver_spy(
+        monkeypatch, utility_result=("http://llm", "model", {})
+    )
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(database, "EmailAccount", FakeEmailAccount)
     monkeypatch.setattr(database, "SessionLocal", lambda: db)
+    monkeypatch.setattr(
+        sqlalchemy,
+        "or_",
+        lambda *preds: _Predicate(lambda row: any(p(row) for p in preds)),
+    )
+    monkeypatch.setattr(
+        sqlalchemy,
+        "and_",
+        lambda *preds: _Predicate(lambda row: all(p(row) for p in preds)),
+    )
 
     with pytest.raises(TaskNoop, match="no email accounts configured"):
         await action_check_email_urgency("alice")

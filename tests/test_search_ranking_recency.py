@@ -9,7 +9,7 @@ module-level, time-injectable function.
 from datetime import datetime, timezone
 
 import services.search.ranking as live_ranking
-from services.search.ranking import recency_score, _utcnow_naive, rank_search_results
+from services.search.ranking import _utcnow_naive, rank_search_results, recency_score
 
 
 def test_fresh_result_scores_one():
@@ -33,7 +33,7 @@ def test_empty_or_unparseable_scores_zero():
 
 def test_default_now_is_naive_utc():
     # Naive (no tzinfo) so it subtracts cleanly from the naive parsed dates,
-    # and UTC-based (3.14-safe, no datetime.utcnow()).
+    # and UTC-based (3.14-safe, no datetime.now(timezone.utc)).
     now = _utcnow_naive()
     assert now.tzinfo is None
     reference = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -64,8 +64,18 @@ def test_live_rank_path_prefers_newer_result(monkeypatch):
     # apart from age, isolating recency as the only differentiator.
     monkeypatch.setattr(live_ranking, "_utcnow_naive", lambda: datetime(2026, 1, 31))
     results = [
-        {"title": "Report", "url": "https://example.org/a", "snippet": "x", "age": "2026-01-01"},
-        {"title": "Report", "url": "https://example.org/b", "snippet": "x", "age": "2026-01-29"},
+        {
+            "title": "Report",
+            "url": "https://example.org/a",
+            "snippet": "x",
+            "age": "2026-01-01",
+        },
+        {
+            "title": "Report",
+            "url": "https://example.org/b",
+            "snippet": "x",
+            "age": "2026-01-29",
+        },
     ]
 
     ranked = rank_search_results("report", results)

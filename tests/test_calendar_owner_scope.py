@@ -11,6 +11,7 @@ and passes the account owner to do_manage_calendar. This test pins that
 get_upcoming_events scopes to the owner; it fails if the owner filter is
 dropped (the original cross-tenant behavior).
 """
+
 import ast
 import asyncio
 import sys
@@ -21,13 +22,26 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.sql.elements import False_, Null, True_
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
 
 
 def test_get_upcoming_events_is_owner_scoped():
     source = Path("core/database.py").read_text()
     tree = ast.parse(source)
     fn = next(
-        node for node in tree.body
+        node
+        for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name == "get_upcoming_events"
     )
     body = ast.unparse(fn)
@@ -51,27 +65,53 @@ class _Expr:
         return _Expr("and", children=(self, other))
 
 
+class _Predicate:
+
+    def __init__(self, check, *, tag=None):
+        self._check = check
+        self.tag = tag  # optional (table, col, val) tuple for introspection
+
+    def __call__(self, row):
+        return self._check(row)
+
+    def __or__(self, other):
+        return _Predicate(lambda row: self(row) or other(row))
+
+
 class _Column:
-    def __init__(self, field):
-        self.field = field
+    def __init__(self, name):
+        self.name = name  # e.g. "CalendarCal.id" or "CalendarEvent.status"
 
-    def __eq__(self, value):
-        return _Expr("eq", self.field, value)
-
-    def __ne__(self, value):
-        return _Expr("ne", self.field, value)
+    def _get(self, row):
+        table, _, col = self.name.partition(".")
+        if table == "CalendarCal":
+            return getattr(getattr(row, "calendar", row), col, None)
+        return getattr(row, col, None)
 
     def __lt__(self, value):
-        return _Expr("lt", self.field, value)
+        return _Predicate(lambda row, s=self: s._get(row) < value)
 
     def __gt__(self, value):
-        return _Expr("gt", self.field, value)
+        return _Predicate(lambda row, s=self: s._get(row) > value)
+
+    def __eq__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(
+            lambda row, s=self: s._get(row) == val,
+            tag=(self.name, "==", val),
+        )
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row, s=self: s._get(row) != val)
 
     def is_(self, value):
-        return _Expr("is", self.field, value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row, s=self: s._get(row) == val)
 
     def isnot(self, value):
-        return _Expr("isnot", self.field, value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row, s=self: s._get(row) != val)
 
 
 def _expr_contains(expr, field, value):
@@ -110,9 +150,20 @@ class _FakeQuery:
     def filter(self, *exprs):
         self.filter_calls.append(exprs)
         for expr in exprs:
-            if _expr_contains(expr, "CalendarCal.owner", "alice"):
-                self.owner_filter = "alice"
+            if (
+                isinstance(expr, _Predicate)
+                and expr.tag
+                and expr.tag[0] == "CalendarCal.owner"
+                and expr.tag[1] == "=="
+            ):
+                self.owner_filter = expr.tag[2]
+            self.rows = [row for row in self.rows if self._eval_expr(expr, row)]
         return self
+
+    def _eval_expr(self, expr, row):
+        if callable(expr):
+            return expr(row)
+        return True
 
     def order_by(self, *_args, **_kwargs):
         return self
@@ -125,8 +176,10 @@ class _FakeQuery:
         if self.owner_filter is None:
             return list(self.rows)
         return [
-            row for row in self.rows
-            if getattr(getattr(row, "calendar", None), "owner", None) == self.owner_filter
+            row
+            for row in self.rows
+            if getattr(getattr(row, "calendar", None), "owner", None)
+            == self.owner_filter
         ]
 
 
@@ -230,14 +283,16 @@ def test_create_event_rejects_null_owner_calendar_href_at_route_boundary(monkeyp
     create_event = _route_endpoint(calendar_routes, "/events", "POST")
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(create_event(
-            _request(),
-            calendar_routes.EventCreate(
-                summary="blocked",
-                dtstart="2026-06-02T10:00:00",
-                calendar_href="cal-target",
-            ),
-        ))
+        asyncio.run(
+            create_event(
+                _request(),
+                calendar_routes.EventCreate(
+                    summary="blocked",
+                    dtstart="2026-06-02T10:00:00",
+                    calendar_href="cal-target",
+                ),
+            )
+        )
 
     assert exc.value.status_code == 404
     session.add.assert_not_called()
@@ -252,14 +307,16 @@ def test_create_event_rejects_cross_owner_calendar_href_at_route_boundary(monkey
     create_event = _route_endpoint(calendar_routes, "/events", "POST")
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(create_event(
-            _request(),
-            calendar_routes.EventCreate(
-                summary="blocked",
-                dtstart="2026-06-02T10:00:00",
-                calendar_href="cal-target",
-            ),
-        ))
+        asyncio.run(
+            create_event(
+                _request(),
+                calendar_routes.EventCreate(
+                    summary="blocked",
+                    dtstart="2026-06-02T10:00:00",
+                    calendar_href="cal-target",
+                ),
+            )
+        )
 
     assert exc.value.status_code == 404
     session.add.assert_not_called()
@@ -269,11 +326,13 @@ def test_create_event_rejects_cross_owner_calendar_href_at_route_boundary(monkey
 
 def test_list_events_filters_by_calendar_owner_before_output(monkeypatch):
     calendar_routes = _import_calendar_routes(monkeypatch)
-    session = _FakeSession(events=[
-        _event(None, "null-owner"),
-        _event("bob", "bob-event"),
-        _event("alice", "alice-event"),
-    ])
+    session = _FakeSession(
+        events=[
+            _event(None, "null-owner"),
+            _event("bob", "bob-event"),
+            _event("alice", "alice-event"),
+        ]
+    )
     monkeypatch.setattr(calendar_routes, "SessionLocal", lambda: session)
 
     expanded = []
@@ -286,11 +345,13 @@ def test_list_events_filters_by_calendar_owner_before_output(monkeypatch):
     monkeypatch.setattr(calendar_routes, "_expand_rrule", fake_expand)
     list_events = _route_endpoint(calendar_routes, "/events", "GET")
 
-    out = asyncio.run(list_events(
-        _request(),
-        start="2026-06-01T00:00:00",
-        end="2026-06-03T00:00:00",
-    ))
+    out = asyncio.run(
+        list_events(
+            _request(),
+            start="2026-06-01T00:00:00",
+            end="2026-06-03T00:00:00",
+        )
+    )
 
     assert out == {"events": [{"uid": "alice-event", "dtstart": "2026-06-02T10:00:00"}]}
     assert expanded == ["alice-event"]

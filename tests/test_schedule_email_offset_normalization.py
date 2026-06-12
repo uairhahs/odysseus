@@ -35,9 +35,11 @@ def schedule(tmp_path, monkeypatch):
     endpoint = _route_endpoint(router, "/api/email/schedule", "POST")
 
     def _stored(sid):
-        row = sqlite3.connect(db_path).execute(
-            "SELECT send_at FROM scheduled_emails WHERE id = ?", (sid,)
-        ).fetchone()
+        row = (
+            sqlite3.connect(db_path)
+            .execute("SELECT send_at FROM scheduled_emails WHERE id = ?", (sid,))
+            .fetchone()
+        )
         return row[0]
 
     return endpoint, _stored
@@ -73,7 +75,7 @@ async def test_negative_offset_does_not_fire_early(schedule):
     value = stored(res["id"])
     # on the old code the raw "-05:00" string compared as 3h+(-5h offset)
     # in the past and fired on the next poller tick
-    assert not value <= datetime.utcnow().isoformat()
+    assert not value <= datetime.now(timezone.utc).isoformat()
 
 
 @pytest.mark.asyncio
@@ -92,7 +94,7 @@ async def test_z_suffix_stored_without_suffix(schedule):
 @pytest.mark.asyncio
 async def test_naive_utc_send_at_unchanged(schedule):
     endpoint, stored = schedule
-    naive = (datetime.utcnow() + timedelta(days=1)).isoformat()
+    naive = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     res = await endpoint(
         {"to": "a@example.com", "body": "b", "send_at": naive}, owner="alice"
     )

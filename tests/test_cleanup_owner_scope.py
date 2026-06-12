@@ -19,27 +19,59 @@ Security invariant under test:
          service layer; they do not hardcode a value or drop the parameter
          (tests 4–5).
 """
+
 import sys
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
+from sqlalchemy.sql.elements import False_, Null, True_
 
 # ---------------------------------------------------------------------------
-# Lightweight model/query stubs — no SQLAlchemy required.
-# Mirrors the pattern in test_document_tool_owner_scope.py.
+# Semi-Lightweight model/query stubs — use SQLAlchemy true,fale and null elements.
 # ---------------------------------------------------------------------------
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
+
+
+class _Predicate:
+    def __init__(self, check):
+        self._check = check
+
+    def __call__(self, row):
+        return self._check(row)
+
+    def __or__(self, other):
+        return _Predicate(lambda row: self(row) or other(row))
+
 
 class _Column:
-    """Records equality comparisons so filter clauses can be inspected."""
     def __init__(self, name):
         self.name = name
 
     def __eq__(self, value):
+        # Return the exact tuple the test is asserting!
         return (self.name, "eq", value)
 
-    def __hash__(self):
-        return hash(self.name)
+    def __ne__(self, value):
+        return (self.name, "ne", value)
+
+    def is_(self, value):
+        return (self.name, "is_", value)
+
+    def isnot(self, value):
+        return (self.name, "isnot", value)
+
+    def __or__(self, other):
+        return ("or", self, other)
 
 
 class _SessionModel:
@@ -68,6 +100,7 @@ class _Query:
 # Fixture: isolate cleanup module imports per-test
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def cleanup_imports(monkeypatch):
     """Return (_apply_owner_filter, setup_cleanup_routes) from a clean import.
@@ -79,14 +112,16 @@ def cleanup_imports(monkeypatch):
     monkeypatch.delitem(sys.modules, "src.cleanup_service", raising=False)
     monkeypatch.delitem(sys.modules, "routes.cleanup_routes", raising=False)
 
-    import src.cleanup_service as svc
     import routes.cleanup_routes as rts
+    import src.cleanup_service as svc
+
     return svc._apply_owner_filter, rts.setup_cleanup_routes
 
 
 # ---------------------------------------------------------------------------
 # 1–3. _apply_owner_filter unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_apply_owner_filter_strict_equality_no_null_predicate(cleanup_imports):
     """Authenticated caller gets strict owner equality — null-owner rows excluded.
@@ -98,9 +133,9 @@ def test_apply_owner_filter_strict_equality_no_null_predicate(cleanup_imports):
     q = _Query()
     result = apply_owner_filter(q, _SessionModel, "alice")
 
-    assert len(q.filters) == 1, (
-        f"Expected exactly one filter clause for owner='alice', got {q.filters}"
-    )
+    assert (
+        len(q.filters) == 1
+    ), f"Expected exactly one filter clause for owner='alice', got {q.filters}"
     assert ("owner", "eq", "alice") in q.filters
     assert ("owner", "eq", None) not in q.filters, (
         "null-owner OR predicate regression: _apply_owner_filter is including "
@@ -139,6 +174,7 @@ def test_apply_owner_filter_none_bypasses_filter_for_single_user_mode(cleanup_im
 # 4–5. Route boundary: both routes forward caller identity as owner=
 # ---------------------------------------------------------------------------
 
+
 def test_preview_route_passes_caller_identity_as_owner(monkeypatch, cleanup_imports):
     """GET /api/cleanup/preview must call get_cleanup_preview(owner=<caller>)."""
     from fastapi import FastAPI
@@ -146,12 +182,14 @@ def test_preview_route_passes_caller_identity_as_owner(monkeypatch, cleanup_impo
 
     _, setup_cleanup_routes = cleanup_imports
 
-    mock_preview = AsyncMock(return_value={
-        "sessions_to_archive": [],
-        "sessions_to_delete": [],
-        "preserved_sessions": [],
-        "estimated_space_freed_mb": 0.0,
-    })
+    mock_preview = AsyncMock(
+        return_value={
+            "sessions_to_archive": [],
+            "sessions_to_delete": [],
+            "preserved_sessions": [],
+            "estimated_space_freed_mb": 0.0,
+        }
+    )
     monkeypatch.setattr("routes.cleanup_routes.get_cleanup_preview", mock_preview)
     monkeypatch.setattr("routes.cleanup_routes.get_current_user", lambda _req: "alice")
 

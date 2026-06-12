@@ -11,12 +11,27 @@ Pattern under test (multi-tenant deploy):
   or whose owner is "bob".
 """
 
-import os
+# import os
 import sys
 import types
-import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy.sql.elements import False_, Null, True_
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
+
 
 # `tests/conftest.py` stubs the heavy optional deps. We additionally
 # stub `core.database` here because the real module instantiates
@@ -27,12 +42,26 @@ from unittest.mock import MagicMock
 @pytest.fixture(autouse=True)
 def _null_owner_stubs(monkeypatch):
     for _stub, _attrs in (
-        ("core.database", (
-            "Base", "SessionLocal", "CalendarCal", "CalendarEvent",
-            "Document", "DocumentVersion", "Session", "ChatMessage",
-            "GalleryImage", "GalleryAlbum", "Note", "ScheduledTask",
-            "TaskRun", "ModelEndpoint", "Webhook",
-        )),
+        (
+            "core.database",
+            (
+                "Base",
+                "SessionLocal",
+                "CalendarCal",
+                "CalendarEvent",
+                "Document",
+                "DocumentVersion",
+                "Session",
+                "ChatMessage",
+                "GalleryImage",
+                "GalleryAlbum",
+                "Note",
+                "ScheduledTask",
+                "TaskRun",
+                "ModelEndpoint",
+                "Webhook",
+            ),
+        ),
         ("core.auth", ("AuthManager",)),
         ("src.endpoint_resolver", ()),
     ):
@@ -57,12 +86,11 @@ def _null_owner_stubs(monkeypatch):
         sys.modules["src.webhook_manager"] = wm
         monkeypatch.setitem(sys.modules, "src.webhook_manager", wm)
 
-from fastapi import HTTPException
-
 
 # ---------------------------------------------------------------------------
 # calendar._get_or_404_calendar / _get_or_404_event
 # ---------------------------------------------------------------------------
+
 
 def _import_calendar_helpers():
     """Import the two private gate helpers without booting the full
@@ -131,8 +159,10 @@ def test_calendar_event_gate_rejects_cross_owner():
 # document._owner_session_filter
 # ---------------------------------------------------------------------------
 
+
 def test_document_owner_filter_rejects_anonymous():
     from routes.document_routes import _owner_session_filter
+
     fake_q = MagicMock()
     out = _owner_session_filter(fake_q, user=None)
     # The fix should call .filter(False) — fake_q.filter was invoked once
@@ -143,6 +173,7 @@ def test_document_owner_filter_rejects_anonymous():
 
 def test_document_owner_filter_applies_owner_clause():
     from routes.document_routes import _owner_session_filter
+
     fake_q = MagicMock()
     out = _owner_session_filter(fake_q, user="alice")
     fake_q.filter.assert_called_once()  # one strict filter call
@@ -153,8 +184,10 @@ def test_document_owner_filter_applies_owner_clause():
 # gallery._owner_filter
 # ---------------------------------------------------------------------------
 
+
 def test_gallery_owner_filter_allows_single_user_mode():
     from routes.gallery_routes import _owner_filter
+
     fake_q = MagicMock()
     out = _owner_filter(fake_q, user=None)
     # user=None means single-user/auth-disabled mode: return q unchanged, no filter.
@@ -164,6 +197,7 @@ def test_gallery_owner_filter_allows_single_user_mode():
 
 def test_gallery_owner_filter_passes_user():
     from routes.gallery_routes import _owner_filter
+
     fake_q = MagicMock()
     out = _owner_filter(fake_q, user="alice")
     # Under the SQLAlchemy MagicMock stubs we can't introspect the
@@ -184,13 +218,12 @@ def test_gallery_owner_filter_passes_user():
 # owner's endpoint credentials. The gate must fail closed, exactly like the
 # calendar/notes/gallery gates above and _verify_session_owner.
 
+
 def _import_webhook_helper():
     """Import routes.webhook_routes. Stubs for core.database (ChatMessage,
     Webhook) and src.webhook_manager are provided by the _null_owner_stubs
     autouse fixture."""
-    return __import__(
-        "routes.webhook_routes", fromlist=["_caller_owns_session"]
-    )
+    return __import__("routes.webhook_routes", fromlist=["_caller_owns_session"])
 
 
 def test_sync_chat_gate_rejects_null_owner_session():
@@ -229,25 +262,53 @@ def test_sync_chat_gate_accepts_matching_owner():
 # null-owner shared rows), exactly like routes/model_routes.py and
 # companion/routes.py.
 
-class _Predicate:
-    def __init__(self, check):
-        self._check = check
 
-    def __call__(self, row):
-        return self._check(row)
+class _Predicate:
+    def __init__(self, fn):
+        self.fn = fn
 
     def __or__(self, other):
         return _Predicate(lambda row: self(row) or other(row))
+
+    def __and__(self, other):
+        return _Predicate(lambda row: self(row) and other(row))
+
+    def __call__(self, row):
+        return self.fn(row)
 
 
 class _Column:
     def __init__(self, name):
         self.name = name
 
+    # ADD THIS METHOD: Handles bare column filters like .filter(ModelEndpoint.is_enabled)
+    def __call__(self, row):
+        return bool(getattr(row, self.name))
+
     def __eq__(self, value):
-        return _Predicate(lambda row: getattr(row, self.name) == value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_not(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
     def desc(self):
+        """Mock the descending order modifier for SQLAlchemy order_by()."""
+        # Returning self is usually sufficient for lightweight query mocks
+        # that just need to avoid crashing when building the AST.
         return self
 
 

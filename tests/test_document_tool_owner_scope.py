@@ -2,7 +2,20 @@ import asyncio
 import sys
 import types
 
+from sqlalchemy.sql.elements import False_, Null, True_
+
 from src import tool_implementations as tools
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
 
 
 class _Column:
@@ -10,13 +23,31 @@ class _Column:
         self.name = name
 
     def __eq__(self, value):
-        return (self.name, "eq", value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
 
-    def desc(self):
-        return (self.name, "desc")
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
-    def ilike(self, value):
-        return (self.name, "ilike", value)
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+
+class _Predicate:
+    def __init__(self, check):
+        self._check = check
+
+    def __call__(self, row):
+        return self._check(row)
+
+    def __or__(self, other):
+        return _Predicate(lambda row: self(row) or other(row))
 
 
 class _Document:
@@ -102,7 +133,9 @@ def test_manage_documents_read_filters_to_calling_owner(monkeypatch):
     _install_database_stub(monkeypatch, "core.database", query)
 
     result = asyncio.run(
-        tools.do_manage_documents('{"action":"read","document_id":"doc-bob"}', owner="alice")
+        tools.do_manage_documents(
+            '{"action":"read","document_id":"doc-bob"}', owner="alice"
+        )
     )
 
     assert result["exit_code"] == 1
@@ -129,10 +162,12 @@ def test_suggest_document_active_id_filters_to_calling_owner(monkeypatch):
     _install_database_stub(monkeypatch, "src.database", query)
     tools.set_active_document("doc-bob")
     try:
-        result = asyncio.run(tools.do_suggest_document(
-            "<<<FIND>>>\nold\n<<<SUGGEST>>>\nnew\n<<<REASON>>>\nbetter\n<<<END>>>",
-            owner="alice",
-        ))
+        result = asyncio.run(
+            tools.do_suggest_document(
+                "<<<FIND>>>\nold\n<<<SUGGEST>>>\nnew\n<<<REASON>>>\nbetter\n<<<END>>>",
+                owner="alice",
+            )
+        )
     finally:
         tools.set_active_document(None)
 

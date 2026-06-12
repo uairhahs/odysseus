@@ -3,10 +3,32 @@
 import sys
 import types
 
-import pytest
+from sqlalchemy.sql.elements import False_, Null, True_
 
 import src.model_context as model_context
-from src.model_context import _is_local_endpoint, estimate_tokens, _lookup_known
+from src.model_context import _is_local_endpoint, _lookup_known, estimate_tokens
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
+
+
+class _Predicate:
+    def __init__(self, check):
+        self._check = check
+
+    def __call__(self, row):
+        return self._check(row)
+
+    def __or__(self, other):
+        return _Predicate(lambda row: self(row) or other(row))
 
 
 class _Column:
@@ -14,7 +36,20 @@ class _Column:
         self.name = name
 
     def __eq__(self, value):
-        return ("eq", self.name, value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
 
 class _ModelEndpoint:
@@ -62,7 +97,9 @@ class TestIsLocalEndpoint:
         assert _is_local_endpoint("http://127.0.0.1:8080/v1/chat/completions") is True
 
     def test_private_192_168(self):
-        assert _is_local_endpoint("http://192.168.1.1:11434/v1/chat/completions") is True
+        assert (
+            _is_local_endpoint("http://192.168.1.1:11434/v1/chat/completions") is True
+        )
 
     def test_private_10(self):
         assert _is_local_endpoint("http://10.0.0.5:8000/v1/chat/completions") is True
@@ -72,16 +109,22 @@ class TestIsLocalEndpoint:
         assert _is_local_endpoint("http://100.64.0.1:5000/v1/chat/completions") is True
 
     def test_configured_tailscale_proxy_is_remote(self, monkeypatch):
-        _install_endpoint_db(monkeypatch, [
-            types.SimpleNamespace(
-                base_url="http://100.117.136.97:34521/v1",
-                endpoint_kind="proxy",
-                api_key="fake-key",
-                is_enabled=True,
-            )
-        ])
+        _install_endpoint_db(
+            monkeypatch,
+            [
+                types.SimpleNamespace(
+                    base_url="http://100.117.136.97:34521/v1",
+                    endpoint_kind="proxy",
+                    api_key="fake-key",
+                    is_enabled=True,
+                )
+            ],
+        )
 
-        assert _is_local_endpoint("http://100.117.136.97:34521/v1/chat/completions") is False
+        assert (
+            _is_local_endpoint("http://100.117.136.97:34521/v1/chat/completions")
+            is False
+        )
 
     def test_openai_is_remote(self):
         assert _is_local_endpoint("https://api.openai.com/v1/chat/completions") is False
@@ -226,19 +269,24 @@ class TestGetContextLength:
         assert len(calls) == 1
 
     def test_configured_proxy_uses_default_without_model_listing(self, monkeypatch):
-        _install_endpoint_db(monkeypatch, [
-            types.SimpleNamespace(
-                base_url="http://100.117.136.97:34521/v1",
-                endpoint_kind="proxy",
-                api_key="fake-key",
-                is_enabled=True,
-            )
-        ])
+        _install_endpoint_db(
+            monkeypatch,
+            [
+                types.SimpleNamespace(
+                    base_url="http://100.117.136.97:34521/v1",
+                    endpoint_kind="proxy",
+                    api_key="fake-key",
+                    is_enabled=True,
+                )
+            ],
+        )
         calls = []
 
         def fake_get(*args, **kwargs):
             calls.append(args)
-            raise AssertionError("/models should not be queried for configured proxy context")
+            raise AssertionError(
+                "/models should not be queried for configured proxy context"
+            )
 
         monkeypatch.setattr(model_context.httpx, "get", fake_get)
 

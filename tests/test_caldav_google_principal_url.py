@@ -13,12 +13,12 @@ events; the ``/events`` collection holds one VEVENT) and assert the sync now
 maps the principal URL to its events collection and pulls the event. No live
 Google account is required.
 """
+
 import sys
 import tempfile
 import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -42,7 +42,7 @@ _GOOGLE_EVENTS = "https://apidata.googleusercontent.com/caldav/v2/me@gmail.com/e
 
 def _ics_one_event():
     # An event inside the sync window (now-90d .. now+365d).
-    dt = datetime.utcnow() + timedelta(days=2)
+    dt = datetime.now(timezone.utc) + timedelta(days=2)
     stamp = dt.strftime("%Y%m%dT%H%M%SZ")
     return (
         "BEGIN:VCALENDAR\r\n"
@@ -130,9 +130,14 @@ def _clear_db():
 def test_maps_google_principal_url_to_events_collection():
     assert caldav_sync._google_caldav_events_url(_GOOGLE_PRINCIPAL) == _GOOGLE_EVENTS
     # Trailing slash tolerated.
-    assert caldav_sync._google_caldav_events_url(_GOOGLE_PRINCIPAL + "/") == _GOOGLE_EVENTS
+    assert (
+        caldav_sync._google_caldav_events_url(_GOOGLE_PRINCIPAL + "/") == _GOOGLE_EVENTS
+    )
     # Non-Google or non-principal URLs are left untouched (None => caller keeps URL).
-    assert caldav_sync._google_caldav_events_url("https://calendar.example.com/dav") is None
+    assert (
+        caldav_sync._google_caldav_events_url("https://calendar.example.com/dav")
+        is None
+    )
     assert caldav_sync._google_caldav_events_url(_GOOGLE_EVENTS) is None
 
 
@@ -143,14 +148,19 @@ def test_maps_legacy_google_calendar_dav_url():
     assert caldav_sync._google_caldav_events_url(legacy_user) == legacy_events
     assert caldav_sync._google_caldav_events_url(legacy_user + "/") == legacy_events
     # A non-CalDAV www.google.com /user path must NOT be rewritten.
-    assert caldav_sync._google_caldav_events_url("https://www.google.com/accounts/user") is None
+    assert (
+        caldav_sync._google_caldav_events_url("https://www.google.com/accounts/user")
+        is None
+    )
 
 
 def test_google_sync_pulls_events_instead_of_empty(monkeypatch):
     _install_fake_caldav(monkeypatch)
     _clear_db()
 
-    result = caldav_sync._sync_blocking("alice", _GOOGLE_PRINCIPAL, "me@gmail.com", "app-pw")
+    result = caldav_sync._sync_blocking(
+        "alice", _GOOGLE_PRINCIPAL, "me@gmail.com", "app-pw"
+    )
 
     # The fix routes discovery-less Google sync to the /events collection, so
     # the VEVENT is pulled. Pre-fix this queried /user and returned 0 events.

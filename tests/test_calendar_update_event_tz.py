@@ -32,7 +32,7 @@ def _bind_temp_db(monkeypatch):
 
 @pytest.fixture
 def tokyo_offset():
-    from routes.calendar_routes import set_user_tz_offset
+    from src.user_time import set_user_tz_offset
 
     set_user_tz_offset(540)  # Tokyo, UTC+9
     try:

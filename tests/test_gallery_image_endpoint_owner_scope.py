@@ -8,7 +8,20 @@ base URL can borrow another account's private image API key.
 
 from types import SimpleNamespace
 
+from sqlalchemy.sql.elements import False_, Null, True_
+
 import routes.gallery_routes as gallery_routes
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
 
 
 class _Predicate:
@@ -27,7 +40,20 @@ class _Column:
         self.name = name
 
     def __eq__(self, value):
-        return _Predicate(lambda row: getattr(row, self.name) == value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
 
 class _ModelEndpoint:
@@ -42,7 +68,9 @@ class _Query:
         self._rows = list(rows)
 
     def filter(self, *predicates):
-        self._rows = [row for row in self._rows if all(pred(row) for pred in predicates)]
+        self._rows = [
+            row for row in self._rows if all(pred(row) for pred in predicates)
+        ]
         return self
 
     def all(self):
@@ -97,7 +125,9 @@ def test_visible_image_endpoint_for_base_rejects_same_url_other_owner(monkeypatc
     _patch_model(monkeypatch)
     rows = [_ep(URL, "bob")]
 
-    assert gallery_routes._visible_image_endpoint_for_base(_DB(rows), URL, "alice") is None
+    assert (
+        gallery_routes._visible_image_endpoint_for_base(_DB(rows), URL, "alice") is None
+    )
 
 
 def test_visible_image_endpoint_for_base_allows_shared_or_own(monkeypatch):
@@ -108,7 +138,9 @@ def test_visible_image_endpoint_for_base_allows_shared_or_own(monkeypatch):
         _ep(URL, "alice", api_key="own"),
     ]
 
-    ep = gallery_routes._visible_image_endpoint_for_base(_DB(rows), "https://api.example.com", "alice")
+    ep = gallery_routes._visible_image_endpoint_for_base(
+        _DB(rows), "https://api.example.com", "alice"
+    )
 
     assert ep is not None
     assert ep.owner == "alice"

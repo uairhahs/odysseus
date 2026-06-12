@@ -6,10 +6,10 @@ rule can't silently regress. A bearer token for owner A must never see owner B's
 rows, and legacy null-owner rows must not widen a token's access.
 """
 
+import json
 import os
 import sys
 import types
-import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -25,8 +25,21 @@ if "core.database" not in sys.modules:
     _db.ModelEndpoint = MagicMock()
     sys.modules["core.database"] = _db
 
+from sqlalchemy.sql.elements import False_, Null, True_
+
 import companion.routes as companion_routes
-from companion.routes import setup_companion_routes, token_owner, owner_can_see
+from companion.routes import owner_can_see, setup_companion_routes, token_owner
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
 
 
 def _request(**state):
@@ -48,8 +61,21 @@ class _Column:
     def __init__(self, name):
         self.name = name
 
-    def __eq__(self, value):  # noqa: D401
-        return _Predicate(lambda row: getattr(row, self.name) == value)
+    def __eq__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
 
 class _ModelEndpoint:
@@ -64,8 +90,7 @@ class _Query:
 
     def filter(self, *predicates):
         self._rows = [
-            row for row in self._rows
-            if all(predicate(row) for predicate in predicates)
+            row for row in self._rows if all(predicate(row) for predicate in predicates)
         ]
         return self
 
@@ -150,10 +175,13 @@ def _endpoint_names(endpoints):
 
 # --- token_owner: who a request is attributed to ---------------------------
 
+
 def test_token_owner_bearer_resolves_to_token_owner():
     # A paired bearer caller runs as the "api" pseudo-user, but must attribute
     # to the token's real owner.
-    req = _request(api_token=True, api_token_owner="alice", current_user="api")
+    req = _request(
+        api_token=True, api_token_owner="alice", current_user="api"  # noqa: S106
+    )  # nosec: S106
     assert token_owner(req) == "alice"
 
 
@@ -168,6 +196,7 @@ def test_token_owner_none_when_unresolved():
 
 
 # --- owner_can_see: the read-scope rule ------------------------------------
+
 
 def test_owner_sees_their_own_rows():
     assert owner_can_see("alice", "alice") is True
@@ -197,6 +226,7 @@ def test_unauthenticated_owner_sees_only_shared_rows():
 
 # --- GET /api/companion/models: route-level scoping -----------------------
 
+
 def test_models_route_scopes_cookie_user_to_owned_and_shared_rows(monkeypatch):
     rows = [
         _ep(1, "alice-endpoint", "alice"),
@@ -225,7 +255,9 @@ def test_models_route_scopes_api_token_to_token_owner(monkeypatch):
     endpoints = _call_models_route(
         monkeypatch,
         rows,
-        _request(api_token=True, api_token_owner="alice", current_user="api"),
+        _request(
+            api_token=True, api_token_owner="alice", current_user="api"  # noqa: S106
+        ),
     )
 
     assert _endpoint_names(endpoints) == ["alice-endpoint", "shared-endpoint"]
@@ -269,13 +301,15 @@ def test_models_route_filters_hidden_models_and_secret_fields(monkeypatch):
         _request(api_token=False, current_user="alice"),
     )
 
-    assert endpoints == [{
-        "endpoint_id": 1,
-        "name": "alice-endpoint",
-        "endpoint_url": "https://alice.example/v1/chat/completions",
-        "models": ["visible-model"],
-        "supports_tools": True,
-    }]
+    assert endpoints == [
+        {
+            "endpoint_id": 1,
+            "name": "alice-endpoint",
+            "endpoint_url": "https://alice.example/v1/chat/completions",
+            "models": ["visible-model"],
+            "supports_tools": True,
+        }
+    ]
     returned = endpoints[0]
     assert "hidden-model" not in returned["models"]
     assert set(returned) == {

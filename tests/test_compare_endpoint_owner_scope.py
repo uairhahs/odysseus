@@ -12,8 +12,21 @@ fixes.
 
 from types import SimpleNamespace
 
+from sqlalchemy.sql.elements import False_, Null, True_
+
 import core.database
 from routes.compare_routes import _owned_endpoint_by_url
+
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
 
 
 class _Predicate:
@@ -32,7 +45,20 @@ class _Column:
         self.name = name
 
     def __eq__(self, value):
-        return _Predicate(lambda row: getattr(row, self.name) == value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
 
 class _ModelEndpoint:

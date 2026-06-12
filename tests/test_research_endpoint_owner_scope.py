@@ -16,26 +16,44 @@ import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from sqlalchemy.sql.elements import False_, Null, True_
+
 # The helper resolves `from src.database import ModelEndpoint` at call time.
 # Stub the module so we can hand it a fake declarative class whose column
 # comparisons return inspectable predicates (the real one is a SQLAlchemy
 # class, MagicMock'd to oblivion by conftest). owner_filter stays REAL.
+from routes.research_routes import _owned_enabled_endpoint
+
 _sd = types.ModuleType("src.database")
 _sd.ModelEndpoint = MagicMock()
+
+
 sys.modules.setdefault("src.database", _sd)
 
-from routes.research_routes import _owned_enabled_endpoint  # noqa: E402
+
+def _unwrap_sqla(value):
+    """Converts SQLAlchemy constants back to Python native types for the mock."""
+    if isinstance(value, True_):
+        return True
+    if isinstance(value, False_):
+        return False
+    if isinstance(value, Null):
+        return None
+    return value
 
 
 class _Predicate:
-    def __init__(self, check):
-        self._check = check
+    def __init__(self, fn):
+        self.fn = fn
 
     def __call__(self, row):
-        return self._check(row)
+        return self.fn(row)
 
     def __or__(self, other):
         return _Predicate(lambda row: self(row) or other(row))
+
+    def __and__(self, other):
+        return _Predicate(lambda row: self(row) and other(row))
 
 
 class _Column:
@@ -43,7 +61,20 @@ class _Column:
         self.name = name
 
     def __eq__(self, value):
-        return _Predicate(lambda row: getattr(row, self.name) == value)
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def __ne__(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
+
+    def is_(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) == val)
+
+    def isnot(self, value):
+        val = _unwrap_sqla(value)
+        return _Predicate(lambda row: getattr(row, self.name) != val)
 
 
 class _ModelEndpoint:
@@ -74,7 +105,9 @@ class _DB:
 
 
 def _ep(eid, owner, *, is_enabled=True):
-    return SimpleNamespace(id=eid, owner=owner, is_enabled=is_enabled, api_key="sk-secret")
+    return SimpleNamespace(
+        id=eid, owner=owner, is_enabled=is_enabled, api_key="sk-secret"
+    )
 
 
 def _resolve(rows, owner, endpoint_id=None):
@@ -83,6 +116,7 @@ def _resolve(rows, owner, endpoint_id=None):
 
 
 # --- explicit endpoint_id (POST /api/research/start, body.endpoint_id) --------
+
 
 def test_endpoint_id_rejects_another_owners_private_endpoint():
     # bob's private endpoint exists, but alice asking for it by id resolves None
@@ -111,6 +145,7 @@ def test_endpoint_id_skips_disabled_even_when_owned():
 
 # --- bare first-enabled fallback (no endpoint_id, nothing configured) ---------
 
+
 def test_fallback_never_picks_another_owners_endpoint():
     # bob's private endpoint is first in the table, alice must never borrow it.
     rows = [_ep("ep-bob", "bob"), _ep("ep-shared", None)]
@@ -124,6 +159,7 @@ def test_fallback_returns_none_when_only_others_endpoints():
 
 
 # --- legacy single-user / unresolved owner: owner_filter no-op ---------------
+
 
 def test_null_owner_is_legacy_single_user_noop():
     rows = [_ep("ep-x", "bob"), _ep("ep-y", "alice")]
