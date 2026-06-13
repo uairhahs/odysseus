@@ -8,11 +8,6 @@ services:
       # Default: false (MIT-core only, no AGPL dependencies)
       args:
         INSTALL_OPTIONAL: "${INSTALL_OPTIONAL:-true}"
-    labels:
-      net.unraid.docker.managed: "composeman"
-      net.unraid.docker.icon: "https://ik.imagekit.io/oy7bx55un/odysseus.png"
-      net.unraid.docker.shell: "bash"
-      net.unraid.docker.webui: "http://[IP]:[PORT:7000]"
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
     volumes:
@@ -43,9 +38,7 @@ services:
       - LLM_HOST=${LLM_HOST:-localhost}
       - LLM_HOSTS=${LLM_HOSTS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # Prefer the compose-local Ollama service when available; override for
-      # an external Ollama endpoint if needed.
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       - RESEARCH_LLM_ENDPOINT=${RESEARCH_LLM_ENDPOINT:-}
       - HF_TOKEN=${HF_TOKEN:-}
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
@@ -100,17 +93,10 @@ services:
       retries: 5
       start_period: 40s
     restart: unless-stopped
-    networks:
-      - transport_net
 
   chromadb:
     container_name: odysseus-chromadb
     image: docker.io/chromadb/chroma:latest
-    labels:
-      net.unraid.docker.managed: "composeman"
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/chroma.png"
-      net.unraid.docker.shell: "bash"
-      net.unraid.docker.webui: "http://[IP]:[PORT:8100]"
     ports:
       - "${CHROMADB_BIND:-127.0.0.1}:8100:8000"
     volumes:
@@ -118,8 +104,6 @@ services:
     environment:
       - ANONYMIZED_TELEMETRY=FALSE
     restart: unless-stopped
-    networks:
-      - transport_net
 
   searxng:
     container_name: odysseus-searxng
@@ -143,7 +127,7 @@ services:
         fi
         exec /usr/local/searxng/entrypoint.sh
     ports:
-      - "127.0.0.1:8088:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - searxng-data:/etc/searxng
       - ./config/searxng/settings.yml:/tmp/searxng-settings.yml.template:ro,z
@@ -159,10 +143,6 @@ services:
     # searxng-docker compose file. See issue #721.
     cap_drop:
       - ALL
-    labels:
-      net.unraid.docker.managed: "composeman"
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/searxng.png"
-      net.unraid.docker.shell: "bash"
     cap_add:
       - CHOWN
       - SETGID
@@ -184,17 +164,10 @@ services:
       - ${PRIMARY_DNS:-}
       - ${SECONDARY_DNS:-}
     restart: unless-stopped
-    networks:
-      - transport_net
 
   ntfy:
     container_name: odysseus-ntfy
     image: docker.io/binwiederhier/ntfy
-    labels:
-      net.unraid.docker.managed: "composeman"
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/ntfy.png"
-      net.unraid.docker.shell: "bash"
-      net.unraid.docker.webui: "http://[IP]:[PORT:8091]"
     command: serve
     ports:
       - "${NTFY_BIND:-127.0.0.1}:8091:80"
@@ -203,14 +176,8 @@ services:
     environment:
       - NTFY_BASE_URL=${NTFY_BASE_URL:-http://localhost:8091}
     restart: unless-stopped
-    networks:
-      - transport_net
 
 volumes:
   searxng-data:
   chromadb-data:
   ntfy-cache:
-
-networks:
-  transport_net:
-    external: true
