@@ -33,14 +33,33 @@ def get_chat_upload_max_bytes() -> int:
     return read_byte_limit_env(CHAT_UPLOAD_MAX_BYTES_ENV, DEFAULT_CHAT_UPLOAD_MAX_BYTES)
 
 
+def _upload_too_large(label: str, limit: int) -> HTTPException:
+    return HTTPException(
+        status_code=413,
+        detail=f"{label} exceeds {format_byte_limit(limit)} limit",
+    )
+
+
 async def read_upload_limited(
-    upload: UploadFile, limit: int, label: str = "Upload"
+    file: UploadFile,
+    limit: int,
+    label: str = "Upload",
+    *,
+    rewind: bool = False,
 ) -> bytes:
     """Read an UploadFile with a hard byte cap."""
-    data = await upload.read(limit + 1)
+
+    if file.size is not None and file.size > limit:
+        raise _upload_too_large(label, limit)
+
+    if rewind:
+        await file.seek(0)
+
+    data = await file.read(limit + 1)
     if len(data) > limit:
-        raise HTTPException(
-            status_code=413,
-            detail=f"{label} exceeds {format_byte_limit(limit)} limit",
-        )
+        raise _upload_too_large(label, limit)
+
+    if rewind:
+        await file.seek(0)
+
     return data

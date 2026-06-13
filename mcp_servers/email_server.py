@@ -13,6 +13,7 @@ import email.utils
 import html
 import imaplib
 import json
+import logging
 import os
 import os.path
 import re
@@ -32,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 server = Server("email")
 EMAIL_SOCKET_TIMEOUT = float(os.environ.get("EMAIL_SOCKET_TIMEOUT", "20"))
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+logger = logging.getLogger(__name__)
 
 
 def _b(value) -> bytes:
@@ -136,7 +138,8 @@ def _resolve_account(selector: str | None) -> dict | None:
         close = get_close_matches(sel, candidates, n=1, cutoff=0.72)
         if close:
             return by_candidate.get(close[0])
-    except Exception:
+    except Exception as e:
+        logger.warning("Error finding close match for email account: %s", e)
         pass
     return None
 
@@ -254,8 +257,8 @@ def _load_config(account: str | None = None) -> dict:
                             if key.endswith("_port")
                             else settings[key]
                         )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error loading settings: %s", e)
 
     if not cfg["from_address"]:
         cfg["from_address"] = cfg["imap_user"]
@@ -313,8 +316,8 @@ def _detect_sent_folder(conn):
         for c in candidates:
             if c in names:
                 return c
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error detecting sent folder: %s", e)
     return "Sent"
 
 
@@ -539,7 +542,8 @@ def _list_emails(
                         "summary": summary,
                     }
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("Error processing email UID %s: %s", uid, e)
                 continue
 
         return results
@@ -547,8 +551,8 @@ def _list_emails(
         if conn:
             try:
                 conn.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error logging out from email server: %s", e)
 
 
 def _result_sort_time(result: dict) -> datetime:
@@ -558,8 +562,8 @@ def _result_sort_time(result: dict) -> datetime:
             if parsed.tzinfo:
                 parsed = parsed.astimezone().replace(tzinfo=None)
             return parsed
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error parsing email date: %s", e)
     return datetime.min
 
 
@@ -651,15 +655,17 @@ def _search_emails(query, folders=None, max_results=20, account=None):
                                 "summary": cached.get("summary", ""),
                             }
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Error processing email UID %s: %s", uid, e)
                         continue
-            except Exception:
+            except Exception as e:
+                logger.warning("Error processing folder %s: %s", folder, e)
                 continue
     finally:
         try:
             conn.logout()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error logging out from email server: %s", e)
     # Cap total across folders.
     return out[: max_results * len(folders)]
 
@@ -786,8 +792,8 @@ def _read_email(uid=None, message_id=None, folder="INBOX", account=None):
         if conn:
             try:
                 conn.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error logging out from email server: %s", e)
 
 
 def _read_email_across_accounts(uid=None, message_id=None, folder="INBOX"):
@@ -948,11 +954,14 @@ def _send_email(
                 if m:
                     sent_uid = m.group(1).decode("ascii", errors="ignore")
         finally:
-            imap.logout()
-    except Exception:
+            try:
+                imap.logout()
+            except Exception as e:
+                logger.warning("Error logging out from email server: %s", e)
+    except Exception as e:
         # Delivery already succeeded; Sent-copy failure should not turn a sent
         # message into a hard failure for the user.
-        pass
+        logger.warning("Error processing sent folder: %s", e)
 
     return {
         "sent": True,
@@ -977,8 +986,8 @@ def _reply_to_email(uid, body, folder="INBOX", reply_all=False, account=None):
         if conn:
             try:
                 conn.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error logging out from email server: %s", e)
     if status != "OK" or not msg_data or not msg_data[0]:
         return {"error": f"Failed to fetch email UID {uid}"}
     raw = msg_data[0][1]
@@ -1024,16 +1033,17 @@ def _reply_to_email(uid, body, folder="INBOX", reply_all=False, account=None):
 
 
 def _set_flag(uid, folder, flag, add=True, account=None):
-    """Add or remove an IMAP flag (e.g. \\Seen, \\Answered, \\Deleted)."""
+    r"""Add or remove an IMAP flag (e.g. \Seen, \Answered, \Deleted)."""
     conn = _imap_connect(account)
     conn.select(_q(folder))
     op = "+FLAGS" if add else "-FLAGS"
     try:
         status, data = conn.uid("STORE", _b(uid), op, flag)
-        if add and flag == "\\Deleted":
+        if add and flag == r"\Deleted":
             conn.expunge()
         return status == "OK" and bool(data and data[0])
-    except Exception:
+    except Exception as e:
+        logger.warning("Error setting flag on email UID %s: %s", uid, e)
         return False
     finally:
         conn.logout()
@@ -1059,7 +1069,7 @@ def _bulk_set_flag(uids, folder, flag, add=True, account=None):
         if status != "OK" or not touched:
             return 0
         status, data = conn.uid("STORE", _b(msg_set), op, flag)
-        if add and flag == "\\Deleted":
+        if add and flag == r"\Deleted":
             conn.expunge()
         if status != "OK":
             return 0
@@ -1180,8 +1190,8 @@ def _download_attachment(uid, index, folder="INBOX", account=None):
         if conn:
             try:
                 conn.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error logging out from email server: %s", e)
     if status != "OK":
         return {"error": f"Failed to fetch email UID {uid}"}
     raw = msg_data[0][1]
@@ -1761,8 +1771,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     add=True,
                     account=acct,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error setting flag for UID %s: %s", uid, e)
             return [
                 TextContent(
                     type="text",

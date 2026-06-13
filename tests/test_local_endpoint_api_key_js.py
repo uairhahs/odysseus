@@ -11,7 +11,9 @@ tests/test_local_endpoint_js.py — we extract the two click-handler bodies from
 source and run them under node with mocked DOM/FormData/fetch, asserting the
 outgoing form data contains `api_key` exactly when the key field is filled.
 """
+
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,10 +26,14 @@ _INDEX_HTML = _REPO / "static" / "index.html"
 _HAS_NODE = shutil.which("node") is not None
 
 
-def _extract_handler_body(src: str, marker: str) -> str:
+def _extract_handler_body(src: str, marker_re: re.Pattern) -> str:
     """Return the body (without the outer braces) of the arrow function that
-    immediately follows `marker` in `src`, using a quote-aware brace matcher."""
-    start = src.index(marker) + len(marker)
+    immediately follows `marker_re` match in `src`, using a quote-aware brace matcher.
+    """
+    match = marker_re.search(src)
+    if not match:
+        raise ValueError(f"marker pattern not found: {marker_re.pattern}")
+    start = match.end()
     brace = src.index("{", start)
     i = brace + 1
     depth = 1
@@ -49,9 +55,9 @@ def _extract_handler_body(src: str, marker: str) -> str:
         elif c == "}":
             depth -= 1
             if depth == 0:
-                return src[brace + 1:i]
+                return src[brace + 1 : i]
         i += 1
-    raise AssertionError(f"unbalanced braces after marker: {marker!r}")
+    raise AssertionError(f"unbalanced braces after marker pattern: {marker_re.pattern}")
 
 
 _HARNESS = """
@@ -87,19 +93,28 @@ run().then(() => console.log(JSON.stringify(appended)))
 def _run_handler(body: str, fields: dict) -> list:
     js = _HARNESS.format(fields=json.dumps(fields), body=body)
     proc = subprocess.run(
-        ["node", "--input-type=module"],
-        input=js, capture_output=True, text=True, cwd=str(_REPO), timeout=30,
+        ["node", "--input-type=module"],  # noqa: S607
+        input=js,
+        capture_output=True,
+        text=True,
+        cwd=str(_REPO),
+        timeout=30,
     )
     assert proc.returncode == 0, f"node failed: {proc.stderr}\n---\n{js}"
     return json.loads(proc.stdout.strip())
 
 
-def _handler(marker: str) -> str:
-    return _extract_handler_body(_ADMIN_JS.read_text(encoding="utf-8"), marker)
+def _handler(marker_re: re.Pattern) -> str:
+    return _extract_handler_body(_ADMIN_JS.read_text(encoding="utf-8"), marker_re)
 
 
-_TEST_MARKER = "localTestBtn.addEventListener('click', async () => "
-_ADD_MARKER = "localAddBtn.addEventListener('click', async () => "
+# Compiled regular expressions handle Trunk/Prettier formatting changes
+_TEST_MARKER = re.compile(
+    r"localTestBtn\.addEventListener\(\s*['\"]click['\"]\s*,\s*async\s*\(\)\s*=>\s*"
+)
+_ADD_MARKER = re.compile(
+    r"localAddBtn\.addEventListener\(\s*['\"]click['\"]\s*,\s*async\s*\(\)\s*=>\s*"
+)
 
 
 def test_local_form_has_api_key_input():
@@ -108,15 +123,18 @@ def test_local_form_has_api_key_input():
     assert pos != -1, "adm-epLocalApiKey input missing from index.html"
     # Isolate the enclosing <input ...> tag and require it to be a masked field,
     # like the cloud form's API-key input.
-    tag = html[html.rfind("<input", 0, pos):html.index(">", pos) + 1]
+    tag = html[html.rfind("<input", 0, pos) : html.index(">", pos) + 1]
     assert 'type="password"' in tag, f"local API key must be a password input: {tag}"
 
 
 @pytest.mark.skipif(not _HAS_NODE, reason="node binary not on PATH")
 @pytest.mark.parametrize("marker", [_TEST_MARKER, _ADD_MARKER])
 def test_api_key_sent_when_filled(marker):
-    fields = {"adm-epLocalUrl": "http://localhost:8002/v1",
-              "adm-epLocalApiKey": "sk-secret", "adm-epLocalType": "llm"}
+    fields = {
+        "adm-epLocalUrl": "http://localhost:8002/v1",
+        "adm-epLocalApiKey": "sk-secret",
+        "adm-epLocalType": "llm",
+    }
     appended = dict(_run_handler(_handler(marker), fields))
     assert appended.get("base_url") == "http://localhost:8002/v1"
     assert appended.get("api_key") == "sk-secret", f"api_key not sent: {appended}"
@@ -125,8 +143,11 @@ def test_api_key_sent_when_filled(marker):
 @pytest.mark.skipif(not _HAS_NODE, reason="node binary not on PATH")
 @pytest.mark.parametrize("marker", [_TEST_MARKER, _ADD_MARKER])
 def test_api_key_omitted_when_blank(marker):
-    fields = {"adm-epLocalUrl": "http://localhost:8002/v1",
-              "adm-epLocalApiKey": "", "adm-epLocalType": "llm"}
+    fields = {
+        "adm-epLocalUrl": "http://localhost:8002/v1",
+        "adm-epLocalApiKey": "",
+        "adm-epLocalType": "llm",
+    }
     keys = [k for k, _ in _run_handler(_handler(marker), fields)]
     assert "base_url" in keys
     assert "api_key" not in keys, "blank key must not be appended (avoids empty Bearer)"

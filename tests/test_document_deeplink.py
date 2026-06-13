@@ -5,9 +5,15 @@ no JS unit harness for it — these pin the source-level invariants that the
 404-silent-failure fix depends on. See issue #560.
 """
 
+import re
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
+
+
+def _norm(s: str) -> str:
+    """Strip all whitespace and unify quotes to bypass Trunk/Prettier formatting."""
+    return re.sub(r"\s+", "", s).replace('"', "'")
 
 
 def test_chat_document_links_use_the_document_id():
@@ -22,8 +28,13 @@ def test_document_deeplink_handled_on_hashchange_and_load():
     """#document-<id> in the URL must open the doc on refresh / URL-bar nav,
     not just on click."""
     js = (_REPO / "static" / "js" / "document.js").read_text(encoding="utf-8")
-    assert "addEventListener('hashchange', _maybeOpenDocFromHash)" in js
-    assert "#document-" in js
+
+    # Normalize the entire JS file
+    normalized_js = _norm(js)
+
+    # Assert against the compressed, format-agnostic strings
+    assert "addEventListener('hashchange',_maybeOpenDocFromHash)" in normalized_js
+    assert "#document-" in normalized_js
 
 
 def test_failed_document_load_surfaces_user_error():

@@ -598,11 +598,16 @@ def _validate_serve_cmd(v: str | None) -> str | None:
     """
     if v is None or v == "":
         return None
-    # Collapse backslash-newline line continuations into single spaces. Serve
-    # commands (vLLM especially) are routinely pasted multi-line with trailing
-    # `\` — that's a safe shell/shlex continuation, so the command stays ONE
-    # logical invocation and the leading-token allowlist below still governs.
+    # Collapse backslash-newline line continuations into single spaces.
     v = re.sub(r"\\[ \t]*\r?\n[ \t]*", " ", v).strip()
+    # Normalise llama_cpp alias → canonical package name with [server] extra.
+    v = re.sub(
+        r"(?<![A-Za-z0-9_.-])llama_cpp(?![A-Za-z0-9_.-])", "llama-cpp-python[server]", v
+    )
+    # Inject the prebuilt-wheel index when it's missing so pip doesn't try to
+    # compile from source and time out on low-RAM hosts.
+    if "llama-cpp-python" in v and "--extra-index-url" not in v:
+        v += " --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu"
     # Backticks and raw newlines are never legitimate here.
     if any(c in v for c in ("`", "\n", "\r")):
         raise HTTPException(400, "Invalid characters in cmd")
@@ -849,6 +854,30 @@ class ServeRequest(BaseModel):
     hf_token: str | None = None
     gpus: str | None = None
     platform: str | None = None  # "linux", "termux", or "windows"
+
+
+def _resolve_gone_session_status(snapshot: str, task_type: str) -> str:
+    """Resolve a task's final status once its tmux/process session is gone.
+
+    Looks for the runner's "=== process exited with code N ===" exit
+    sentinel (case-insensitive, since both the bash and PowerShell runners
+    emit slightly different casing). For download tasks, exit code 0 means
+    the download finished cleanly ("completed"); any other exit code is
+    treated as an error. Falls back to "stopped" when no sentinel is found.
+    """
+    text = snapshot or ""
+    exit_match = re.search(
+        r"=== process exited with code\s+(-?\d+)", text, re.IGNORECASE
+    )
+    has_exit = bool(exit_match)
+    exit_code = int(exit_match.group(1)) if exit_match else None
+    if not has_exit:
+        status = "stopped"
+    elif has_exit and task_type == "download":
+        status = "completed" if exit_code == 0 else "error"
+    else:
+        status = "stopped" if exit_code == 0 else "error"
+    return status
 
 
 def _parse_serve_phase(snapshot: str, task_type: str = "serve") -> dict:

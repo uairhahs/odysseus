@@ -26,24 +26,31 @@ def _function_body(name: str) -> str:
     return text[start : i - 1]
 
 
+def _norm(s: str) -> str:
+    """Strip all whitespace and unify quotes to bypass Trunk/Prettier formatting."""
+    return re.sub(r"\s+", "", s).replace('"', "'")
+
+
 def test_markdown_preview_refresh_rerenders_visible_preview():
-    body = _function_body("_refreshMarkdownPreviewIfVisible")
+    body = _norm(_function_body("_refreshMarkdownPreviewIfVisible"))
 
     assert "_isMarkdownPreviewVisible()" in body
-    assert "lang !== 'markdown'" in body
-    assert "textarea.value = content;" in body
+    assert "lang!=='markdown'" in body
+    assert "textarea.value=content;" in body
     assert "syncHighlighting();" in body
-    assert "_setMarkdownPreviewActive(true, { remember: false });" in body
+    assert "_setMarkdownPreviewActive(true,{remember:false});" in body
 
 
 def test_doc_update_refreshes_preview_instead_of_hidden_editor_animation():
-    body = _function_body("handleDocUpdate")
+    body = _norm(_function_body("handleDocUpdate"))
 
-    visible = "const markdownPreviewWasVisible = _isMarkdownPreviewVisible();"
-    exit_preview = "if (markdownPreviewWasVisible) _setMarkdownPreviewActive(false, { remember: false });"
-    diff = "enterDiffMode(oldContent, newContent);"
-    refresh = "markdownPreviewWasVisible && _refreshMarkdownPreviewIfVisible(docId, newContent)"
-    animate = "_animateDocEdit(textarea, newContent);"
+    visible = "constmarkdownPreviewWasVisible=_isMarkdownPreviewVisible();"
+    exit_preview = "if(markdownPreviewWasVisible)_setMarkdownPreviewActive(false,{remember:false});"
+    diff = "enterDiffMode(oldContent,newContent);"
+    refresh = (
+        "markdownPreviewWasVisible&&_refreshMarkdownPreviewIfVisible(docId,newContent)"
+    )
+    animate = "_animateDocEdit(textarea,newContent);"
 
     assert visible in body
     assert exit_preview in body
@@ -51,4 +58,4 @@ def test_doc_update_refreshes_preview_instead_of_hidden_editor_animation():
     assert body.index(exit_preview) < body.index(diff)
     assert refresh in body
     assert body.index(refresh) < body.index(animate)
-    assert "_refreshMarkdownPreviewIfVisible(docId, newContent);" in body
+    assert "_refreshMarkdownPreviewIfVisible(docId,newContent);" in body

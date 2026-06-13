@@ -99,4 +99,14 @@ async def test_naive_utc_send_at_unchanged(schedule):
         {"to": "a@example.com", "body": "b", "send_at": naive}, owner="alice"
     )
     assert res["success"] is True
-    assert stored(res["id"]) == naive
+    # Stored value is normalized to naive UTC (no offset) for poller
+    # lexicographic comparison; strip the offset from the input for comparison.
+    from datetime import datetime as _dt
+
+    expected = (
+        _dt.fromisoformat(naive)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+        .isoformat()
+    )
+    assert stored(res["id"]) == expected

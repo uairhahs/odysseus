@@ -84,7 +84,7 @@ class SessionManager:
             db_sessions = (
                 db.query(DbSession)
                 .filter(
-                    not DbSession.archived,
+                    DbSession.archived.is_(False),
                     DbSession.message_count > 0,
                 )
                 .order_by(DbSession.last_accessed.desc())

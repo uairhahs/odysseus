@@ -1661,7 +1661,6 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyotp" },
     { name = "pypdf" },
-    { name = "pytest-cov" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
@@ -1675,6 +1674,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
 ]
 optional = [
     { name = "duckduckgo-search" },
@@ -1710,7 +1710,7 @@ requires-dist = [
     { name = "pypdf" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.1.0" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "python-multipart" },

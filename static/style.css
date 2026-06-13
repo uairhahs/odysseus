@@ -6682,6 +6682,7 @@ body.window-resizing-active * {
   }
   #modal-dock {
     display: none !important;
+    bottom: var(--composer-clearance, 0);
   }
 }
 /* Minimized modals are hidden but stay in the DOM with their state intact */

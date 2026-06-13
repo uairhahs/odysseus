@@ -53,17 +53,15 @@ def test_webhook_trigger_path_is_in_exempt_patterns():
                 break
     assert end != -1, "could not find closing bracket for AUTH_EXEMPT_PATTERNS"
     body = src[lb + 1 : end]
-    # Pull each compiled regex literal: _re.compile(r"...").
-    patterns = re.findall(r'_re\.compile\(\s*r"([^"]+)"\s*\)', body)
-    assert patterns, (
-        "expected at least one compiled regex in AUTH_EXEMPT_PATTERNS"
-    )
+    # Pull each compiled regex literal: _re.compile(r"...") or conventionally imported as just re
+    patterns = re.findall(r'_?re\.compile\(\s*r"([^"]+)"\s*\)', body)
+    assert patterns, "expected at least one compiled regex in AUTH_EXEMPT_PATTERNS"
     compiled = [re.compile(p) for p in patterns]
 
     sample = "/api/tasks/abc123/webhook/" + "x" * 43
-    assert any(c.match(sample) for c in compiled), (
-        f"webhook trigger path {sample!r} must be auth-exempt - issue #621"
-    )
+    assert any(
+        c.match(sample) for c in compiled
+    ), f"webhook trigger path {sample!r} must be auth-exempt - issue #621"
 
     # Negative: routes that are NOT meant to be public must not match.
     for not_public in (
@@ -72,9 +70,9 @@ def test_webhook_trigger_path_is_in_exempt_patterns():
         "/api/tasks/abc123/webhook-regenerate",
         "/api/tasks/abc123/run",
     ):
-        assert not any(c.match(not_public) for c in compiled), (
-            f"{not_public!r} must NOT be auth-exempt"
-        )
+        assert not any(
+            c.match(not_public) for c in compiled
+        ), f"{not_public!r} must NOT be auth-exempt"
 
 
 def test_webhook_trigger_handler_still_validates_token():

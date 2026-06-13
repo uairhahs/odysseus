@@ -1,10 +1,19 @@
+import re
 from pathlib import Path
 
 from src import ai_interaction
 from src import document_processor as dp
 
-
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _norm(s: str) -> str:
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def test_configured_vision_model_resolution_passes_owner(monkeypatch):
@@ -12,7 +21,11 @@ def test_configured_vision_model_resolution_passes_owner(monkeypatch):
 
     def fake_resolve_model(spec, owner=None):
         seen.append((spec, owner))
-        return ("http://example.test/chat/completions", spec, {"Authorization": "Bearer token"})
+        return (
+            "http://example.test/chat/completions",
+            spec,
+            {"Authorization": "Bearer token"},
+        )
 
     monkeypatch.setattr(ai_interaction, "_resolve_model", fake_resolve_model)
 
@@ -49,7 +62,11 @@ def test_vision_analysis_uses_owner_scoped_primary_and_fallback(monkeypatch, tmp
 
     def fake_resolve_vl_model(configured, owner=None):
         seen["primary"] = (configured, owner)
-        return ("http://primary.test/chat/completions", "vision-primary", {"X-Test": "1"})
+        return (
+            "http://primary.test/chat/completions",
+            "vision-primary",
+            {"X-Test": "1"},
+        )
 
     def fake_fallbacks(owner=None):
         seen["fallback_owner"] = owner
@@ -59,13 +76,19 @@ def test_vision_analysis_uses_owner_scoped_primary_and_fallback(monkeypatch, tmp
         seen["llm"] = (url, model, headers, timeout, messages)
         return "description"
 
-    monkeypatch.setattr(dp, "_load_vl_settings", lambda: {"vision_enabled": True, "vision_model": "gpt-4o"})
+    monkeypatch.setattr(
+        dp,
+        "_load_vl_settings",
+        lambda: {"vision_enabled": True, "vision_model": "gpt-4o"},
+    )
     monkeypatch.setattr(dp, "_resolve_vl_model", fake_resolve_vl_model)
     monkeypatch.setattr(dp, "llm_call", fake_llm_call)
 
     from src import endpoint_resolver
 
-    monkeypatch.setattr(endpoint_resolver, "resolve_vision_fallback_candidates", fake_fallbacks)
+    monkeypatch.setattr(
+        endpoint_resolver, "resolve_vision_fallback_candidates", fake_fallbacks
+    )
 
     image = tmp_path / "image.png"
     image.write_bytes(b"not-a-real-png-but-base64-is-enough")
@@ -92,10 +115,14 @@ def test_request_vision_call_sites_pass_owner():
     gallery_source = (ROOT / "routes" / "gallery_routes.py").read_text()
     memory_source = (ROOT / "routes" / "memory_routes.py").read_text()
 
-    assert 'analyze_image_with_vl_result(file_info["path"], owner=owner)' in chat_source
-    assert "analyze_image_with_vl(path, owner=current_user)" in upload_source
-    assert "_process_pdf(path, owner=owner)" in processor_source
-    assert "_process_pdf(pdf_path, owner=user)" in document_source
-    assert "_resolve_vl_model(vl_model, owner=user)" in document_source
-    assert "_resolve_vl_model(configured, owner=user)" in gallery_source
-    assert "_process_pdf(tmp_path, owner=_owner(request))" in memory_source
+    needles = [
+        ('analyze_image_with_vl_result(file_info["path"], owner=owner)', chat_source),
+        ("analyze_image_with_vl(path, owner=current_user)", upload_source),
+        ("_process_pdf(path, owner=owner)", processor_source),
+        ("_process_pdf(pdf_path, owner=user)", document_source),
+        ("_resolve_vl_model(vl_model, owner=user)", document_source),
+        ("_resolve_vl_model(configured, owner=user)", gallery_source),
+        ("_process_pdf(tmp_path, owner=_owner(request))", memory_source),
+    ]
+    for needle, source in needles:
+        assert _norm(needle) in _norm(source)

@@ -113,7 +113,6 @@ async def run_document_tidy(owner: str) -> str:
             stripped = re.sub(r"^#{1,6}\s+", "", content, flags=re.MULTILINE)  # headers
             stripped = re.sub(r"[*_`>\-=]+", "", stripped)  # markdown chars
             stripped = re.sub(r"\s+", " ", stripped).strip()
-            _real_len = len(stripped)
 
             # Detect emails-saved-as-documents (quote chains with no original content)
             lines = [ln for ln in content.split("\n") if ln.strip()]

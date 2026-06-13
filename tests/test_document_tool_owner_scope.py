@@ -1,10 +1,16 @@
 import asyncio
+import re
 import sys
 import types
 
 from sqlalchemy.sql.elements import False_, Null, True_
 
 from src import tool_implementations as tools
+
+
+def _norm(s: str) -> str:
+    """Strip all whitespace to bypass Trunk/Prettier formatting."""
+    return re.sub(r"\s+", "", s).replace('"', "'")
 
 
 def _unwrap_sqla(value):
@@ -24,30 +30,46 @@ class _Column:
 
     def __eq__(self, value):
         val = _unwrap_sqla(value)
-        return _Predicate(lambda row: getattr(row, self.name) == val)
+        return _Predicate(
+            lambda row: getattr(row, self.name) == val, meta=(self.name, "eq", val)
+        )
 
     def __ne__(self, value):
         val = _unwrap_sqla(value)
-        return _Predicate(lambda row: getattr(row, self.name) != val)
+        return _Predicate(
+            lambda row: getattr(row, self.name) != val, meta=(self.name, "ne", val)
+        )
 
     def is_(self, value):
         val = _unwrap_sqla(value)
-        return _Predicate(lambda row: getattr(row, self.name) == val)
+        return _Predicate(
+            lambda row: getattr(row, self.name) == val, meta=(self.name, "is", val)
+        )
 
     def isnot(self, value):
         val = _unwrap_sqla(value)
-        return _Predicate(lambda row: getattr(row, self.name) != val)
+        return _Predicate(
+            lambda row: getattr(row, self.name) != val, meta=(self.name, "isnot", val)
+        )
+
+    def desc(self):
+        return self
 
 
 class _Predicate:
-    def __init__(self, check):
+    def __init__(self, check, meta=None):
         self._check = check
+        self.meta = meta  # Store the tuple (col_name, operator, value)
 
     def __call__(self, row):
         return self._check(row)
 
     def __or__(self, other):
         return _Predicate(lambda row: self(row) or other(row))
+
+    def __eq__(self, other):
+        # Allow native Python 'in' operator to match against tuples
+        return self.meta == other
 
 
 class _Document:
@@ -90,6 +112,15 @@ class _Db:
         return self.query_obj
 
     def close(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def commit(self):
+        pass
+
+    def add(self, *args):
         pass
 
 
@@ -177,9 +208,12 @@ def test_suggest_document_active_id_filters_to_calling_owner(monkeypatch):
 
 
 def test_document_tool_dispatch_forwards_owner():
-    source = open("src/tool_execution.py", encoding="utf-8").read()
+    source = _norm(open("src/tool_execution.py", encoding="utf-8").read())
 
-    assert "do_create_document(content, session_id=session_id, owner=owner)" in source
-    assert "do_update_document(content, owner=owner)" in source
-    assert "do_edit_document(content, owner=owner)" in source
-    assert "do_suggest_document(content, owner=owner)" in source
+    assert (
+        _norm("do_create_document(content, session_id=session_id, owner=owner)")
+        in source
+    )
+    assert _norm("do_update_document(content, owner=owner)") in source
+    assert _norm("do_edit_document(content, owner=owner)") in source
+    assert _norm("do_suggest_document(content, owner=owner)") in source

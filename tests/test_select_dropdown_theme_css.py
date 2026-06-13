@@ -1,33 +1,46 @@
+import re
 from pathlib import Path
 
-
 STYLE_CSS = Path(__file__).resolve().parents[1] / "static" / "style.css"
+css = STYLE_CSS.read_text(encoding="utf-8")
 
 
-def _style_text() -> str:
-    return STYLE_CSS.read_text(encoding="utf-8")
+def _norm(s: str) -> str:
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def test_native_select_options_use_theme_tokens():
-    css = _style_text()
-
-    assert "--select-option-bg:" in css
-    assert "--select-option-fg:" in css
-    assert "--select-option-active-bg:" in css
-    assert "select option,\n    select optgroup" in css
-    assert "background-color: var(--select-option-bg);" in css
-    assert "color: var(--select-option-fg);" in css
-    assert "select option:checked" in css
-    assert "background-color: var(--select-option-active-bg);" in css
+    needles = [
+        "--select-option-bg:",
+        "--select-option-fg:",
+        "--select-option-active-bg:",
+        "select option,\n    select optgroup",
+        "background-color: var(--select-option-bg);",
+        "color: var(--select-option-fg);",
+        "select option:checked",
+        "background-color: var(--select-option-active-bg);",
+    ]
+    haystack = _norm(css)
+    for needle in needles:
+        assert _norm(needle) in haystack, f"Expected to find '{needle}' in style.css"
 
 
 def test_light_theme_keeps_native_selects_light():
-    css = _style_text()
 
     light_theme_start = css.index(":root.light {")
     light_theme_end = css.index("}", light_theme_start)
     light_theme_block = css[light_theme_start:light_theme_end]
-
-    assert "--select-bg: #eaeaea;" in light_theme_block
-    assert "--select-option-bg: var(--panel);" in light_theme_block
-    assert ":root.light select { color-scheme: light; }" in css
+    needles = [
+        ("--select-bg: #eaeaea;", light_theme_block),
+        ("--select-option-bg: var(--panel);", light_theme_block),
+        (":root.light select { color-scheme: light; }", css),
+    ]
+    for needle, haystack in needles:
+        assert _norm(needle) in _norm(
+            haystack
+        ), f"Expected to find '{needle}' in style.css"

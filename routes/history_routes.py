@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os as _os
 import uuid
 from typing import Any, Dict
 
@@ -19,11 +20,27 @@ from routes.session_routes import (
     _reject_compact_during_active_run,
     _verify_session_owner,
 )
+from src.auth_helpers import require_user
 from src.topic_analyzer import analyze_topics
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
+FALLBACK_OWNER = _os.environ.get("ODYSSEUS_FALLBACK_OWNER", "owner@localhost")
+
+
+def _require_user(request: Request) -> str:
+    """Return the authenticated user. Uses require_user so AUTH_ENABLED=false
+    and single-user mode both work: require_user returns "" when auth is
+    disabled or unconfigured, and only raises 401 when auth is configured but
+    the caller is unauthenticated. Falls back to FALLBACK_OWNER for calendar
+    writes so data isn't stored under an empty owner in single-user mode."""
+    user = require_user(request)
+    if user:
+        return user
+    # require_user returned "" — auth is off or unconfigured (single-user).
+    # Use FALLBACK_OWNER so calendar rows have a stable owner for filtering.
+    return FALLBACK_OWNER
 
 
 def _merge_continue_rows_to_delete(db_messages, db1, db2):
@@ -56,6 +73,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     @router.get("/api/history/{session_id}")
     async def get_session_history(request: Request, session_id: str) -> Dict[str, Any]:
         _verify_session_owner(request, session_id)
+
         try:
             session = session_manager.get_session(session_id)
         except KeyError as e:
@@ -138,6 +156,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     @router.post("/api/session/{session_id}/truncate")
     async def truncate_session(request: Request, session_id: str):
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             keep_count = body.get("keep_count", 0)
@@ -153,6 +172,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def add_message(request: Request, session_id: str):
         """Add a message to a session (for slash command persistence)."""
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             role = body.get("role", "assistant")
@@ -169,6 +189,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def delete_messages(request: Request, session_id: str):
         """Delete specific messages by DB ID (or legacy index)."""
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             msg_ids = body.get("msg_ids", [])
@@ -249,6 +270,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def edit_message(request: Request, session_id: str):
         """Edit the content of a message by its database ID."""
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             msg_id = body.get("msg_id")
@@ -312,6 +334,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def mark_stopped(request: Request, session_id: str):
         """Mark the last assistant message as stopped by user."""
         _verify_session_owner(request, session_id)
+
         try:
             session = session_manager.get_session(session_id)
             # Find last assistant message and add stopped metadata
@@ -372,6 +395,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def update_last_meta(request: Request, session_id: str):
         """Merge metadata into the last assistant message (e.g. save variants)."""
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             meta_update = body.get("metadata", {})
@@ -430,6 +454,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def merge_last_assistant(request: Request, session_id: str):
         """Merge the last two assistant messages into one (for continue)."""
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             separator = body.get("separator", "\n\n")
@@ -545,6 +570,7 @@ def setup_history_routes(session_manager) -> APIRouter:
     async def fork_session(request: Request, session_id: str):
         """Create a new session with messages copied up to keep_count."""
         _verify_session_owner(request, session_id)
+
         try:
             body = await request.json()
             keep_count = body.get("keep_count", 0)
@@ -601,13 +627,11 @@ def setup_history_routes(session_manager) -> APIRouter:
         except Exception as e:
             raise HTTPException(500, f"Topic analysis failed: {e}") from e
 
-    @router.post("/api/session/{session_id}/compact")
     async def compact_session(request: Request, session_id: str):
         """Manually trigger context compaction for a session."""
         _verify_session_owner(request, session_id)
-        from src.auth_helpers import effective_user
+        owner = _require_user(request)
 
-        owner = effective_user(request)
         try:
             session = session_manager.get_session(session_id)
         except KeyError as e:
@@ -628,24 +652,30 @@ def setup_history_routes(session_manager) -> APIRouter:
             pct_before = round((used_before / ctx_len) * 100, 1) if ctx_len else 0
             msg_count_before = len(session.history)
 
-            # Keep only last 4 messages, summarize the rest
             keep_count = 4
             older = session.history[:-keep_count]
             recent = session.history[-keep_count:]
 
-            # Build text to summarize
             convo_text = "\n".join(
                 f"{_message_role(m).upper()}: " f"{_message_text(m)[:2000]}"
                 for m in older
             )
 
-            # Use utility model if available
+            # Use utility model if available, falling back to default-scoped endpoint
             util_url, util_model, util_headers = resolve_endpoint(
                 "utility", owner=owner or None
             )
-            compact_url = util_url or session.endpoint_url
-            compact_model = util_model or session.model
-            compact_headers = util_headers if util_url else session.headers
+            default_url, default_model, default_headers = resolve_endpoint(
+                "default", owner=owner or None
+            )
+
+            compact_url = util_url or default_url or session.endpoint_url
+            compact_model = util_model or default_model or session.model
+            compact_headers = (
+                util_headers
+                if util_url
+                else default_headers if default_url else session.headers
+            )
 
             from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT
 

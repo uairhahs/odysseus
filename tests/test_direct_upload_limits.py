@@ -1,4 +1,5 @@
 import io
+import re
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,11 @@ from fastapi import HTTPException, UploadFile
 from src.upload_limits import format_byte_limit, read_upload_limited
 
 REPO = Path(__file__).resolve().parent.parent
+
+
+# normalise whitespace in strings for easier testing of source code content without worrying about formatting differences
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", "", s)
 
 
 def _upload(name: str, data: bytes) -> UploadFile:
@@ -18,7 +24,10 @@ def _source(path: str) -> str:
 
 
 async def test_read_upload_limited_accepts_exact_limit():
-    assert await read_upload_limited(_upload("ok.bin", b"abcd"), 4, "Test upload") == b"abcd"
+    assert (
+        await read_upload_limited(_upload("ok.bin", b"abcd"), 4, "Test upload")
+        == b"abcd"
+    )
 
 
 async def test_read_upload_limited_rejects_oversized_upload():
@@ -57,5 +66,6 @@ def test_direct_upload_routes_use_bounded_reads():
 
     for path, needles in expectations.items():
         text = _source(path)
+        normalized_text = _norm(text)
         for needle in needles:
-            assert needle in text
+            assert _norm(needle) in normalized_text

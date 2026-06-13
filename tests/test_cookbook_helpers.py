@@ -1,5 +1,7 @@
 import json
 import os
+import pathlib
+import re
 import subprocess
 import sys
 
@@ -27,6 +29,13 @@ from routes.cookbook_helpers import (
     _venv_safe_local_pip_install_cmd,
     run_ssh_command_async,
 )
+
+
+def _norm(s: str) -> str:
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    return s.strip()
 
 
 def test_safe_env_prefix_accepts_quoted_venv_path():
@@ -247,35 +256,43 @@ def test_serve_runner_installs_llama_cpp_server_extra():
     ``import llama_cpp`` guard, so ``python -m llama_cpp.server`` then crashes
     with ``ModuleNotFoundError: No module named 'starlette_context'`` and the
     extra is never reinstalled."""
-    import pathlib
 
     src = (
-        pathlib.Path(__file__).resolve().parent.parent / "routes" / "cookbook_routes.py"
+        pathlib.Path(__file__).resolve().parent.parent
+        / "routes"
+        / "cookbook_bash_builders.py"
     ).read_text(encoding="utf-8")
+    norm = _norm(src)
     # No serve path may install a bare (extra-less) llama-cpp-python.
-    assert "pip install llama-cpp-python " not in src
-    assert "_pip_install_fallback_chain('llama-cpp-python'" not in src
+    assert "pip install llama-cpp-python " not in norm
+    assert "_pip_install_fallback_chain('llama-cpp-python'" not in norm
     # The [server] extra is requested in the build/fallback paths.
-    assert "'llama-cpp-python[server]'" in src
-    assert "_pip_install_fallback_chain('llama-cpp-python[server]'" in src
+    assert "'llama-cpp-python[server]'" in norm
+    assert "_pip_install_fallback_chain('llama-cpp-python[server]'" in norm
 
 
 def test_serve_pip_install_normalizes_llama_cpp_alias_and_adds_wheel_index():
-    import pathlib
+    from routes.cookbook_helpers import _validate_serve_cmd
 
-    src = (
-        pathlib.Path(__file__).resolve().parent.parent / "routes" / "cookbook_routes.py"
-    ).read_text(encoding="utf-8")
+    # bare llama_cpp alias in a pip-style arg is normalised to llama-cpp-python[server]
+    result = _validate_serve_cmd("python3 -m llama_cpp --model foo.gguf")
+    assert "llama-cpp-python[server]" in result
+    assert (
+        result.count("llama_cpp") == 0 or "llama_cpp." in result
+    )  # module path untouched
 
-    assert (
-        're.sub(r"(?<![A-Za-z0-9_.-])llama_cpp(?![A-Za-z0-9_.-])", "llama-cpp-python[server]", req.cmd)'
-        in src
+    # wheel index is injected when llama-cpp-python is present and index is missing
+    result2 = _validate_serve_cmd(
+        "python3 -m llama-cpp-python[server] --model foo.gguf"
     )
-    assert (
-        'if "llama-cpp-python" in req.cmd and "--extra-index-url" not in req.cmd:'
-        in src
+    assert "https://abetlen.github.io/llama-cpp-python/whl/cpu" in result2
+
+    # wheel index is not duplicated when already present
+    already = _validate_serve_cmd(
+        "python3 -m llama-cpp-python[server] --model foo.gguf"
+        " --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu"
     )
-    assert "https://abetlen.github.io/llama-cpp-python/whl/cpu" in src
+    assert already.count("--extra-index-url") == 1
 
 
 def test_vllm_preflight_reports_cli_and_version():

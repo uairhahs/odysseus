@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from core.atomic_io import atomic_write_json
+from core.constants import DATA_DIR
 from core.database import utcnow_naive
 from core.middleware import require_admin
 from core.platform_compat import (
@@ -39,6 +40,7 @@ from routes.cookbook_helpers import (
     ModelDownloadRequest,
     ServeRequest,
     _cached_model_scan_script,
+    _resolve_gone_session_status,
     _shell_path,
     _validate_gpus,
     _validate_include,
@@ -71,7 +73,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 # Un-nested Router Definition
 cookbook_router = APIRouter(tags=["cookbook"])
-COOKBOOK_STATE_PATH = Path(os.environ.get("DATA_DIR", "data")) / "cookbook_state.json"
+COOKBOOK_STATE_PATH = Path(DATA_DIR) / "cookbook_state.json"
 
 
 @cookbook_router.get("/api/cookbook/")
@@ -573,7 +575,27 @@ async def get_cookbook_tasks_status(request: Request):
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
-            return "running" if proc.returncode == 0 else "stopped"
+            if proc.returncode == 0:
+                return "running"
+            # Session is gone. Check the retained tmux pane history for the
+            # runner's exit sentinel to distinguish a completed download from
+            # a crashed/stopped task.
+            cap_proc = await asyncio.create_subprocess_exec(
+                "tmux",
+                "capture-pane",
+                "-p",
+                "-S",
+                "-200",
+                "-t",
+                sid,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            cap_out, _ = await cap_proc.communicate()
+            if cap_proc.returncode == 0:
+                snapshot = cap_out.decode("utf-8", errors="replace")
+                return _resolve_gone_session_status(snapshot, t.get("type", ""))
+            return "stopped"
         except Exception:
             return status
 

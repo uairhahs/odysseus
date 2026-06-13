@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,6 +8,15 @@ from fastapi import HTTPException
 # Import the route helper during collection so sibling session tests that use
 # partial import stubs do not become the first loader of core.session_manager.
 from routes.session_routes import _reject_raw_endpoint_url_for_non_admin
+
+
+def _norm(s: str) -> str:
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def _request(user, *, admin=False):
@@ -49,9 +59,18 @@ def test_chat_endpoint_recovery_paths_are_owner_scoped():
     chat_routes = (root / "routes" / "chat_routes.py").read_text(encoding="utf-8")
     chat_helpers = (root / "routes" / "chat_helpers.py").read_text(encoding="utf-8")
 
-    assert "def _clear_orphaned_session_endpoint(sess, owner:" in chat_routes
-    assert "def _recover_empty_session_model(sess, session_id: str, owner:" in chat_routes
-    assert "q = owner_filter(q, ModelEndpoint, owner)" in chat_routes
-    assert "resolve_session_auth(sess, session, owner=get_current_user(request))" in chat_routes
-    assert "def resolve_session_auth(sess, session_id: str, owner:" in chat_helpers
-    assert "update_q = update_q.filter(DBSession.owner == owner)" in chat_helpers
+    needles = [
+        ("def _clear_orphaned_session_endpoint(sess, owner:", chat_routes),
+        ("def _recover_empty_session_model(sess, session_id: str, owner:", chat_routes),
+        ("q = owner_filter(q, ModelEndpoint, owner)", chat_routes),
+        (
+            "resolve_session_auth(sess, session, owner=get_current_user(request))",
+            chat_routes,
+        ),
+        ("def resolve_session_auth(sess, session_id: str, owner:", chat_helpers),
+        ("update_q = update_q.filter(DBSession.owner == owner)", chat_helpers),
+    ]
+    for needle, haystack in needles:
+        assert _norm(needle) in _norm(
+            haystack
+        ), f"Failed to find {needle} in {haystack}"

@@ -1454,10 +1454,8 @@ def setup_shell_routes() -> APIRouter:
 
         # Synchronous fallback (no tmux).
         extras_venv = Path.home() / ".local" / "odysseus-extras"
-        extras_uv = extras_venv / "bin" / "uv"
         uv_shell = _uv_exec_shell()
         create_venv_cmd = f"[ -d {shlex.quote(str(extras_venv))} ] || {uv_shell} venv --no-project {shlex.quote(str(extras_venv))}"
-        extras_uv_path = shlex.quote(str(extras_uv))
         install_cmd = (
             f"export VIRTUAL_ENV={shlex.quote(str(extras_venv))}; "
             f"export PATH={shlex.quote(str(extras_venv / 'bin'))}:$PATH; "
