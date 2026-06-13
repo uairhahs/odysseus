@@ -6,11 +6,12 @@ the source message's metadata dict by reference into the new session, so
 persisting the fork rewrote the SOURCE messages' _db_id — breaking
 edit/delete-by-id on the original conversation. The fork must copy the dict.
 """
+
 import asyncio
 from types import SimpleNamespace
 
-from core.models import ChatMessage
 import routes.history_routes as mod
+from core.models import ChatMessage
 
 
 class _FakeSession:
@@ -34,8 +35,15 @@ class _FakeSessionManager:
         self.sessions = {"src-id": source}
         self.created = None
 
-    def create_session(self, session_id=None, name=None, endpoint_url=None,
-                       model=None, rag=False, owner=None):
+    def create_session(
+        self,
+        session_id=None,
+        name=None,
+        endpoint_url=None,
+        model=None,
+        rag=False,
+        owner=None,
+    ):
         self.created = _FakeSession(name=name, owner=owner)
         return self.created
 
@@ -45,7 +53,9 @@ class _FakeSessionManager:
 
 def _fork_handler(router):
     for route in router.routes:
-        if "/fork" in getattr(route, "path", "") and "POST" in getattr(route, "methods", set()):
+        if "/fork" in getattr(route, "path", "") and "POST" in getattr(
+            route, "methods", set()
+        ):
             return route.endpoint
     raise AssertionError("fork route not found")
 

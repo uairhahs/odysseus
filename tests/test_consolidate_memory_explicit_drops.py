@@ -4,6 +4,7 @@ The AI tidy path computed deletions as the complement of the model's `keep`
 list, so any memory the model simply omitted (a common LLM lapse) was silently
 deleted. The fix honors the explicit `drop` set, so an omitted memory survives.
 """
+
 import asyncio
 import json
 
@@ -18,8 +19,18 @@ class _FakeMM:
 
     def load_all(self):
         return [
-            {"id": "a", "owner": "alice", "text": "Likes dark roast coffee", "category": "preference"},
-            {"id": "b", "owner": "alice", "text": "Likes dark roast coffee too", "category": "preference"},
+            {
+                "id": "a",
+                "owner": "alice",
+                "text": "Likes dark roast coffee",
+                "category": "preference",
+            },
+            {
+                "id": "b",
+                "owner": "alice",
+                "text": "Likes dark roast coffee too",
+                "category": "preference",
+            },
             {"id": "c", "owner": "alice", "text": "Lives in Cairo", "category": "fact"},
         ]
 
@@ -28,23 +39,32 @@ class _FakeMM:
 
 
 def test_omitted_memory_survives_only_explicit_drop(monkeypatch):
-    import src.memory
     import src.endpoint_resolver
     import src.llm_core
+    import src.memory
 
     _FakeMM.saved = None
     monkeypatch.setattr(src.memory, "MemoryManager", _FakeMM)
     monkeypatch.setattr(
-        src.endpoint_resolver, "resolve_endpoint",
+        src.endpoint_resolver,
+        "resolve_endpoint",
         lambda kind, owner=None: ("http://x/v1", "model", {}),
     )
 
     async def fake_llm(**kwargs):
         # Model keeps 'a', drops 'b', and OMITS 'c' entirely.
-        return json.dumps({
-            "keep": [{"id": "a", "text": "Likes dark roast coffee", "category": "preference"}],
-            "drop": [{"id": "b", "reason": "duplicate of a"}],
-        })
+        return json.dumps(
+            {
+                "keep": [
+                    {
+                        "id": "a",
+                        "text": "Likes dark roast coffee",
+                        "category": "preference",
+                    }
+                ],
+                "drop": [{"id": "b", "reason": "duplicate of a"}],
+            }
+        )
 
     monkeypatch.setattr(src.llm_core, "llm_call_async", fake_llm)
 

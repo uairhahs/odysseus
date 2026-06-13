@@ -15,7 +15,6 @@ import time
 from typing import AsyncGenerator, Dict, List, Optional, Set
 from urllib.parse import urlparse
 
-from src.tool_utils import get_mcp_manager
 from src.agent_tools import (
     FUNCTION_TOOL_SCHEMAS,
     MAX_AGENT_ROUNDS,
@@ -35,6 +34,7 @@ from src.prompt_security import untrusted_context_message
 from src.settings import get_setting
 from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
+from src.tool_utils import get_mcp_manager
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -270,15 +270,70 @@ _DOMAIN_RULES = {
 
 _DOMAIN_TOOL_MAP = {
     "web": {"web_search", "web_fetch", "trigger_research", "manage_research"},
-    "documents": {"create_document", "edit_document", "update_document", "suggest_document", "manage_documents"},
-    "email": {"list_email_accounts", "list_emails", "read_email", "send_email", "reply_to_email", "bulk_email", "archive_email", "delete_email", "mark_email_read", "resolve_contact", "manage_contact"},
-    "cookbook": {"download_model", "serve_model", "serve_preset", "list_serve_presets", "list_served_models", "stop_served_model", "tail_serve_output", "list_downloads", "cancel_download", "search_hf_models", "list_cached_models", "list_cookbook_servers", "adopt_served_model"},
+    "documents": {
+        "create_document",
+        "edit_document",
+        "update_document",
+        "suggest_document",
+        "manage_documents",
+    },
+    "email": {
+        "list_email_accounts",
+        "list_emails",
+        "read_email",
+        "send_email",
+        "reply_to_email",
+        "bulk_email",
+        "archive_email",
+        "delete_email",
+        "mark_email_read",
+        "resolve_contact",
+        "manage_contact",
+    },
+    "cookbook": {
+        "download_model",
+        "serve_model",
+        "serve_preset",
+        "list_serve_presets",
+        "list_served_models",
+        "stop_served_model",
+        "tail_serve_output",
+        "list_downloads",
+        "cancel_download",
+        "search_hf_models",
+        "list_cached_models",
+        "list_cookbook_servers",
+        "adopt_served_model",
+    },
     "notes_calendar_tasks": {"manage_notes", "manage_calendar", "manage_tasks"},
     "ui": {"ui_control"},
-    "sessions": {"create_session", "list_sessions", "manage_session", "send_to_session", "search_chats"},
-    "files": {"bash", "python", "read_file", "write_file", "edit_file", "grep", "glob", "ls"},
-    "settings": {"manage_settings", "manage_endpoints", "manage_mcp", "manage_webhooks", "manage_tokens", "app_api"},
+    "sessions": {
+        "create_session",
+        "list_sessions",
+        "manage_session",
+        "send_to_session",
+        "search_chats",
+    },
+    "files": {
+        "bash",
+        "python",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "grep",
+        "glob",
+        "ls",
+    },
+    "settings": {
+        "manage_settings",
+        "manage_endpoints",
+        "manage_mcp",
+        "manage_webhooks",
+        "manage_tokens",
+        "app_api",
+    },
 }
+
 
 def _domain_rules_for_tools(tool_names: set) -> list[str]:
     names = set(tool_names or set())
@@ -286,9 +341,20 @@ def _domain_rules_for_tools(tool_names: set) -> list[str]:
     for domain, domain_tools in _DOMAIN_TOOL_MAP.items():
         if names & domain_tools:
             rules.append(_DOMAIN_RULES[domain])
-    if names & {"create_session", "list_sessions", "manage_session", "manage_documents", "manage_notes", "manage_calendar", "manage_tasks", "manage_skills", "manage_research"}:
+    if names & {
+        "create_session",
+        "list_sessions",
+        "manage_session",
+        "manage_documents",
+        "manage_notes",
+        "manage_calendar",
+        "manage_tasks",
+        "manage_skills",
+        "manage_research",
+    }:
         rules.append(_LINK_RULES)
     return rules
+
 
 # Each tool section is keyed by tool name(s) it covers.
 # Sections with multiple tools use a tuple key.
@@ -815,16 +881,20 @@ def _assistant_requested_followup(messages: List[Dict]) -> bool:
             continue
         content = msg.get("content", "")
         if isinstance(content, list):
-            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+            content = " ".join(
+                b.get("text", "") for b in content if isinstance(b, dict)
+            )
         text = str(content or "").lower()
         if "?" not in text:
             return False
-        return bool(re.search(
-            r"\b(what would you like|what should|what do you want|which one|which model|"
-            r"what.+(?:todo|to-do|list|document|email|model|server|item)|"
-            r"any specific|give me|tell me)\b",
-            text,
-        ))
+        return bool(
+            re.search(
+                r"\b(what would you like|what should|what do you want|which one|which model|"
+                r"what.+(?:todo|to-do|list|document|email|model|server|item)|"
+                r"any specific|give me|tell me)\b",
+                text,
+            )
+        )
     return False
 
 
@@ -837,7 +907,9 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
     which domain rule packs get appended to the system prompt.
     """
     text = str(last_user or "").strip()
-    continuation = _is_explicit_continuation(text) or _assistant_requested_followup(messages)
+    continuation = _is_explicit_continuation(text) or _assistant_requested_followup(
+        messages
+    )
     retrieval_query = _recent_context_for_retrieval(messages) if continuation else text
     q = retrieval_query.lower()
 
@@ -854,29 +926,47 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
     def has(*patterns: str) -> bool:
         return any(re.search(p, q) for p in patterns)
 
-    if has(r"\b(cookbook|serve|serving|served|launch|start|preset|vllm|sglang|llama\.?cpp|ollama|download|downloading|pull|cached models?|running models?|model servers?|models? (?:are )?running|what models?|model picker|gpu box|kierkegaard|odysseus|ajax|qwen|gemma|llama|mistral|minimax)\b"):
+    if has(
+        r"\b(cookbook|serve|serving|served|launch|start|preset|vllm|sglang|llama\.?cpp|ollama|download|downloading|pull|cached models?|running models?|model servers?|models? (?:are )?running|what models?|model picker|gpu box|kierkegaard|odysseus|ajax|qwen|gemma|llama|mistral|minimax)\b"
+    ):
         domains.add("cookbook")
-    if has(r"\b(emails?|mails?|gmail|inbox|reply|forward|cc|bcc|send email|compose email|draft email|message chris|message him|message her)\b"):
+    if has(
+        r"\b(emails?|mails?|gmail|inbox|reply|forward|cc|bcc|send email|compose email|draft email|message chris|message him|message her)\b"
+    ):
         domains.add("email")
-    if has(r"\b(note|todo|to-do|checklist|task list|remind me|reminder|buy|pickup|pick up)\b"):
+    if has(
+        r"\b(note|todo|to-do|checklist|task list|remind me|reminder|buy|pickup|pick up)\b"
+    ):
         domains.add("notes_calendar_tasks")
-    if has(r"\b(every day|every morning|every evening|recurring|automatically|cron|scheduled task|background task)\b"):
+    if has(
+        r"\b(every day|every morning|every evening|recurring|automatically|cron|scheduled task|background task)\b"
+    ):
         domains.add("notes_calendar_tasks")
     if has(r"\b(calendar|event|meeting|appointment|schedule)\b"):
         domains.add("notes_calendar_tasks")
-    if has(r"\b(documents?|docs?|draft|compose|poem|story|essay|outline|letter|edit|rewrite|proofread|suggest|feedback|review this|make a file)\b"):
+    if has(
+        r"\b(documents?|docs?|draft|compose|poem|story|essay|outline|letter|edit|rewrite|proofread|suggest|feedback|review this|make a file)\b"
+    ):
         domains.add("documents")
     if "notes_calendar_tasks" not in domains and has(r"\bwrite\b"):
         domains.add("documents")
-    if has(r"\b(search|web|google|look up|latest|news|current|weather|forecast|stock price|price of|website|url|https?://|www\.)\b"):
+    if has(
+        r"\b(search|web|google|look up|latest|news|current|weather|forecast|stock price|price of|website|url|https?://|www\.)\b"
+    ):
         domains.add("web")
     if has(r"\b(research|deep dive|investigate|look into)\b"):
         domains.add("web")
-    if has(r"\b(open|show|toggle|turn on|turn off|disable|enable|switch model|change model|settings|theme|panel)\b"):
+    if has(
+        r"\b(open|show|toggle|turn on|turn off|disable|enable|switch model|change model|settings|theme|panel)\b"
+    ):
         domains.add("ui")
-    if has(r"\b(session|chat history|rename chat|delete chat|archive chat|fork chat|list chats)\b"):
+    if has(
+        r"\b(session|chat history|rename chat|delete chat|archive chat|fork chat|list chats)\b"
+    ):
         domains.add("sessions")
-    if has(r"\b(file|folder|directory|repo|git|grep|find in files|read file|edit file|shell|terminal|bash|python)\b"):
+    if has(
+        r"\b(file|folder|directory|repo|git|grep|find in files|read file|edit file|shell|terminal|bash|python)\b"
+    ):
         domains.add("files")
     if has(r"\b(endpoint|api token|mcp|webhook|preference|configure|config|setting)\b"):
         domains.add("settings")
@@ -926,16 +1016,20 @@ def _assistant_requested_followup(messages: List[Dict]) -> bool:
             continue
         content = msg.get("content", "")
         if isinstance(content, list):
-            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+            content = " ".join(
+                b.get("text", "") for b in content if isinstance(b, dict)
+            )
         text = str(content or "").lower()
         if "?" not in text:
             return False
-        return bool(re.search(
-            r"\b(what would you like|what should|what do you want|which one|which model|"
-            r"what.+(?:todo|to-do|list|document|email|model|server|item)|"
-            r"any specific|give me|tell me)\b",
-            text,
-        ))
+        return bool(
+            re.search(
+                r"\b(what would you like|what should|what do you want|which one|which model|"
+                r"what.+(?:todo|to-do|list|document|email|model|server|item)|"
+                r"any specific|give me|tell me)\b",
+                text,
+            )
+        )
     return False
 
 
@@ -948,7 +1042,9 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
     which domain rule packs get appended to the system prompt.
     """
     text = str(last_user or "").strip()
-    continuation = _is_explicit_continuation(text) or _assistant_requested_followup(messages)
+    continuation = _is_explicit_continuation(text) or _assistant_requested_followup(
+        messages
+    )
     retrieval_query = _recent_context_for_retrieval(messages) if continuation else text
     q = retrieval_query.lower()
 
@@ -965,29 +1061,47 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
     def has(*patterns: str) -> bool:
         return any(re.search(p, q) for p in patterns)
 
-    if has(r"\b(cookbook|serve|serving|served|launch|start|preset|vllm|sglang|llama\.?cpp|ollama|download|downloading|pull|cached models?|running models?|model servers?|models? (?:are )?running|what models?|model picker|gpu box|kierkegaard|odysseus|ajax|qwen|gemma|llama|mistral|minimax)\b"):
+    if has(
+        r"\b(cookbook|serve|serving|served|launch|start|preset|vllm|sglang|llama\.?cpp|ollama|download|downloading|pull|cached models?|running models?|model servers?|models? (?:are )?running|what models?|model picker|gpu box|kierkegaard|odysseus|ajax|qwen|gemma|llama|mistral|minimax)\b"
+    ):
         domains.add("cookbook")
-    if has(r"\b(emails?|mails?|gmail|inbox|reply|forward|cc|bcc|send email|compose email|draft email|message chris|message him|message her)\b"):
+    if has(
+        r"\b(emails?|mails?|gmail|inbox|reply|forward|cc|bcc|send email|compose email|draft email|message chris|message him|message her)\b"
+    ):
         domains.add("email")
-    if has(r"\b(note|todo|to-do|checklist|task list|remind me|reminder|buy|pickup|pick up)\b"):
+    if has(
+        r"\b(note|todo|to-do|checklist|task list|remind me|reminder|buy|pickup|pick up)\b"
+    ):
         domains.add("notes_calendar_tasks")
-    if has(r"\b(every day|every morning|every evening|recurring|automatically|cron|scheduled task|background task)\b"):
+    if has(
+        r"\b(every day|every morning|every evening|recurring|automatically|cron|scheduled task|background task)\b"
+    ):
         domains.add("notes_calendar_tasks")
     if has(r"\b(calendar|event|meeting|appointment|schedule)\b"):
         domains.add("notes_calendar_tasks")
-    if has(r"\b(documents?|docs?|draft|compose|poem|story|essay|outline|letter|edit|rewrite|proofread|suggest|feedback|review this|make a file)\b"):
+    if has(
+        r"\b(documents?|docs?|draft|compose|poem|story|essay|outline|letter|edit|rewrite|proofread|suggest|feedback|review this|make a file)\b"
+    ):
         domains.add("documents")
     if "notes_calendar_tasks" not in domains and has(r"\bwrite\b"):
         domains.add("documents")
-    if has(r"\b(search|web|google|look up|latest|news|current|weather|forecast|stock price|price of|website|url|https?://|www\.)\b"):
+    if has(
+        r"\b(search|web|google|look up|latest|news|current|weather|forecast|stock price|price of|website|url|https?://|www\.)\b"
+    ):
         domains.add("web")
     if has(r"\b(research|deep dive|investigate|look into)\b"):
         domains.add("web")
-    if has(r"\b(open|show|toggle|turn on|turn off|disable|enable|switch model|change model|settings|theme|panel)\b"):
+    if has(
+        r"\b(open|show|toggle|turn on|turn off|disable|enable|switch model|change model|settings|theme|panel)\b"
+    ):
         domains.add("ui")
-    if has(r"\b(session|chat history|rename chat|delete chat|archive chat|fork chat|list chats)\b"):
+    if has(
+        r"\b(session|chat history|rename chat|delete chat|archive chat|fork chat|list chats)\b"
+    ):
         domains.add("sessions")
-    if has(r"\b(file|folder|directory|repo|git|grep|find in files|read file|edit file|shell|terminal|bash|python)\b"):
+    if has(
+        r"\b(file|folder|directory|repo|git|grep|find in files|read file|edit file|shell|terminal|bash|python)\b"
+    ):
         domains.add("files")
     if has(r"\b(endpoint|api token|mcp|webhook|preference|configure|config|setting)\b"):
         domains.add("settings")
@@ -999,6 +1113,7 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
         "domains": domains,
         "retrieval_query": retrieval_query,
     }
+
 
 def _recent_context_for_retrieval(
     messages: List[Dict], max_user: int = 3, max_chars: int = 600
@@ -1668,8 +1783,12 @@ def _build_base_prompt(
     return agent_prompt, skill_index_block
 
 
-
-def _resolve_tool_blocks(round_response: str, native_tool_calls: list, round_num: int, is_api_model: bool = False):
+def _resolve_tool_blocks(
+    round_response: str,
+    native_tool_calls: list,
+    round_num: int,
+    is_api_model: bool = False,
+):
     """Choose native function calls or fenced code block parsing. Returns (tool_blocks, used_native)."""
     used_native = False
     if native_tool_calls:
@@ -2153,8 +2272,11 @@ async def stream_agent_loop(
         )
     if not guide_only and not _relevant_tools and bool(_intent.get("low_signal")):
         from src.tool_index import ALWAYS_AVAILABLE
+
         _relevant_tools = set(ALWAYS_AVAILABLE)
-        logger.info("[tool-rag] Low-signal agent message; skipping retrieval and using always-available tools only")
+        logger.info(
+            "[tool-rag] Low-signal agent message; skipping retrieval and using always-available tools only"
+        )
     if not guide_only and not _relevant_tools:
         try:
             from src.tool_index import ALWAYS_AVAILABLE, get_tool_index
@@ -2216,16 +2338,18 @@ async def stream_agent_loop(
     # collapsing to only ask_user/manage_memory when vector retrieval misses or
     # times out.
     if not guide_only and _relevant_tools is not None:
-        for _domain in (_intent.get("domains") or set()):
+        for _domain in _intent.get("domains") or set():
             _relevant_tools.update(_DOMAIN_TOOL_MAP.get(str(_domain), set()))
         if "cookbook" in (_intent.get("domains") or set()):
-            _relevant_tools.update({
-                "list_served_models",
-                "list_downloads",
-                "list_cached_models",
-                "list_cookbook_servers",
-                "list_serve_presets",
-            })
+            _relevant_tools.update(
+                {
+                    "list_served_models",
+                    "list_downloads",
+                    "list_cached_models",
+                    "list_cookbook_servers",
+                    "list_serve_presets",
+                }
+            )
         if "email" in (_intent.get("domains") or set()):
             _relevant_tools.add("ui_control")
         if "web" in (_intent.get("domains") or set()):
@@ -2837,8 +2961,8 @@ async def stream_agent_loop(
             # Intercept [DONE] — don't forward until all rounds finish
 
         tool_blocks, used_native = _resolve_tool_blocks(
-            round_response, native_tool_calls, round_num
-        , is_api_model=_is_api_model)
+            round_response, native_tool_calls, round_num, is_api_model=_is_api_model
+        )
 
         # Force-answer round: we told the model to STOP calling tools and
         # answer. If it ignored that and emitted a (possibly DSML) tool
@@ -2946,7 +3070,9 @@ async def stream_agent_loop(
         # model with no real native_tool_calls) must not be stripped from the
         # persisted text either — otherwise it streams once and then disappears
         # on reload (#3222 follow-up).
-        cleaned_round = strip_tool_blocks(round_response, skip_fenced=(_is_api_model and not used_native)).strip()
+        cleaned_round = strip_tool_blocks(
+            round_response, skip_fenced=(_is_api_model and not used_native)
+        ).strip()
         round_texts.append(cleaned_round)
 
         if not tool_blocks:

@@ -26,7 +26,8 @@ def _compare_start_route(session_manager):
     # appends another /start route; take the most recently registered one so we
     # get the handler bound to *this* session_manager.
     return [
-        r.endpoint for r in router.routes
+        r.endpoint
+        for r in router.routes
         if getattr(r, "path", "") == "/api/compare/start"
     ][-1]
 
@@ -84,7 +85,9 @@ def test_compare_start_allows_owned_registered_endpoint_for_non_admin(monkeypatc
     import routes.compare_routes as cr
 
     monkeypatch.setattr(cr, "SessionLocal", lambda: _FakeDB())
-    owned = SimpleNamespace(id=7, api_key="sk-secret", base_url="http://127.0.0.1:8000/v1")
+    owned = SimpleNamespace(
+        id=7, api_key="sk-secret", base_url="http://127.0.0.1:8000/v1"
+    )
     monkeypatch.setattr(cr, "_owned_endpoint_by_url", lambda *a, **k: owned)
 
     created = {}
@@ -151,7 +154,9 @@ def test_compare_start_rejects_another_users_private_endpoint(monkeypatch):
     assert created == {}
 
 
-def test_compare_start_rejects_before_creating_any_session_on_mixed_endpoints(monkeypatch):
+def test_compare_start_rejects_before_creating_any_session_on_mixed_endpoints(
+    monkeypatch,
+):
     # Mixed request: endpoint A is a registered endpoint the caller owns,
     # endpoint B is a raw/unregistered URL. Both endpoints are resolved and
     # validated up front, so the unregistered B makes the WHOLE request 403 with
@@ -162,7 +167,9 @@ def test_compare_start_rejects_before_creating_any_session_on_mixed_endpoints(mo
     from src.endpoint_resolver import normalize_base
 
     monkeypatch.setattr(cr, "SessionLocal", lambda: _FakeDB())
-    owned = SimpleNamespace(id=7, api_key="sk-secret", base_url="http://127.0.0.1:8000/v1")
+    owned = SimpleNamespace(
+        id=7, api_key="sk-secret", base_url="http://127.0.0.1:8000/v1"
+    )
     owned_base = normalize_base(owned.base_url)
 
     def _scoped(db, base, owner):
@@ -185,8 +192,8 @@ def test_compare_start_rejects_before_creating_any_session_on_mixed_endpoints(mo
             prompt="p",
             model_a="a",
             model_b="b",
-            endpoint_a="http://127.0.0.1:8000/v1",     # owned, registered
-            endpoint_b="http://203.0.113.9:9999/v1",   # raw, unregistered
+            endpoint_a="http://127.0.0.1:8000/v1",  # owned, registered
+            endpoint_b="http://203.0.113.9:9999/v1",  # raw, unregistered
         )
 
     assert exc.value.status_code == 403
@@ -203,7 +210,9 @@ def test_compare_start_binds_session_to_registered_endpoint_url(monkeypatch):
     from src.endpoint_resolver import build_chat_url, normalize_base
 
     monkeypatch.setattr(cr, "SessionLocal", lambda: _FakeDB())
-    owned = SimpleNamespace(id=7, api_key="sk-secret", base_url="http://127.0.0.1:8000/v1")
+    owned = SimpleNamespace(
+        id=7, api_key="sk-secret", base_url="http://127.0.0.1:8000/v1"
+    )
     monkeypatch.setattr(cr, "_owned_endpoint_by_url", lambda *a, **k: owned)
 
     created = {}
@@ -281,13 +290,15 @@ def test_compare_start_prefers_endpoint_id_over_url(monkeypatch):
     monkeypatch.setattr(cr, "SessionLocal", lambda: _FakeDB())
 
     url = "http://127.0.0.1:8000/v1"
-    by_url = SimpleNamespace(id=1, api_key="sk-first", base_url=url)   # URL match
-    by_id = SimpleNamespace(id=2, api_key="sk-second", base_url=url)   # id match
+    by_url = SimpleNamespace(id=1, api_key="sk-first", base_url=url)  # URL match
+    by_id = SimpleNamespace(id=2, api_key="sk-second", base_url=url)  # id match
 
     # URL resolution would return the WRONG row; the id resolves the intended one.
     monkeypatch.setattr(cr, "_owned_endpoint_by_url", lambda *a, **k: by_url)
     monkeypatch.setattr(
-        cr, "_owned_endpoint_by_id", lambda db, eid, owner: by_id if eid == "2" else None
+        cr,
+        "_owned_endpoint_by_id",
+        lambda db, eid, owner: by_id if eid == "2" else None,
     )
 
     created = {}
@@ -313,7 +324,9 @@ def test_compare_start_prefers_endpoint_id_over_url(monkeypatch):
 
     expected_url = build_chat_url(normalize_base(url))
     expected_headers = build_headers("sk-second", url)
-    assert captured and all(kw["endpoint_url"] == expected_url for kw in captured.values())
+    assert captured and all(
+        kw["endpoint_url"] == expected_url for kw in captured.values()
+    )
     # The id's key is copied in, NOT the same-URL row's key.
     for s in created.values():
         assert s.headers == expected_headers
@@ -329,7 +342,9 @@ def test_compare_start_rejects_unowned_endpoint_id(monkeypatch):
     monkeypatch.setattr(
         cr,
         "_owned_endpoint_by_url",
-        lambda *a, **k: SimpleNamespace(id=1, api_key="sk", base_url="http://127.0.0.1:8000/v1"),
+        lambda *a, **k: SimpleNamespace(
+            id=1, api_key="sk", base_url="http://127.0.0.1:8000/v1"
+        ),
     )
     monkeypatch.setattr(cr, "_owned_endpoint_by_id", lambda *a, **k: None)
 
@@ -359,9 +374,15 @@ def test_compare_start_rejects_unowned_endpoint_id(monkeypatch):
 
 def test_compare_endpoint_key_lookup_is_owner_scoped():
     body = Path("routes/compare_routes.py").read_text(encoding="utf-8")
-    start_body = body.split("def start_comparison", 1)[1].split("# Store comparison record", 1)[0]
-    helper_body = body.split("def _owned_endpoint_by_url", 1)[1].split("class RecordVoteRequest", 1)[0]
-    id_helper_body = body.split("def _owned_endpoint_by_id", 1)[1].split("class RecordVoteRequest", 1)[0]
+    start_body = body.split("def start_comparison", 1)[1].split(
+        "# Store comparison record", 1
+    )[0]
+    helper_body = body.split("def _owned_endpoint_by_url", 1)[1].split(
+        "class RecordVoteRequest", 1
+    )[0]
+    id_helper_body = body.split("def _owned_endpoint_by_id", 1)[1].split(
+        "class RecordVoteRequest", 1
+    )[0]
 
     assert "_reject_raw_endpoint_url_for_non_admin" in start_body
     assert "_owned_endpoint_by_url(db, base, user)" in start_body
@@ -386,7 +407,10 @@ def test_gallery_image_endpoint_lookups_are_owner_scoped():
     assert body.count("_first_visible_image_endpoint(db, user)") >= 4
     assert body.count("_visible_image_endpoint_for_base(db,") >= 2
     assert "def _current_user_is_admin" in body
-    assert body.count('raise HTTPException(403, "Choose a registered image endpoint")') == 2
+    assert (
+        body.count('raise HTTPException(403, "Choose a registered image endpoint")')
+        == 2
+    )
     for marker in (
         "async def gallery_ai_upscale",
         "async def gallery_style_transfer",
@@ -394,7 +418,7 @@ def test_gallery_image_endpoint_lookups_are_owner_scoped():
         "async def harmonize_image",
     ):
         section = body.split(marker, 1)[1].split("@router.", 1)[0]
-        assert "user = require_privilege(request, \"can_generate_images\")" in section
+        assert 'user = require_privilege(request, "can_generate_images")' in section
         assert (
             "_first_visible_image_endpoint(db, user)" in section
             or "_visible_image_endpoint_for_base(db," in section
@@ -409,6 +433,8 @@ def test_research_endpoint_resolution_passes_owner():
     assert 'resolve_endpoint("utility", owner=user)' in body
     assert 'resolve_endpoint("default", owner=user)' in body
     assert 'resolve_endpoint("chat", owner=user)' in body
-    helper_body = body.split("def _owned_enabled_endpoint", 1)[1].split("def setup_research_routes", 1)[0]
+    helper_body = body.split("def _owned_enabled_endpoint", 1)[1].split(
+        "def setup_research_routes", 1
+    )[0]
     assert "owner_filter(q, ModelEndpoint, owner)" in helper_body
     assert body.count("_owned_enabled_endpoint(db, user") >= 2

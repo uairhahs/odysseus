@@ -13,9 +13,14 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from tests.helpers.import_state import clear_fake_endpoint_resolver_modules, preserve_import_state
+from tests.helpers.import_state import (
+    clear_fake_endpoint_resolver_modules,
+    preserve_import_state,
+)
 
-with preserve_import_state("core.database", "src.database", "core.session_manager", "routes.model_routes"):
+with preserve_import_state(
+    "core.database", "src.database", "core.session_manager", "routes.model_routes"
+):
     # Other tests stub this module during collection. These helper tests need
     # the real URL normalization helpers so Anthropic /v1 handling is covered.
     clear_fake_endpoint_resolver_modules()
@@ -23,10 +28,22 @@ with preserve_import_state("core.database", "src.database", "core.session_manage
     if "core.database" not in sys.modules:
         _core_db = types.ModuleType("core.database")
         for _name in [
-            "SessionLocal", "ModelEndpoint", "Session", "ChatMessage", "Document",
-            "DocumentVersion", "GalleryImage", "GalleryAlbum", "Note",
-            "CalendarCal", "CalendarEvent", "ScheduledTask", "TaskRun",
-            "McpServer", "ProviderAuthSession", "Base",
+            "SessionLocal",
+            "ModelEndpoint",
+            "Session",
+            "ChatMessage",
+            "Document",
+            "DocumentVersion",
+            "GalleryImage",
+            "GalleryAlbum",
+            "Note",
+            "CalendarCal",
+            "CalendarEvent",
+            "ScheduledTask",
+            "TaskRun",
+            "McpServer",
+            "ProviderAuthSession",
+            "Base",
         ]:
             setattr(_core_db, _name, MagicMock())
         _core_db.utcnow_naive = MagicMock()
@@ -37,25 +54,25 @@ with preserve_import_state("core.database", "src.database", "core.session_manage
     import src.endpoint_resolver as endpoint_resolver
     import src.llm_core as llm_core
     from routes.model_routes import (
-        _match_provider_curated,
-        _curate_models,
-        _visible_models,
-        _normalize_model_ids,
-        _api_key_fingerprint,
-        _is_chat_model,
-        _classify_endpoint,
-        _effective_endpoint_kind,
-        _probe_endpoint,
-        _ping_endpoint,
-        _parse_model_list,
-        _normalize_refresh_mode,
-        _truthy,
-        _speech_settings_using_endpoint,
-        _clear_speech_settings_for_endpoint,
-        _endpoint_settings_using_endpoint,
-        _clear_endpoint_settings_for_endpoint,
-        _clear_user_pref_endpoint_refs,
         _PROVIDER_CURATED,
+        _api_key_fingerprint,
+        _classify_endpoint,
+        _clear_endpoint_settings_for_endpoint,
+        _clear_speech_settings_for_endpoint,
+        _clear_user_pref_endpoint_refs,
+        _curate_models,
+        _effective_endpoint_kind,
+        _endpoint_settings_using_endpoint,
+        _is_chat_model,
+        _match_provider_curated,
+        _normalize_model_ids,
+        _normalize_refresh_mode,
+        _parse_model_list,
+        _ping_endpoint,
+        _probe_endpoint,
+        _speech_settings_using_endpoint,
+        _truthy,
+        _visible_models,
     )
     from src.llm_core import ANTHROPIC_MODELS
 
@@ -221,7 +238,9 @@ class TestMatchProviderCurated:
 
     def test_zai_coding_path_returns_coding_curated(self):
         """z.ai/api/coding must return 'zai-coding', not the base 'zai' list."""
-        assert _match_provider_curated("https://z.ai/api/coding", "openai") == "zai-coding"
+        assert (
+            _match_provider_curated("https://z.ai/api/coding", "openai") == "zai-coding"
+        )
 
     def test_zai_coding_path_differs_from_base_zai(self):
         """The coding plan and the base plan must resolve to different curated keys."""
@@ -232,7 +251,10 @@ class TestMatchProviderCurated:
         assert base != coding
 
     def test_zai_coding_with_trailing_slash(self):
-        assert _match_provider_curated("https://z.ai/api/coding/", "openai") == "zai-coding"
+        assert (
+            _match_provider_curated("https://z.ai/api/coding/", "openai")
+            == "zai-coding"
+        )
 
     def test_zai_base_does_not_match_coding(self):
         """z.ai without the /api/coding path must NOT return 'zai-coding'."""
@@ -245,12 +267,17 @@ class TestMatchProviderCurated:
 
 # ── _probe_endpoint: Z.AI coding plan (#2230) ──
 
+
 class TestProbeZaiCoding:
     """Regression coverage for the Z.AI coding endpoint probing path."""
 
     def _patch(self, monkeypatch):
-        monkeypatch.setattr(endpoint_resolver, "resolve_url", lambda url: url, raising=False)
-        monkeypatch.setattr(model_routes, "_normalize_base", lambda url: url.rstrip("/"))
+        monkeypatch.setattr(
+            endpoint_resolver, "resolve_url", lambda url: url, raising=False
+        )
+        monkeypatch.setattr(
+            model_routes, "_normalize_base", lambda url: url.rstrip("/")
+        )
 
     def test_probe_preserves_models_from_server(self, monkeypatch):
         """Models returned by /models are kept in the result."""
@@ -258,8 +285,9 @@ class TestProbeZaiCoding:
         server_models = [{"id": "glm-5.1"}, {"id": "custom-finetune"}]
 
         def fake_get(url, headers=None, timeout=None, verify=None, **kwargs):
-            return httpx.Response(200, json={"data": server_models},
-                                 request=httpx.Request("GET", url))
+            return httpx.Response(
+                200, json={"data": server_models}, request=httpx.Request("GET", url)
+            )
 
         monkeypatch.setattr(model_routes.httpx, "get", fake_get)
         result = _probe_endpoint("https://z.ai/api/coding", "key")
@@ -273,8 +301,9 @@ class TestProbeZaiCoding:
         server_models = [{"id": "glm-5.1"}]
 
         def fake_get(url, headers=None, timeout=None, verify=None, **kwargs):
-            return httpx.Response(200, json={"data": server_models},
-                                 request=httpx.Request("GET", url))
+            return httpx.Response(
+                200, json={"data": server_models}, request=httpx.Request("GET", url)
+            )
 
         monkeypatch.setattr(model_routes.httpx, "get", fake_get)
         result = _probe_endpoint("https://z.ai/api/coding", "key")
@@ -289,14 +318,21 @@ class TestProbeZaiCoding:
         self._patch(monkeypatch)
 
         def fake_get(url, headers=None, timeout=None, verify=None, **kwargs):
-            return httpx.Response(200, json={"data": [{"id": "glm-5.1"}]},
-                                 request=httpx.Request("GET", url))
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "glm-5.1"}]},
+                request=httpx.Request("GET", url),
+            )
 
         monkeypatch.setattr(model_routes.httpx, "get", fake_get)
         result = _probe_endpoint("https://z.ai/api/coding", "key")
-        base_only = set(_PROVIDER_CURATED.get("zai", [])) - set(_PROVIDER_CURATED.get("zai-coding", []))
+        base_only = set(_PROVIDER_CURATED.get("zai", [])) - set(
+            _PROVIDER_CURATED.get("zai-coding", [])
+        )
         for model in base_only:
-            assert model not in result, f"base-zai-only model {model} should not appear for coding endpoint"
+            assert (
+                model not in result
+            ), f"base-zai-only model {model} should not appear for coding endpoint"
 
 
 # ── _curate_models ──
@@ -1003,12 +1039,17 @@ def test_reprobe_chatgpt_subscription_does_not_hide_models(monkeypatch):
     monkeypatch.setattr(model_routes, "SessionLocal", lambda: db)
     monkeypatch.setattr(model_routes, "require_admin", lambda request: None)
     monkeypatch.setattr(model_routes, "_normalize_base", lambda url: url.rstrip("/"))
-    monkeypatch.setattr(model_routes, "_probe_endpoint", lambda *a, **k: ["gpt-5.1-codex", "gpt-5.1"])
+    monkeypatch.setattr(
+        model_routes, "_probe_endpoint", lambda *a, **k: ["gpt-5.1-codex", "gpt-5.1"]
+    )
     monkeypatch.setattr(model_routes, "_is_chat_model", lambda m: True)
     # Any completion probe would be a bug for this provider.
     monkeypatch.setattr(
-        model_routes.httpx, "post",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not probe chatgpt-subscription")),
+        model_routes.httpx,
+        "post",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("must not probe chatgpt-subscription")
+        ),
     )
     endpoint = _get_route("/api/model-endpoints/{ep_id}/probe", "GET")
 
@@ -1025,7 +1066,7 @@ def test_reprobe_chatgpt_subscription_does_not_hide_models(monkeypatch):
     for chunk in chunks:
         for line in chunk.splitlines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     done = next(e for e in events if e.get("type") == "probe_done")
     results = [e for e in events if e.get("type") == "probe_result"]
@@ -1504,11 +1545,17 @@ def test_api_models_auth_gate_fails_closed_on_unexpected_error(monkeypatch):
     silent pass-through that leaks the model list to an unauthenticated caller."""
     router = model_routes.setup_model_routes(model_discovery=None)
 
-    monkeypatch.setattr(model_routes, "_auth_disabled", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        model_routes,
+        "_auth_disabled",
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
     request = SimpleNamespace(
         state=SimpleNamespace(current_user=None),
-        app=SimpleNamespace(state=SimpleNamespace(auth_manager=SimpleNamespace(is_configured=True))),
+        app=SimpleNamespace(
+            state=SimpleNamespace(auth_manager=SimpleNamespace(is_configured=True))
+        ),
     )
 
     with pytest.raises(HTTPException) as exc:

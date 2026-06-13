@@ -266,7 +266,8 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             continue
         try:
             base, api_key = resolve_endpoint_runtime(ep, owner=owner)
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to resolve endpoint runtime: %s", e)
             continue
         ping_url = build_models_url(base)
         headers = build_headers(api_key, base)

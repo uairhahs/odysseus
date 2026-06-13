@@ -357,10 +357,13 @@ def setup_webhook_routes(
             if getattr(ep, "provider_auth_id", None):
                 try:
                     from src.endpoint_resolver import resolve_endpoint_runtime
+
                     base_url, api_key = resolve_endpoint_runtime(ep, owner=token_owner)
                     endpoint_url = build_chat_url(base_url)
-                except Exception:
-                    raise HTTPException(500, "Could not resolve endpoint credentials")
+                except Exception as e:
+                    raise HTTPException(
+                        500, "Could not resolve endpoint credentials"
+                    ) from e
 
             if model == "auto":
                 try:
@@ -372,8 +375,10 @@ def setup_webhook_routes(
                             resp.raise_for_status()
                             data = resp.json()
                             ids = [
-                            m.get("id") for m in (data.get("data") or []) if m.get("id")
-                        ]
+                                m.get("id")
+                                for m in (data.get("data") or [])
+                                if m.get("id")
+                            ]
                             if not ids:
                                 ids = [
                                     m.get("name") or m.get("model")
@@ -382,6 +387,7 @@ def setup_webhook_routes(
                                 ]
                         else:
                             import json as _json
+
                             ids = _json.loads(ep.cached_models or "[]")
                         model = ids[0] if ids else "auto"
                 except Exception as e:

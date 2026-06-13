@@ -27,8 +27,12 @@ def _function_body(name: str) -> str:
 
 
 def _norm(s: str) -> str:
-    """Strip all whitespace and unify quotes to bypass Trunk/Prettier formatting."""
-    return re.sub(r"\s+", "", s).replace('"', "'")
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def test_markdown_preview_refresh_rerenders_visible_preview():

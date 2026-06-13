@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import true
 
 from src.auth_helpers import _auth_disabled, get_current_user
-from src.endpoint_resolver import resolve_endpoint
 from src.constants import DEEP_RESEARCH_DIR
+from src.endpoint_resolver import resolve_endpoint
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9-]{1,128}$")
 
@@ -97,6 +97,8 @@ def _resolve_endpoint_runtime(ep, owner=None, model: Optional[str] = None):
     from src.endpoint_resolver import (
         build_chat_url,
         build_headers,
+    )
+    from src.endpoint_resolver import (
         resolve_endpoint_runtime as resolve_model_endpoint_runtime,
     )
 
@@ -112,7 +114,8 @@ def _resolve_endpoint_runtime(ep, owner=None, model: Optional[str] = None):
             models = json.loads(ep.cached_models) if ep.cached_models else []
             if models:
                 ep_model = _first_chat_model(models)
-        except Exception:
+        except Exception as e:
+            logger.warning("Could not parse cached models for research: %s", e)
             pass
     if not ep_model:
         return None
@@ -452,7 +455,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                     raise HTTPException(404, "Endpoint not found or disabled")
                 resolved = _resolve_endpoint_runtime(ep, owner=user, model=body.model)
                 if not resolved:
-                    raise HTTPException(400, "Endpoint is not configured with a usable model.")
+                    raise HTTPException(
+                        400, "Endpoint is not configured with a usable model."
+                    )
                 ep_url, ep_model, ep_headers = resolved
                 base = normalize_base(ep.base_url)
                 ep_url = build_chat_url(base)

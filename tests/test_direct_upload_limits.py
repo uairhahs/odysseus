@@ -12,7 +12,12 @@ REPO = Path(__file__).resolve().parent.parent
 
 # normalise whitespace in strings for easier testing of source code content without worrying about formatting differences
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", "", s)
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def _upload(name: str, data: bytes) -> UploadFile:

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from sqlalchemy import true
 
 from core.database import GalleryAlbum, GalleryImage, ModelEndpoint
 from core.database import Session as DbSession
@@ -22,12 +21,12 @@ from routes.gallery_helpers import (
     _owner_filter,
 )
 from src.auth_helpers import get_current_user, owner_filter, require_privilege
-from src.upload_limits import (
-    read_upload_limited,
-    GALLERY_UPLOAD_MAX_BYTES,
-    GALLERY_TRANSFORM_UPLOAD_MAX_BYTES,
-)
 from src.constants import GENERATED_IMAGES_DIR
+from src.upload_limits import (
+    GALLERY_TRANSFORM_UPLOAD_MAX_BYTES,
+    GALLERY_UPLOAD_MAX_BYTES,
+    read_upload_limited,
+)
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -45,12 +44,6 @@ def _current_user_is_admin(request: Request, user: str | None) -> bool:
         return bool(is_admin(user))
     except Exception:
         return False
-GALLERY_UPLOAD_MAX_BYTES = int(
-    os.getenv("ODYSSEUS_GALLERY_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
-)
-GALLERY_TRANSFORM_UPLOAD_MAX_BYTES = int(
-    os.getenv("ODYSSEUS_GALLERY_TRANSFORM_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024))
-)
 
 
 def _sanitize_gallery_filename(filename: str) -> str:
@@ -90,11 +83,10 @@ def _normalize_image_endpoint_base(url: str) -> str:
 
 
 def _visible_image_endpoint_query(db, owner: str | None):
-    from src.auth_helpers import owner_filter
 
     q = db.query(ModelEndpoint).filter(
         ModelEndpoint.model_type == "image",
-        ModelEndpoint.is_enabled.is_(true()),  # noqa: E712
+        ModelEndpoint.is_enabled.is_(True),
     )
     return owner_filter(q, ModelEndpoint, owner)
 
@@ -155,7 +147,7 @@ def setup_gallery_routes() -> APIRouter:
             # file (the response leaks the existing row's id+filename).
             _dup_q = db.query(GalleryImage).filter(
                 GalleryImage.file_hash == file_hash,
-                GalleryImage.is_active,
+                GalleryImage.is_active.is_(True),
             )
             if user:
                 _dup_q = _dup_q.filter(GalleryImage.owner == user)
@@ -476,8 +468,8 @@ def setup_gallery_routes() -> APIRouter:
         db = SessionLocal()
         try:
             q = db.query(GalleryImage.tags).filter(
-                GalleryImage.is_active,
-                GalleryImage.tags is not None,
+                GalleryImage.is_active.is_(True),
+                GalleryImage.tags.is_not(None),
                 GalleryImage.tags != "",
             )
             q = _owner_filter(q, user)
@@ -511,8 +503,8 @@ def setup_gallery_routes() -> APIRouter:
         try:
             # Distinct tags for filter UI
             tag_q = db.query(GalleryImage.tags).filter(
-                GalleryImage.is_active,
-                GalleryImage.tags is not None,
+                GalleryImage.is_active.is_(True),
+                GalleryImage.tags.is_not(None),
                 GalleryImage.tags != "",
             )
             tag_q = _owner_filter(tag_q, user)
@@ -526,7 +518,7 @@ def setup_gallery_routes() -> APIRouter:
 
             # Distinct models for filter UI
             model_q = db.query(GalleryImage.model).filter(
-                GalleryImage.is_active, GalleryImage.model is not None
+                GalleryImage.is_active.is_(True), GalleryImage.model.is_not(None)
             )
             model_q = _owner_filter(model_q, user)
             model_rows = model_q.distinct().all()
@@ -536,7 +528,7 @@ def setup_gallery_routes() -> APIRouter:
             q = (
                 db.query(GalleryImage, DbSession.name)
                 .outerjoin(DbSession, GalleryImage.session_id == DbSession.id)
-                .filter(GalleryImage.is_active)
+                .filter(GalleryImage.is_active.is_(True))
             )
             if user is not None:
                 q = q.filter(GalleryImage.owner == user)
@@ -581,7 +573,7 @@ def setup_gallery_routes() -> APIRouter:
 
             # Favorites filter
             if favorites:
-                q = q.filter(GalleryImage.favorite)
+                q = q.filter(GalleryImage.favorite.is_(True))
 
             # Total before pagination
             total = q.count()
@@ -656,7 +648,7 @@ def setup_gallery_routes() -> APIRouter:
             result = []
             for a in albums:
                 _count_q = db.query(GalleryImage).filter(
-                    GalleryImage.album_id == a.id, GalleryImage.is_active
+                    GalleryImage.album_id == a.id, GalleryImage.is_active.is_(True)
                 )
                 if user:
                     _count_q = _count_q.filter(GalleryImage.owner == user)
@@ -672,7 +664,7 @@ def setup_gallery_routes() -> APIRouter:
                         cover_url = f"/api/generated-image/{cover.filename}"
                 elif count > 0:
                     _cover_q = db.query(GalleryImage).filter(
-                        GalleryImage.album_id == a.id, GalleryImage.is_active
+                        GalleryImage.album_id == a.id, GalleryImage.is_active.is_(True)
                     )
                     if user:
                         _cover_q = _cover_q.filter(GalleryImage.owner == user)
@@ -725,9 +717,9 @@ def setup_gallery_routes() -> APIRouter:
         try:
             from sqlalchemy import func
 
-            base = db.query(GalleryImage).filter(GalleryImage.is_active)
+            base = db.query(GalleryImage).filter(GalleryImage.is_active.is_(True))
             size_q = db.query(func.sum(GalleryImage.file_size)).filter(
-                GalleryImage.is_active
+                GalleryImage.is_active.is_(True)
             )
             album_q = db.query(GalleryAlbum)
             if user:
@@ -736,7 +728,7 @@ def setup_gallery_routes() -> APIRouter:
                 album_q = album_q.filter(GalleryAlbum.owner == user)
             total = base.count()
             total_size = size_q.scalar() or 0
-            fav_count = base.filter(GalleryImage.favorite).count()
+            fav_count = base.filter(GalleryImage.favorite.is_(True)).count()
             album_count = album_q.count()
             return {
                 "total_photos": total,
@@ -923,7 +915,7 @@ def setup_gallery_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(GalleryImage).filter(GalleryImage.is_active)
+            q = db.query(GalleryImage).filter(GalleryImage.is_active.is_(True))
             q = _owner_filter(q, user)
             cleared = 0
             for img in q.all():
@@ -949,7 +941,7 @@ def setup_gallery_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(GalleryImage).filter(GalleryImage.is_active)
+            q = db.query(GalleryImage).filter(GalleryImage.is_active.is_(True))
             q = _owner_filter(q, user)
             if image_id:  # clear just one photo's AI tags
                 q = q.filter(GalleryImage.id == image_id)
@@ -975,7 +967,7 @@ def setup_gallery_routes() -> APIRouter:
         user = get_current_user(request)
         db = SessionLocal()
         try:
-            q = db.query(GalleryImage).filter(GalleryImage.is_active)
+            q = db.query(GalleryImage).filter(GalleryImage.is_active.is_(True))
             q = _owner_filter(q, user)
             rows_touched = 0
             tags_removed = 0

@@ -14,7 +14,7 @@ from sqlalchemy import and_, or_
 
 from core.database import CalendarCal, CalendarEvent, SessionLocal
 from src.auth_helpers import require_user
-from src.upload_limits import read_upload_limited, ICS_MAX_BYTES
+from src.upload_limits import ICS_MAX_BYTES, read_upload_limited
 from src.user_time import (
     get_user_tz_name,
     get_user_tz_offset,

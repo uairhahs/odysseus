@@ -8,9 +8,9 @@ Proves the two properties the review asked for:
 Follows the direct-helper + mocked-DB style of tests/test_null_owner_gates.py.
 """
 
+import importlib
 import os
 import sys
-import importlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -64,6 +64,7 @@ with preserve_import_state(*_MANAGED):
     import routes.session_routes as SR  # noqa: E402
 
 from fastapi import HTTPException  # noqa: E402
+
 from src.auth_helpers import effective_user  # noqa: E402
 
 
@@ -73,6 +74,7 @@ def _req(**state):
 
 # --- effective_user: who a request is attributed to ------------------------
 
+
 def test_cookie_user_is_unchanged():
     # The whole point: browser/cookie callers behave exactly as before.
     assert effective_user(_req(api_token=False, current_user="alice")) == "alice"
@@ -80,15 +82,28 @@ def test_cookie_user_is_unchanged():
 
 def test_bearer_token_attributes_to_its_owner():
     # A paired phone runs as the "api" pseudo-user but must act as the token owner.
-    assert effective_user(_req(api_token=True, api_token_owner="alice", current_user="api")) == "alice"
+    assert (
+        effective_user(
+            _req(
+                api_token=True,
+                api_token_owner="alice",  # noqa: S106
+                current_user="api",
+            )
+        )
+        == "alice"
+    )
 
 
 def test_bearer_token_without_owner_does_not_escalate():
     # No owner on the token -> falls back to current_user ("api"), never another user.
-    assert effective_user(_req(api_token=True, api_token_owner=None, current_user="api")) == "api"
+    assert (
+        effective_user(_req(api_token=True, api_token_owner=None, current_user="api"))
+        == "api"
+    )
 
 
 # --- _verify_session_owner: bearer tokens cannot cross owners ---------------
+
 
 def _session_local_returning(owner_value):
     """Mock SessionLocal whose query(...).filter(...).first() yields a row with
@@ -104,7 +119,9 @@ _MISSING = object()
 
 def test_bearer_owner_A_cannot_verify_owner_B_session(monkeypatch):
     monkeypatch.setattr(SR, "SessionLocal", _session_local_returning("bob"))
-    req = _req(api_token=True, api_token_owner="alice", current_user="api")
+    req = _req(
+        api_token=True, api_token_owner="alice", current_user="api"  # noqa: S106
+    )
     with pytest.raises(HTTPException) as exc:
         SR._verify_session_owner(req, "sid-owned-by-bob")
     assert exc.value.status_code == 404
@@ -112,7 +129,9 @@ def test_bearer_owner_A_cannot_verify_owner_B_session(monkeypatch):
 
 def test_owner_can_verify_their_own_session(monkeypatch):
     monkeypatch.setattr(SR, "SessionLocal", _session_local_returning("alice"))
-    req = _req(api_token=True, api_token_owner="alice", current_user="api")
+    req = _req(
+        api_token=True, api_token_owner="alice", current_user="api"  # noqa: S106
+    )
     # Should not raise.
     SR._verify_session_owner(req, "sid-owned-by-alice")
 

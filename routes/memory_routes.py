@@ -18,7 +18,7 @@ from src.auth_helpers import get_current_user, require_user
 from src.endpoint_resolver import resolve_endpoint
 from src.llm_core import llm_call_async
 from src.request_models import MemoryAddRequest
-from src.upload_limits import read_upload_limited
+from src.upload_limits import MEMORY_IMPORT_MAX_BYTES, read_upload_limited
 
 # Leading list-marker like "1.", "12)", or "3:" plus surrounding whitespace.
 # Strips one prefix per call so import-from-LLM-output doesn't leave the
@@ -32,15 +32,6 @@ def _strip_list_prefix(text: str) -> str:
         return text
     return _LIST_PREFIX_RE.sub("", text, count=1).strip()
 
-from services.memory import MemoryManager
-from core.session_manager import SessionManager
-from src.request_models import MemoryAddRequest
-from core.database import SessionLocal
-from src.llm_core import llm_call_async
-from services.memory.memory_extractor import audit_memories
-from src.auth_helpers import get_current_user, require_user
-from src.endpoint_resolver import resolve_endpoint
-from src.upload_limits import read_upload_limited, MEMORY_IMPORT_MAX_BYTES
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

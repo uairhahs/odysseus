@@ -1,19 +1,21 @@
 # services/memory/service.py
 """Memory service — persistent memory storage and retrieval."""
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
 import os
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from src.constants import DATA_DIR
+from src.memory_provider import MemoryRecord, NativeMemoryProvider
 
 from .memory import MemoryManager
 from .memory_vector import MemoryVectorStore
-from src.memory_provider import MemoryRecord, NativeMemoryProvider
-from src.constants import DATA_DIR
 
 
 @dataclass
 class Memory:
     """A stored memory."""
+
     id: str
     text: str
     timestamp: int
@@ -24,6 +26,7 @@ class Memory:
 @dataclass
 class MemorySearchResult:
     """Result of memory search."""
+
     memories: List[Memory]
     query: str
     total: int
@@ -41,16 +44,20 @@ class MemoryService:
 
     def __init__(self, data_dir: str = DATA_DIR):
         self.manager = MemoryManager(data_dir)
-        self.vector_store = MemoryVectorStore(data_dir) if os.path.exists(
-            os.path.join(data_dir, "memory_vectors")
-        ) else None
+        self.vector_store = (
+            MemoryVectorStore(data_dir)
+            if os.path.exists(os.path.join(data_dir, "memory_vectors"))
+            else None
+        )
         self.provider = NativeMemoryProvider(self.manager, self.vector_store)
 
     def _sync_provider(self) -> None:
         self.provider.memory_vector = self.vector_store
 
     @staticmethod
-    def _to_memory(entry: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> Memory:
+    def _to_memory(
+        entry: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None
+    ) -> Memory:
         return Memory(
             id=entry.get("id", ""),
             text=entry.get("text", ""),
@@ -60,7 +67,9 @@ class MemoryService:
         )
 
     @staticmethod
-    def _record_to_memory(record: MemoryRecord, metadata: Optional[Dict[str, Any]] = None) -> Memory:
+    def _record_to_memory(
+        record: MemoryRecord, metadata: Optional[Dict[str, Any]] = None
+    ) -> Memory:
         merged_metadata = dict(record.metadata)
         if metadata:
             merged_metadata.update(metadata)
@@ -101,9 +110,11 @@ class MemoryService:
         self._sync_provider()
         results = await self.provider.recall(query, top_k=top_k)
         memories = [
-            self._record_to_memory(hit.memory, metadata={"score": hit.score})
-            if hit.score is not None
-            else self._record_to_memory(hit.memory)
+            (
+                self._record_to_memory(hit.memory, metadata={"score": hit.score})
+                if hit.score is not None
+                else self._record_to_memory(hit.memory)
+            )
             for hit in results
         ]
         return MemorySearchResult(memories=memories, query=query, total=len(memories))

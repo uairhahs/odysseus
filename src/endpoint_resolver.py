@@ -80,7 +80,9 @@ def _endpoint_enabled_models(ep) -> list:
     return [m for m in _endpoint_cached_models(ep) if m not in hidden]
 
 
-def resolve_endpoint_runtime(ep, owner: Optional[str] = None) -> Tuple[str, Optional[str]]:
+def resolve_endpoint_runtime(
+    ep, owner: Optional[str] = None
+) -> Tuple[str, Optional[str]]:
     """Resolve a ModelEndpoint row to its runtime base URL and bearer/API key.
 
     Static-key providers use ``ModelEndpoint.api_key``. Session-backed providers
@@ -165,7 +167,13 @@ def resolve_url(url: str) -> str:
 def normalize_base(url: str) -> str:
     """Strip known API path suffixes from a base URL."""
     url = (url or "").strip().rstrip("/")
-    for suffix in ["/models", "/chat/completions", "/completions", "/v1/messages", "/responses"]:
+    for suffix in [
+        "/models",
+        "/chat/completions",
+        "/completions",
+        "/v1/messages",
+        "/responses",
+    ]:
         if url.endswith(suffix):
             url = url[: -len(suffix)].rstrip("/")
     for suffix in ["/chat", "/tags", "/generate"]:
@@ -223,6 +231,7 @@ def build_headers(api_key: Optional[str], base: str) -> Dict[str, str]:
         return copilot_headers(api_key)
     if provider == "chatgpt-subscription":
         from src.chatgpt_subscription import chatgpt_headers
+
         return chatgpt_headers(api_key)
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

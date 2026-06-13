@@ -1,9 +1,9 @@
-"""Pin the security fixes from the 2026-05-19 session so they don't regress:
+r"""Pin the security fixes from the 2026-05-19 session so they don't regress:
 
 - `src.secret_storage.encrypt/decrypt` round-trip, idempotent on already-
   encrypted input, transparent on legacy plaintext, fail-soft on bad key.
 - `routes.email_helpers._q` quotes IMAP mailbox names so a folder named
-  `"INBOX" (BODY ...` (or one containing `\\`) can't terminate the IMAP
+  `"INBOX" (BODY ...` (or one containing `\`) can't terminate the IMAP
   command early.
 - Compose-upload tokens flow through `pathlib.Path(token).name` so a
   caller supplying `../../etc/passwd` can't escape `COMPOSE_UPLOADS_DIR`.
@@ -12,6 +12,7 @@ These are pure-function tests — no FastAPI app boot, no DB.
 """
 
 import importlib
+import ipaddress as _ipaddr
 import json
 import re
 import sys
@@ -273,9 +274,11 @@ def test_q_empty_input():
 
 # ── provider auth error normalization ──────────────────────────
 
+
 def _import_friendly_email_auth_error():
     sys.modules.pop("routes.email_helpers", None)
     from routes.email_helpers import _friendly_email_auth_error  # noqa: WPS433
+
     return _friendly_email_auth_error
 
 
@@ -915,12 +918,8 @@ def test_mcp_config_listing_is_admin_gated():
 # private/internal address class plus redirect-into-private and non-http
 # schemes, so the new tool can't be turned into an SSRF primitive.
 
-import ipaddress as _ipaddr
 
-import pytest as _pytest
-
-
-@_pytest.mark.parametrize(
+@pytest.mark.parametrize(
     "url",
     [
         "http://127.0.0.1/",  # IPv4 loopback
@@ -986,7 +985,7 @@ def test_web_fetch_guard_blocks_redirect_into_private(monkeypatch):
 
     monkeypatch.setattr(httpx, "get", lambda url, **kwargs: _Resp())
 
-    with _pytest.raises(httpx.RequestError) as exc:
+    with pytest.raises(httpx.RequestError) as exc:
         content._get_public_url("http://public.example/start", headers={}, timeout=5)
     assert "Blocked" in str(exc.value)
 
@@ -1081,7 +1080,9 @@ def _import_mcp_routes():
 
 def test_mcp_oauth_paths_resolve_under_data_dir(tmp_path, monkeypatch):
     mcp_routes = _import_mcp_routes()
-    monkeypatch.setattr(mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth"))
+    monkeypatch.setattr(
+        mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth")
+    )
 
     resolved = Path(
         mcp_routes._resolve_mcp_oauth_path("gmail/credentials.json", "token_file")
@@ -1103,7 +1104,9 @@ def test_mcp_oauth_paths_reject_escapes(tmp_path, monkeypatch, raw_path):
     from fastapi import HTTPException
 
     mcp_routes = _import_mcp_routes()
-    monkeypatch.setattr(mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth"))
+    monkeypatch.setattr(
+        mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth")
+    )
 
     with pytest.raises(HTTPException) as exc:
         mcp_routes._resolve_mcp_oauth_path(raw_path, "token_file")
@@ -1114,7 +1117,9 @@ def test_mcp_oauth_filename_join_cannot_escape_base(tmp_path, monkeypatch):
     from fastapi import HTTPException
 
     mcp_routes = _import_mcp_routes()
-    monkeypatch.setattr(mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth"))
+    monkeypatch.setattr(
+        mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth")
+    )
 
     safe_dir = mcp_routes._resolve_mcp_oauth_path("gmail", "dir")
     with pytest.raises(HTTPException):
@@ -1125,7 +1130,9 @@ def test_mcp_oauth_filename_join_cannot_escape_base(tmp_path, monkeypatch):
 
 def test_mcp_oauth_config_sanitizes_paths_and_env(tmp_path, monkeypatch):
     mcp_routes = _import_mcp_routes()
-    monkeypatch.setattr(mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth"))
+    monkeypatch.setattr(
+        mcp_routes, "MCP_OAUTH_DIR", str(tmp_path / "data" / "mcp_oauth")
+    )
 
     cfg = mcp_routes._sanitize_mcp_oauth_config(
         {

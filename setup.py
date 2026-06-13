@@ -13,10 +13,18 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
-from src.constants import (
-    DATA_DIR, AUTH_FILE, UPLOAD_DIR, PERSONAL_DIR, PERSONAL_UPLOADS_DIR,
-    TTS_CACHE_DIR, GENERATED_IMAGES_DIR, DEEP_RESEARCH_DIR, CHROMA_DIR,
-    RAG_DIR, MEMORY_VECTORS_DIR,
+from src.constants import MEMORY_VECTORS_DIR  # noqa: E402
+from src.constants import (  # noqa: E402
+    AUTH_FILE,
+    CHROMA_DIR,
+    DATA_DIR,
+    DEEP_RESEARCH_DIR,
+    GENERATED_IMAGES_DIR,
+    PERSONAL_DIR,
+    PERSONAL_UPLOADS_DIR,
+    RAG_DIR,
+    TTS_CACHE_DIR,
+    UPLOAD_DIR,
 )
 
 DIRS = [

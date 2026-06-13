@@ -5,24 +5,25 @@ turn, leaving the browser pointed at a session id that no longer exists.
 """
 
 import asyncio
-from datetime import timedelta
 import sys
 import tempfile
 import uuid
+from datetime import timedelta
 
 import pytest
-
-sqlalchemy = pytest.importorskip("sqlalchemy")
-if type(sqlalchemy).__name__ == "MagicMock":
-    pytest.skip("sqlalchemy is stubbed in this environment", allow_module_level=True)
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 import core.database as cdb
-from core.database import ChatMessage as DbMessage, Session as DbSession, utcnow_naive
 import src.session_actions as session_actions
+from core.database import ChatMessage as DbMessage
+from core.database import Session as DbSession
+from core.database import utcnow_naive
+
+sqlalchemy = pytest.importorskip("sqlalchemy")
+if type(sqlalchemy).__name__ == "MagicMock":
+    pytest.skip("sqlalchemy is stubbed in this environment", allow_module_level=True)
 
 
 def _make_session_factory():

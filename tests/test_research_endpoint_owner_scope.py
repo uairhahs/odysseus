@@ -22,7 +22,10 @@ from sqlalchemy.sql.elements import False_, Null, True_
 # Stub the module so we can hand it a fake declarative class whose column
 # comparisons return inspectable predicates (the real one is a SQLAlchemy
 # class, MagicMock'd to oblivion by conftest). owner_filter stays REAL.
-from routes.research_routes import _owned_enabled_endpoint
+from routes.research_routes import (  # noqa: E402
+    _owned_enabled_endpoint,
+    _resolve_endpoint_runtime,
+)
 
 _sd = types.ModuleType("src.database")
 _sd.ModelEndpoint = MagicMock()
@@ -30,7 +33,6 @@ _sd.ModelEndpoint = MagicMock()
 
 sys.modules.setdefault("src.database", _sd)
 
-from routes.research_routes import _owned_enabled_endpoint, _resolve_endpoint_runtime  # noqa: E402
 
 def _unwrap_sqla(value):
     """Converts SQLAlchemy constants back to Python native types for the mock."""

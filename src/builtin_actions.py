@@ -15,7 +15,13 @@ from sqlalchemy import false
 from core.constants import internal_api_base
 from core.platform_compat import IS_WINDOWS, find_bash
 from src.auth_helpers import owner_filter
-from src.constants import DATA_DIR, DEEP_RESEARCH_DIR, TIDY_CALENDAR_STATE_FILE, EMAIL_URGENCY_CACHE_DIR, COOKBOOK_STATE_FILE
+from src.constants import (
+    COOKBOOK_STATE_FILE,
+    DATA_DIR,
+    DEEP_RESEARCH_DIR,
+    EMAIL_URGENCY_CACHE_DIR,
+    TIDY_CALENDAR_STATE_FILE,
+)
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -246,7 +252,9 @@ async def action_consolidate_memory(owner: str, **kwargs) -> Tuple[str, bool]:
                                     mem["category"] = cleaned["category"]
                                 kept_all.append(mem)
 
-                            removed = sum(1 for m in group_memories if m.get("id") in drop_ids)
+                            removed = sum(
+                                1 for m in group_memories if m.get("id") in drop_ids
+                            )
                             total_scanned += len(group_memories)
                             if removed or changed_text:
                                 all_memories = kept_all

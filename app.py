@@ -25,8 +25,10 @@ from companion import setup_companion_routes
 from core.auth import AuthManager
 
 # Core imports
+# Core imports
 from core.constants import (
     APP_VERSION,
+    AUTH_FILE,
     BASE_DIR,
     OPENAI_API_KEY,
     REQUEST_TIMEOUT,
@@ -62,6 +64,9 @@ from routes.calendar_routes import setup_calendar_routes
 
 # Chat
 from routes.chat_routes import setup_chat_routes
+
+# ChatGPT Subscription device-flow login
+from routes.chatgpt_subscription_routes import setup_chatgpt_subscription_routes
 
 # Cleanup
 from routes.cleanup_routes import setup_cleanup_routes
@@ -154,7 +159,6 @@ from routes.vault_routes import setup_vault_routes
 
 # Webhooks
 from routes.webhook_routes import setup_webhook_routes
-from routes.workspace_routes import setup_workspace_routes
 
 # STT
 from services.stt import get_stt_service
@@ -186,6 +190,8 @@ from src.rag_singleton import get_rag_manager
 # Scheduled tasks + event bus
 from src.task_scheduler import TaskScheduler
 from src.webhook_manager import WebhookManager
+
+# from routes.workspace_routes import setup_workspace_routes
 
 
 def register_static_mime_types() -> None:
@@ -219,38 +225,6 @@ if os.name == "nt":
 # is silently ignored and the user is unexpectedly forced to log in (issue #142).
 # utf-8-sig reads plain UTF-8 (no BOM) identically, so this is safe everywhere.
 load_dotenv(encoding="utf-8-sig")
-
-import asyncio
-import logging
-import secrets
-from datetime import datetime
-from typing import Dict
-
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
-
-# Core imports
-from core.constants import (
-    BASE_DIR, STATIC_DIR, SESSIONS_FILE,
-    REQUEST_TIMEOUT, OPENAI_API_KEY, AUTH_FILE,
-)
-from core.database import SessionLocal, ApiToken
-from core.middleware import SecurityHeadersMiddleware, is_cors_preflight
-from core.auth import AuthManager
-from core.exceptions import (
-    SessionNotFoundError, InvalidFileUploadError,
-    LLMServiceError, WebSearchError,
-)
-
-import bcrypt as _bcrypt
-
-from src.app_helpers import abs_join
-from src.generated_images import GENERATED_IMAGE_HEADERS, resolve_generated_image_path
-from starlette.responses import RedirectResponse
 
 # ========= LOGGING =========
 logging.basicConfig(
@@ -841,12 +815,7 @@ app.include_router(setup_model_routes(model_discovery))
 
 app.include_router(setup_copilot_routes())
 
-# ChatGPT Subscription device-flow login
-from routes.chatgpt_subscription_routes import setup_chatgpt_subscription_routes
-app.include_router(setup_chatgpt_subscription_routes())
 
-# ChatGPT Subscription device-flow login
-from routes.chatgpt_subscription_routes import setup_chatgpt_subscription_routes
 app.include_router(setup_chatgpt_subscription_routes())
 
 app.include_router(setup_tts_routes(tts_service))
@@ -1213,7 +1182,7 @@ async def _startup_event():
         # Create/reconcile default automation tasks + personal assistant for every user.
         owners = set()
         try:
-            import json as _json
+
             auth_path = AUTH_FILE
             with open(auth_path, encoding="utf-8") as f:
                 users = json.load(f).get("users", {})
@@ -1266,7 +1235,7 @@ async def _startup_event():
     # ownerless or deleted/test-owner SKILL.md files so strict owner filtering
     # does not make an existing library look empty after auth/account changes.
     try:
-        import json as _json
+
         auth_path = AUTH_FILE
         with open(auth_path, encoding="utf-8") as f:
             users = json.load(f).get("users", {})

@@ -12,8 +12,12 @@ _REPO = Path(__file__).resolve().parents[1]
 
 
 def _norm(s: str) -> str:
-    """Strip all whitespace and unify quotes to bypass Trunk/Prettier formatting."""
-    return re.sub(r"\s+", "", s).replace('"', "'")
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def test_chat_document_links_use_the_document_id():

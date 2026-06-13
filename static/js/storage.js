@@ -3,27 +3,27 @@
 
 // ── Key constants ──
 export const KEYS = {
-  THEME: 'odysseus-theme',
-  TOGGLES: 'odysseus-toggles',
-  SIDEBAR_COLLAPSED: 'sidebar-collapsed',
-  SIDEBAR_WIDTH: 'sidebar-width',
-  SIDEBAR_SIDE: 'sidebar-side',
-  CURRENT_SESSION: 'currentSessionId',
-  COMPARE_SAVE: 'compare-save-results',
-  COMPARE_CHAT: 'compare-continue-chat',
-  COMPARE_BLIND: 'compare-blind',
-  COMPARE_RANDOM: 'compare-randomize',
-  MODELS_EXPANDED: 'odysseus-model-expanded',
-  MODEL_ENDPOINTS: 'odysseus-model-endpoints',
-  MODEL_SELECTED: 'odysseus-selected-model',
-  SORT_ORDER: 'odysseus-sessions-sort',
-  CHAT_SEARCH_SCOPE: 'odysseus-search-scope',
-  INCOGNITO: 'odysseus-incognito',
-  RAG_ACTIVE: 'odysseus-rag-active',
-  MCP_ACTIVE: 'odysseus-mcp-active',
-  SECTION_ORDER: 'sidebar-section-order',
-  ADMIN_LAST_TAB: 'admin-last-tab',
-  DENSITY: 'odysseus-density'
+  THEME: "odysseus-theme",
+  TOGGLES: "odysseus-toggles",
+  SIDEBAR_COLLAPSED: "sidebar-collapsed",
+  SIDEBAR_WIDTH: "sidebar-width",
+  SIDEBAR_SIDE: "sidebar-side",
+  CURRENT_SESSION: "currentSessionId",
+  COMPARE_SAVE: "compare-save-results",
+  COMPARE_CHAT: "compare-continue-chat",
+  COMPARE_BLIND: "compare-blind",
+  COMPARE_RANDOM: "compare-randomize",
+  MODELS_EXPANDED: "odysseus-model-expanded",
+  MODEL_ENDPOINTS: "odysseus-model-endpoints",
+  MODEL_SELECTED: "odysseus-selected-model",
+  SORT_ORDER: "odysseus-sessions-sort",
+  CHAT_SEARCH_SCOPE: "odysseus-search-scope",
+  INCOGNITO: "odysseus-incognito",
+  RAG_ACTIVE: "odysseus-rag-active",
+  MCP_ACTIVE: "odysseus-mcp-active",
+  SECTION_ORDER: "sidebar-section-order",
+  ADMIN_LAST_TAB: "admin-last-tab",
+  DENSITY: "odysseus-density",
 };
 
 /**
@@ -58,7 +58,7 @@ export function setJSON(key, value) {
 export function get(key, fallback) {
   try {
     const val = localStorage.getItem(key);
-    return val !== null ? val : (fallback !== undefined ? fallback : null);
+    return val !== null ? val : fallback !== undefined ? fallback : null;
   } catch (e) {
     return fallback !== undefined ? fallback : null;
   }
@@ -98,7 +98,11 @@ export function saveToggleState(state) {
 
 export function getToggle(name, fallback) {
   const state = loadToggleState();
-  return state[name] !== undefined ? state[name] : (fallback !== undefined ? fallback : false);
+  return state[name] !== undefined
+    ? state[name]
+    : fallback !== undefined
+      ? fallback
+      : false;
 }
 
 export function setToggle(name, value) {
@@ -117,7 +121,7 @@ const Storage = {
   loadToggleState,
   saveToggleState,
   getToggle,
-  setToggle
+  setToggle,
 };
 
 export default Storage;

@@ -21,12 +21,13 @@ All routes are admin-gated (endpoint/provider management is an admin action).
 
 import json
 import logging
-import time
+import threading  # noqa: F401
+import time  # noqa: F401
 import uuid
 from typing import Dict, Optional
 
 import httpx
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import HTTPException, Request
 
 from core.database import ModelEndpoint, SessionLocal
 from routes.device_flow import (
@@ -102,26 +103,20 @@ def _provision_endpoint(token: str, base: str, owner: Optional[str]) -> Dict:
     return result
 
 
-def setup_copilot_routes() -> APIRouter:
-    router = APIRouter(prefix="/api/copilot", tags=["copilot"])
-
-    @router.post("/device/start")
-    def device_start(request: Request, enterprise_url: str = Form("")):
-        require_admin(request)
-        _prune_expired()
-        host = copilot.GITHUB_HOST
-        ent = (enterprise_url or "").strip()
-        if ent:
-            host = copilot.normalize_domain(ent)
-        try:
-            data = copilot.request_device_code(host)
-        except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response is not None else "unknown"
-            raise HTTPException(
-                502, f"GitHub device-code request failed (HTTP {status})"
-            )
-        except Exception as e:
-            raise HTTPException(502, f"GitHub device-code request failed: {e}")
+def _start_device_flow(request: Request, form) -> DeviceFlowStart:
+    host = copilot.GITHUB_HOST
+    ent = str(form.get("enterprise_url") or "").strip()
+    if ent:
+        host = copilot.normalize_domain(ent)
+    try:
+        data = copilot.request_device_code(host)
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        raise HTTPException(
+            502, f"GitHub device-code request failed (HTTP {status})"
+        ) from e
+    except Exception as e:
+        raise HTTPException(502, f"GitHub device-code request failed: {e}") from e
 
     device_code = data.get("device_code")
     if not device_code:
@@ -153,25 +148,21 @@ def _poll_device_flow(_request: Request, pending: Dict) -> DeviceFlowPoll:
     except Exception as e:
         return DeviceFlowPoll.pending(f"poll error: {e}")
 
-        token = data.get("access_token")
-        if token:
-            base = (
-                copilot.enterprise_base(pending["enterprise_url"])
-                if pending["enterprise_url"]
-                else copilot.COPILOT_BASE
-            )
-            try:
-                result = _provision_endpoint(token, base, pending["owner"])
-            except Exception as e:
-                logger.exception("Copilot endpoint provisioning failed")
-                with _PENDING_LOCK:
-                    _PENDING.pop(poll_id, None)
-                raise HTTPException(
-                    500, f"Login succeeded but provisioning failed: {e}"
-                )
-            with _PENDING_LOCK:
-                _PENDING.pop(poll_id, None)
-            return {"status": "authorized", "endpoint": result}
+    token = data.get("access_token")
+    if token:
+        base = (
+            copilot.enterprise_base(pending["enterprise_url"])
+            if pending["enterprise_url"]
+            else copilot.COPILOT_BASE
+        )
+        try:
+            result = _provision_endpoint(token, base, pending["owner"])
+        except Exception as e:
+            logger.exception("Copilot endpoint provisioning failed")
+            raise HTTPException(
+                500, f"Login succeeded but provisioning failed: {e}"
+            ) from e
+        return DeviceFlowPoll.authorized(result)
 
     err = data.get("error")
     if err == "authorization_pending":

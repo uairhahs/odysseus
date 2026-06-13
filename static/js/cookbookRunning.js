@@ -1663,8 +1663,9 @@ async function _openServeEditForTask(task, cmdOverride, fieldOverrides = null) {
   // Switch the active server to the one this serve ran on (mirrors _openEdit).
   const _tHost = task.remoteHost || "";
   _envState.remoteHost = _tHost;
-  const _tSrv = _serverByVal(_envState.remoteServerKey || _tHost)
-    || _envState.servers.find((s) => s.host === _tHost);
+  const _tSrv =
+    _serverByVal(_envState.remoteServerKey || _tHost) ||
+    _envState.servers.find((s) => s.host === _tHost);
   if (_tSrv) {
     _envState.env = _tSrv.env || "none";
     _envState.envPath = _tSrv.envPath || "";
@@ -1939,8 +1940,10 @@ export async function _launchServeTask(
     hostOverride !== undefined
       ? hostOverride || ""
       : _envState.remoteHost || "";
-  const _hsrv = _serverByVal(_envState.remoteServerKey || _host)
-    || _envState.servers.find((s) => s.host === _host) || {};
+  const _hsrv =
+    _serverByVal(_envState.remoteServerKey || _host) ||
+    _envState.servers.find((s) => s.host === _host) ||
+    {};
   const _hplatform = _host ? _hsrv.platform || "" : _envState.platform || "";
 
   // Replace any serve already targeting this same host:port — you can't run two
@@ -2057,7 +2060,9 @@ export async function _launchServeTask(
     // Auto-register may have enabled an existing (offline) endpoint for this
     // host:port. Refresh the picker so the row is no longer dimmed, and the
     // user doesn't see "offline" on a serve they just started.
-    try { _refreshModelsAfterEndpointChange(); } catch (_) {}
+    try {
+      _refreshModelsAfterEndpointChange();
+    } catch (_) {}
   } catch (e) {
     uiModule.showToast("Failed: " + e.message);
   }
@@ -2222,8 +2227,9 @@ export function _renderRunningTab() {
   // Group tasks by server
   const _serverName = (host) => {
     if (!host) return "Local";
-    const srv = _serverByVal(_envState.remoteServerKey || host)
-      || _envState.servers.find((s) => s.host === host);
+    const srv =
+      _serverByVal(_envState.remoteServerKey || host) ||
+      _envState.servers.find((s) => s.host === host);
     return srv?.name || host;
   };
   const serverGroups = {};
@@ -2589,8 +2595,9 @@ export function _renderRunningTab() {
           // Point the active server at the one it downloaded to.
           const _tHost = task.remoteHost || "";
           _envState.remoteHost = _tHost;
-          const _tSrv = _serverByVal(_envState.remoteServerKey || _tHost)
-            || _envState.servers.find((s) => s.host === _tHost);
+          const _tSrv =
+            _serverByVal(_envState.remoteServerKey || _tHost) ||
+            _envState.servers.find((s) => s.host === _tHost);
           if (_tSrv) {
             _envState.env = _tSrv.env || "none";
             _envState.envPath = _tSrv.envPath || "";
@@ -4164,7 +4171,9 @@ async function _reconnectTask(el, task) {
               // server was coming up. Now that it's reachable, nudge the
               // picker to re-probe so the offline pill clears without the
               // user having to reopen Settings or refresh the page.
-              try { _refreshModelsAfterEndpointChange(); } catch (_) {}
+              try {
+                _refreshModelsAfterEndpointChange();
+              } catch (_) {}
             }
             if (info.phase) {
               badge.textContent = info.phase;

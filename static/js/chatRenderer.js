@@ -782,9 +782,19 @@ export function applyModelColor(roleEl, modelName) {
         }
       }
       if (isCostTrackedEndpoint(_epUrl)) {
-        if (info && info.input != null) html += '<div><span class="ctx-label">Input</span> $' + info.input.toFixed(2) + ' / 1M</div>';
-        if (info && info.output != null) html += '<div><span class="ctx-label">Output</span> $' + info.output.toFixed(2) + ' / 1M</div>';
-        if (!info) html += '<div style="opacity:0.4;font-size:0.85em;margin-top:4px;">No pricing data available</div>';
+        if (info && info.input != null)
+          html +=
+            '<div><span class="ctx-label">Input</span> $' +
+            info.input.toFixed(2) +
+            " / 1M</div>";
+        if (info && info.output != null)
+          html +=
+            '<div><span class="ctx-label">Output</span> $' +
+            info.output.toFixed(2) +
+            " / 1M</div>";
+        if (!info)
+          html +=
+            '<div style="opacity:0.4;font-size:0.85em;margin-top:4px;">No pricing data available</div>';
       }
       popup.innerHTML = html;
       const rect = roleEl.getBoundingClientRect();
@@ -859,17 +869,20 @@ export function isSubscriptionEndpoint(url) {
   if (!url) return false;
   try {
     const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/+$/, '');
-    return parsed.hostname === 'chatgpt.com'
-      && (path === '/backend-api/codex' || path.startsWith('/backend-api/codex/'));
+    const path = parsed.pathname.replace(/\/+$/, "");
+    return (
+      parsed.hostname === "chatgpt.com" &&
+      (path === "/backend-api/codex" || path.startsWith("/backend-api/codex/"))
+    );
   } catch (_e) {
     return false;
   }
 }
 
 function _currentEndpointUrl() {
-  return (window.sessionModule && window.sessionModule.getCurrentEndpointUrl)
-    ? window.sessionModule.getCurrentEndpointUrl() : null;
+  return window.sessionModule && window.sessionModule.getCurrentEndpointUrl
+    ? window.sessionModule.getCurrentEndpointUrl()
+    : null;
 }
 
 export function isCostTrackedEndpoint(url) {
@@ -936,7 +949,8 @@ export function updateSessionCostUI() {
   // cloud-rate calculation may have left in localStorage for this session.
   const _url = _currentEndpointUrl();
   if (!isCostTrackedEndpoint(_url)) {
-    const sid = window.sessionModule && window.sessionModule.getCurrentSessionId();
+    const sid =
+      window.sessionModule && window.sessionModule.getCurrentSessionId();
     if (sid && getSessionCost(sid) > 0) {
       try {
         const costs = JSON.parse(localStorage.getItem(_COST_KEY) || "{}");
@@ -2181,9 +2195,15 @@ export function displayMetrics(messageElement, metrics) {
       else p.remove();
     });
 
-    const costStr = cost !== null ? `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}` : '';
-    const costRows = costStr ? `<div><span class="ctx-label">Cost</span> ${costStr}</div>` : '';
-    const speedStr = tps != null && tps !== 'undefined' ? `${tps} tok/s` : 'n/a';
+    const costStr =
+      cost !== null
+        ? `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`
+        : "";
+    const costRows = costStr
+      ? `<div><span class="ctx-label">Cost</span> ${costStr}</div>`
+      : "";
+    const speedStr =
+      tps != null && tps !== "undefined" ? `${tps} tok/s` : "n/a";
     const totalTok = inputTokens + outputTokens;
     const ctxColor =
       ctxPct >= 85
@@ -2217,8 +2237,8 @@ export function displayMetrics(messageElement, metrics) {
       <div><span class="ctx-label">Total</span> ${totalTok.toLocaleString()} tokens</div>
       <div><span class="ctx-label">Speed</span> ${speedStr}</div>
       <div><span class="ctx-label">Time</span> ${responseTime}s</div>
-      ${prepTime != null ? `<div><span class="ctx-label">Prep</span> ${prepTime}s</div>` : ''}
-      ${modelWaitTime != null ? `<div><span class="ctx-label">Model wait</span> ${modelWaitTime}s</div>` : ''}
+      ${prepTime != null ? `<div><span class="ctx-label">Prep</span> ${prepTime}s</div>` : ""}
+      ${modelWaitTime != null ? `<div><span class="ctx-label">Model wait</span> ${modelWaitTime}s</div>` : ""}
       ${costRows}
       ${sessionCostStr}
       ${
@@ -2688,8 +2708,10 @@ export function addMessage(role, content, modelName, metadata) {
     // just with role "Supervisor" and a short summary body — instead of
     // a slim system chip. Matches chat style and integrates cleanly
     // into the conversation flow.
-    let _isWakeCheck = !!(metadata?.wake_check_in || metadata?.hidden_from_user_view);
-    if (!_isWakeCheck && typeof textRaw === 'string') {
+    let _isWakeCheck = !!(
+      metadata?.wake_check_in || metadata?.hidden_from_user_view
+    );
+    if (!_isWakeCheck && typeof textRaw === "string") {
       // Also catch historical messages persisted as "[Task] Self-check: <sid>"
       // (older wake tasks that didn't set wake_check_in metadata).
       if (/^\s*\[Task\]\s+Self-check:/i.test(textRaw)) {

@@ -24,12 +24,6 @@ from src.constants import (
 from src.tool_utils import get_mcp_manager
 
 
-def get_mcp_manager():
-    from src import agent_tools
-
-    return agent_tools.get_mcp_manager()
-
-
 def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     if len(text) > limit:
         return text[:limit] + f"\n... (truncated, {len(text)} chars total)"
@@ -2423,7 +2417,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
                 # also creates a separate note reminder for the same title/time,
                 # keep the existing note so the user gets only one dispatch.
                 existing_q = db.query(Note).filter(
-                    Note.archived.is_(false()),
+                    Note.archived.is_(False),
                     Note.due_date == due_iso,
                 )
                 if owner is not None:
@@ -2691,7 +2685,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
         due_date = remind_at.isoformat() + ("Z" if is_utc else "")
         expected_title = f"Reminder: {summary}"
         existing_q = db.query(Note).filter(
-            Note.archived.is_(false()),
+            Note.archived.is_(False),
             Note.due_date == due_date,
         )
         if owner is not None:
@@ -3256,13 +3250,17 @@ def _infer_serve_port(cmd: str) -> int:
     if m:
         try:
             return int(m.group(1))
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to parse port from cmd: %s, error: %s", cmd, e)
             pass
     m = re.search(r"OLLAMA_HOST=[^\\s]*?:(\\d+)", cmd)
     if m:
         try:
             return int(m.group(1))
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                "Failed to parse OLLAMA_HOST port from cmd: %s, error: %s", cmd, e
+            )
             pass
     if "ollama" in cmd:
         return 11434
@@ -3301,7 +3299,7 @@ async def _ensure_served_endpoint(
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                f"{_COOKBOOK_BASE}/api/model-endpoints",
+                f"{_INTERNAL_BASE}/api/model-endpoints",
                 data=payload,
                 headers=_internal_headers(),
             )

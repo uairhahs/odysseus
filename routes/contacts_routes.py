@@ -21,13 +21,16 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from core.middleware import require_admin
+from src.constants import CONTACTS_FILE as _CONTACTS_FILE
+from src.constants import DATA_DIR as _DATA_DIR
+from src.constants import SETTINGS_FILE as _SETTINGS_FILE
 from src.url_safety import check_outbound_url
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 
-from src.constants import DATA_DIR as _DATA_DIR, SETTINGS_FILE as _SETTINGS_FILE, CONTACTS_FILE as _CONTACTS_FILE
+
 DATA_DIR = Path(_DATA_DIR)
 SETTINGS_FILE = Path(_SETTINGS_FILE)
 LOCAL_CONTACTS_FILE = Path(_CONTACTS_FILE)

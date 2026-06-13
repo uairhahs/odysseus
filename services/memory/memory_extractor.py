@@ -257,9 +257,10 @@ def _parse_extraction_json(raw: str) -> list:
     text = (raw or "").strip()
     try:
         from src.text_helpers import strip_think as _strip_think
+
         text = _strip_think(text, prose=True, prompt_echo=True).strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error stripping think tags: %s", e)
     if text.startswith("```"):
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
     # JSON may still be embedded in surrounding commentary (leading prose or
@@ -273,11 +274,15 @@ def _parse_extraction_json(raw: str) -> list:
 
     try:
         facts = json.loads(text)
-    except json.JSONDecodeError:
-        logger.debug("Memory extraction returned non-JSON: %r", (raw or "")[:120])
+    except json.JSONDecodeError as e:
+        logger.debug("Memory extraction returned JSON decode error: %s", e)
+        logger.debug("Raw input: %r", (raw or "")[:120])
         return []
-    except Exception:
-        logger.debug("Memory extraction returned non-JSON: %r", (raw or "")[:120])
+    except Exception as e:
+        logger.debug(
+            "Memory extraction returned unexpected error: %r", (raw or "")[:120]
+        )
+        logger.debug("Error: %s", e)
         return []
     return facts if isinstance(facts, list) else []
 
@@ -351,7 +356,8 @@ async def extract_and_store(
             c = m.get("content", "")
             if isinstance(c, list):
                 c = " ".join(
-                    b.get("text", "") for b in c
+                    b.get("text", "")
+                    for b in c
                     if isinstance(b, dict) and b.get("type") == "text"
                 )
             return f"{m.get('role', '?')}: {c}"
@@ -359,10 +365,14 @@ async def extract_and_store(
         transcript = "\n\n".join(_flatten_msg(m) for m in stripped_recent)
         extraction_messages = [
             {"role": "system", "content": EXTRACT_SYSTEM_PROMPT},
-            {"role": "user", "content": (
-                "Conversation to analyze:\n\n" + transcript
-                + "\n\nReturn the JSON array of durable facts now (or [] if none)."
-            )},
+            {
+                "role": "user",
+                "content": (
+                    "Conversation to analyze:\n\n"
+                    + transcript
+                    + "\n\nReturn the JSON array of durable facts now (or [] if none)."
+                ),
+            },
         ]
 
         facts = []

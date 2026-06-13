@@ -2,15 +2,16 @@
 """Docs service — personal document RAG."""
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from src.rag_manager import RAGManager
 from src.constants import CHROMA_DIR
+from src.rag_manager import RAGManager
 
 
 @dataclass
 class DocChunk:
     """A retrieved document chunk."""
+
     text: str
     source: str
     score: float
@@ -20,6 +21,7 @@ class DocChunk:
 @dataclass
 class IndexResult:
     """Result of indexing documents."""
+
     indexed: int
     failed: int
     errors: List[str]

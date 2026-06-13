@@ -8,6 +8,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 
 def _usage() -> int:
@@ -27,9 +28,14 @@ def _usage() -> int:
     print("  odysseus_api.py cookbook cached [HOST]", file=sys.stderr)
     print("  odysseus_api.py cookbook presets", file=sys.stderr)
     print("  odysseus_api.py cookbook output SESSION_ID [tail]", file=sys.stderr)
-    print("  odysseus_api.py cookbook serve REPO_ID 'CMD' [REMOTE_HOST]", file=sys.stderr)
+    print(
+        "  odysseus_api.py cookbook serve REPO_ID 'CMD' [REMOTE_HOST]", file=sys.stderr
+    )
     print("  odysseus_api.py cookbook preset NAME", file=sys.stderr)
-    print("  odysseus_api.py cookbook adopt SESSION_ID MODEL [HOST] [PORT]", file=sys.stderr)
+    print(
+        "  odysseus_api.py cookbook adopt SESSION_ID MODEL [HOST] [PORT]",
+        file=sys.stderr,
+    )
     print("  odysseus_api.py cookbook stop SESSION_ID", file=sys.stderr)
     print("  odysseus_api.py METHOD /api/codex/path [json-body]", file=sys.stderr)
     return 2
@@ -44,7 +50,10 @@ def _config() -> tuple[str, str] | None:
     if not token:
         missing.append("ODYSSEUS_API_TOKEN")
     if missing:
-        print(f"missing {', '.join(missing)}; create a Codex Agent token in Odysseus Settings", file=sys.stderr)
+        print(
+            f"missing {', '.join(missing)}; create a Codex Agent token in Odysseus Settings",
+            file=sys.stderr,
+        )
         return None
     return base_url, token
 
@@ -135,6 +144,7 @@ def main() -> int:
             method = "GET"
             if len(sys.argv) >= 4:
                 from urllib.parse import quote
+
                 path = f"/api/codex/cookbook/cached?host={quote(sys.argv[3])}"
             else:
                 path = "/api/codex/cookbook/cached"
@@ -145,6 +155,7 @@ def main() -> int:
             body = None
         elif action == "preset" and len(sys.argv) >= 4:
             from urllib.parse import quote
+
             method = "POST"
             path = f"/api/codex/cookbook/preset/{quote(sys.argv[3])}"
             body = None
@@ -152,8 +163,10 @@ def main() -> int:
             method = "POST"
             path = "/api/codex/cookbook/adopt"
             payload = {"tmux_session": sys.argv[3], "model": sys.argv[4]}
-            if len(sys.argv) >= 6: payload["host"] = sys.argv[5]
-            if len(sys.argv) >= 7: payload["port"] = int(sys.argv[6])
+            if len(sys.argv) >= 6:
+                payload["host"] = sys.argv[5]
+            if len(sys.argv) >= 7:
+                payload["port"] = int(sys.argv[6])
             body = json.dumps(payload)
         elif action == "serve" and len(sys.argv) >= 5:
             method = "POST"
@@ -178,7 +191,10 @@ def main() -> int:
     if not path.startswith("/"):
         path = "/" + path
     if not path.startswith("/api/codex/"):
-        print("refusing non-/api/codex path; use scoped Odysseus integration endpoints only", file=sys.stderr)
+        print(
+            "refusing non-/api/codex path; use scoped Odysseus integration endpoints only",
+            file=sys.stderr,
+        )
         return 2
 
     config = _config()
@@ -200,9 +216,19 @@ def main() -> int:
         data = json.dumps(parsed).encode("utf-8")
         headers["Content-Type"] = "application/json"
 
-    req = urllib.request.Request(base_url + path, data=data, headers=headers, method=method)
+    url = base_url + path
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        print(f"refusing unsupported URL scheme: {parsed.scheme!r}", file=sys.stderr)
+        return 1
+
+    req = urllib.request.Request(  # noqa: S310 - scheme validated above
+        url, data=data, headers=headers, method=method
+    )
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(  # noqa: S310 - scheme validated above
+            req, timeout=20
+        ) as resp:
             print(resp.read().decode("utf-8"))
             return 0
     except urllib.error.HTTPError as exc:

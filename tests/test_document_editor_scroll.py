@@ -15,8 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _norm(s: str) -> str:
-    """Strip all whitespace and unify quotes to bypass Trunk/Prettier formatting."""
-    return re.sub(r"\s+", "", s).replace('"', "'")
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 DOC_JS = _norm((ROOT / "static/js/document.js").read_text(encoding="utf-8"))

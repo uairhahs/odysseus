@@ -14,14 +14,15 @@ import time
 import uuid
 from typing import Dict, Optional, Tuple
 
+from src.constants import GENERATED_IMAGES_DIR
 from src.endpoint_resolver import (
     build_chat_url,
     build_headers,
     build_models_url,
+    resolve_endpoint_runtime,
 )
-from src.endpoint_resolver import normalize_base as _normalize_base
 
-from src.constants import GENERATED_IMAGES_DIR
+# from src.endpoint_resolver import normalize_base as _normalize_base
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -65,8 +66,6 @@ def set_rag_manager(rag_mgr, personal_docs_mgr=None):
 # ---------------------------------------------------------------------------
 # Model resolution
 # ---------------------------------------------------------------------------
-
-from src.endpoint_resolver import build_chat_url, build_headers, build_models_url, resolve_endpoint_runtime
 
 
 def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Dict]:
@@ -116,7 +115,8 @@ def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Di
         for ep in endpoints:
             try:
                 base, api_key = resolve_endpoint_runtime(ep, owner=owner)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to resolve endpoint '{ep.name}': {e}")
                 continue
             provider = _detect_provider(base)
             headers = build_headers(api_key, base)
@@ -142,8 +142,8 @@ def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Di
                         r.raise_for_status()
                         data = r.json()
                         model_ids = [
-                        m.get("id") for m in (data.get("data") or []) if m.get("id")
-                    ]
+                            m.get("id") for m in (data.get("data") or []) if m.get("id")
+                        ]
                         if not model_ids:
                             model_ids = [
                                 m.get("name") or m.get("model")
@@ -1341,6 +1341,9 @@ async def do_list_models(
             try:
                 base, api_key = resolve_endpoint_runtime(ep, owner=owner)
             except Exception:
+                logger.debug(
+                    f"Skipping endpoint {ep.name} due to resolve error", exc_info=True
+                )
                 continue
             provider = _detect_provider(base)
             headers = build_headers(api_key, base)
@@ -1356,8 +1359,8 @@ async def do_list_models(
                         r.raise_for_status()
                         data = r.json()
                         model_ids = [
-                        m.get("id") for m in (data.get("data") or []) if m.get("id")
-                    ]
+                            m.get("id") for m in (data.get("data") or []) if m.get("id")
+                        ]
                         if not model_ids:
                             model_ids = [
                                 m.get("name") or m.get("model")

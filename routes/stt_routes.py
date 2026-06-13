@@ -5,10 +5,7 @@ import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-
-from src.upload_limits import read_upload_limited, STT_MAX_AUDIO_BYTES
-
+from src.upload_limits import STT_MAX_AUDIO_BYTES, read_upload_limited
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

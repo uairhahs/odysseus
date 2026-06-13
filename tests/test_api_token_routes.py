@@ -16,9 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from fastapi import HTTPException
-
 
 # ---------------------------------------------------------------------------
 # Fixture: install per-test stubs via monkeypatch so they are torn down
@@ -62,6 +60,7 @@ def token_routes_mod(monkeypatch):
     monkeypatch.delitem(sys.modules, "routes.api_token_routes", raising=False)
 
     import routes.api_token_routes as mod  # noqa: PLC0415
+
     return mod
 
 
@@ -106,7 +105,9 @@ def _db_ctx(session):
 # ---------------------------------------------------------------------------
 
 
-def test_api_token_routes_require_admin_for_list_create_delete(monkeypatch, token_routes_mod):
+def test_api_token_routes_require_admin_for_list_create_delete(
+    monkeypatch, token_routes_mod
+):
     monkeypatch.setenv("AUTH_ENABLED", "true")
     mod = token_routes_mod
 
@@ -131,7 +132,9 @@ def test_api_token_routes_require_admin_for_list_create_delete(monkeypatch, toke
 # ---------------------------------------------------------------------------
 
 
-def test_create_token_attributes_owner_hashes_secret_and_returns_raw_once(monkeypatch, token_routes_mod):
+def test_create_token_attributes_owner_hashes_secret_and_returns_raw_once(
+    monkeypatch, token_routes_mod
+):
     monkeypatch.setenv("AUTH_ENABLED", "true")
     mod = token_routes_mod
 
@@ -206,8 +209,8 @@ def test_list_tokens_returns_safe_display_fields_only(monkeypatch, token_routes_
         id="tok001",
         name="Production",
         owner="alice",
-        token_prefix="ody_prod",
-        token_hash="$2b$12$SHOULDNEVERAPPEAR",
+        token_prefix="ody_prod",  # noqa: S106
+        token_hash="$2b$12$SHOULDNEVERAPPEAR",  # noqa: S106
         scopes="chat,research",
         is_active=True,
         last_used_at=datetime.datetime(2024, 1, 15, 10, 0),
@@ -218,8 +221,8 @@ def test_list_tokens_returns_safe_display_fields_only(monkeypatch, token_routes_
         id="tok002",
         name="Empty scopes",
         owner="bob",
-        token_prefix="ody_empt",
-        token_hash="$2b$12$ALSONEVERSHOWN",
+        token_prefix="ody_empt",  # noqa: S106
+        token_hash="$2b$12$ALSONEVERSHOWN",  # noqa: S106
         scopes="",
         is_active=False,
         last_used_at=None,
@@ -236,7 +239,16 @@ def test_list_tokens_returns_safe_display_fields_only(monkeypatch, token_routes_
 
     assert len(result) == 2
 
-    safe_fields = {"id", "name", "owner", "token_prefix", "scopes", "is_active", "last_used_at", "created_at"}
+    safe_fields = {
+        "id",
+        "name",
+        "owner",
+        "token_prefix",
+        "scopes",
+        "is_active",
+        "last_used_at",
+        "created_at",
+    }
     for item in result:
         assert set(item.keys()) == safe_fields
         assert "token" not in item
@@ -264,7 +276,7 @@ def test_delete_token_deletes_and_invalidates_cache(monkeypatch, token_routes_mo
     invalidator = MagicMock()
     req = _req("alice", is_admin=True, invalidator=invalidator)
     delete_token = _get_handler(mod, "DELETE", "/tokens/{token_id}")
-    resp = delete_token(request=req, token_id="abcd1234")
+    resp = delete_token(request=req, token_id="abcd1234")  # noqa: S106
 
     assert resp == {"status": "deleted"}
     invalidator.assert_called_once()
@@ -275,7 +287,9 @@ def test_delete_token_deletes_and_invalidates_cache(monkeypatch, token_routes_mo
 # ---------------------------------------------------------------------------
 
 
-def test_delete_missing_token_returns_404_without_invalidating_cache(monkeypatch, token_routes_mod):
+def test_delete_missing_token_returns_404_without_invalidating_cache(
+    monkeypatch, token_routes_mod
+):
     monkeypatch.setenv("AUTH_ENABLED", "true")
     mod = token_routes_mod
     monkeypatch.setattr(mod, "get_current_user", lambda req: req.state.current_user)
@@ -290,7 +304,7 @@ def test_delete_missing_token_returns_404_without_invalidating_cache(monkeypatch
     delete_token = _get_handler(mod, "DELETE", "/tokens/{token_id}")
 
     with pytest.raises(HTTPException) as exc:
-        delete_token(request=req, token_id="missing99")
+        delete_token(request=req, token_id="missing99")  # noqa: S106
     assert exc.value.status_code == 404
     invalidator.assert_not_called()
 
@@ -322,8 +336,12 @@ def test_update_token_rename_preserves_scopes(monkeypatch, token_routes_mod):
     mod = token_routes_mod
 
     token = SimpleNamespace(
-        id="tok123", name="original", owner="alice",
-        token_prefix="ody_orig", scopes="email:read,email:draft", is_active=True,
+        id="tok123",
+        name="original",
+        owner="alice",
+        token_prefix="ody_orig",  # noqa: S106
+        scopes="email:read,email:draft",
+        is_active=True,
     )
     fake_session = MagicMock()
     fake_session.query.return_value.filter.return_value.first.return_value = token
@@ -332,7 +350,7 @@ def test_update_token_rename_preserves_scopes(monkeypatch, token_routes_mod):
     invalidator = MagicMock()
     req = _patch_request(invalidator, {"name": "renamed"})
     update_token = _get_handler(mod, "PATCH", "/tokens/{token_id}")
-    resp = asyncio.run(update_token(request=req, token_id="tok123"))
+    resp = asyncio.run(update_token(request=req, token_id="tok123"))  # noqa: S106
 
     assert token.scopes == "email:read,email:draft"  # untouched
     assert resp["scopes"] == ["email:read", "email:draft"]
@@ -346,8 +364,12 @@ def test_update_token_applies_explicit_scopes(monkeypatch, token_routes_mod):
     mod = token_routes_mod
 
     token = SimpleNamespace(
-        id="tok123", name="original", owner="alice",
-        token_prefix="ody_orig", scopes="email:read,email:draft", is_active=True,
+        id="tok123",
+        name="original",
+        owner="alice",
+        token_prefix="ody_orig",  # noqa: S106
+        scopes="email:read,email:draft",
+        is_active=True,
     )
     fake_session = MagicMock()
     fake_session.query.return_value.filter.return_value.first.return_value = token
@@ -355,7 +377,7 @@ def test_update_token_applies_explicit_scopes(monkeypatch, token_routes_mod):
 
     req = _patch_request(MagicMock(), {"scopes": ["chat"]})
     update_token = _get_handler(mod, "PATCH", "/tokens/{token_id}")
-    resp = asyncio.run(update_token(request=req, token_id="tok123"))
+    resp = asyncio.run(update_token(request=req, token_id="tok123"))  # noqa: S106
 
     assert token.scopes == "chat"
     assert resp["scopes"] == ["chat"]
@@ -372,5 +394,5 @@ def test_update_missing_token_returns_404(monkeypatch, token_routes_mod):
     req = _patch_request(MagicMock(), {"name": "x"})
     update_token = _get_handler(mod, "PATCH", "/tokens/{token_id}")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(update_token(request=req, token_id="missing99"))
+        asyncio.run(update_token(request=req, token_id="missing99"))  # noqa: S106
     assert exc.value.status_code == 404

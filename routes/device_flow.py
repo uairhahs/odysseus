@@ -39,7 +39,9 @@ class DeviceFlowPoll:
         return cls(status="pending", detail=detail)
 
     @classmethod
-    def slow_down(cls, interval: Optional[int] = None, detail: Optional[str] = None) -> "DeviceFlowPoll":
+    def slow_down(
+        cls, interval: Optional[int] = None, detail: Optional[str] = None
+    ) -> "DeviceFlowPoll":
         return cls(status="slow_down", interval=interval, detail=detail)
 
     @classmethod
@@ -70,7 +72,9 @@ class PendingDeviceFlowStore:
     def prune_expired(self) -> None:
         now = self._now()
         with self._lock:
-            for key in [k for k, v in self._pending.items() if v.get("expires_at", 0) < now]:
+            for key in [
+                k for k, v in self._pending.items() if v.get("expires_at", 0) < now
+            ]:
                 self._pending.pop(key, None)
 
     def add(self, payload: Mapping[str, Any], *, interval: int, expires_in: int) -> str:
@@ -153,7 +157,9 @@ def create_device_flow_router(
         expires_in = int(start.expires_in or 900)
         poll_id = store.add(start.pending, interval=interval, expires_in=expires_in)
         response = dict(start.response)
-        response.update({"poll_id": poll_id, "interval": interval, "expires_in": expires_in})
+        response.update(
+            {"poll_id": poll_id, "interval": interval, "expires_in": expires_in}
+        )
         return response
 
     @router.post("/device/poll")

@@ -1,22 +1,25 @@
-# index_documents.py
+"""
+index_documents.py
 
-# A standalone script to index documents from the personal_docs directory
-# into the vector database using RAGManager. This script scans for text files,
-# processes them with proper chunking, and adds them to the vector database
-# with progress reporting and final statistics.
+A standalone script to index documents from the personal_docs directory
+into the vector database using RAGManager. This script scans for text files,
+processes them with proper chunking, and adds them to the vector database
+with progress reporting and final statistics.
 
-# Features:
-# 1. Imports RAGManager from rag_manager
-# 2. Scans personal_docs directory for .txt, .md, .json files
-# 3. Reads each file, chunks it (1000 chars with 200 overlap), and adds to vector database
-# 4. Shows progress during processing and final statistics
-
+Features:
+1. Imports RAGManager from rag_manager
+2. Scans personal_docs directory for .txt, .md, .json files
+3. Reads each file, chunks it (1000 chars with 200 overlap), and adds to vector database
+4. Shows progress during processing and final statistics
+"""
 
 import logging
+import os
 import sys
 from pathlib import Path
 
-# from typing import List, Tuple
+# no yet used
+#  from typing import List, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.constants import PERSONAL_DIR

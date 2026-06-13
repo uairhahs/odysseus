@@ -412,6 +412,7 @@ def _iter_vevents_from_ics(ics_data):
         left, right = ln.split(":", 1)
         event_fields[_field_name(left)] = right.strip()
 
+
 def _sync_blocking(
     owner: str, url: str, username: str, password: str, account_id: str = ""
 ) -> dict:
@@ -593,20 +594,20 @@ def _sync_blocking(
                 # failure deletes just the unreadable rows).
                 if _should_prune_window(seen_uids, parse_failed):
                     stale = (
-                    db.query(CalendarEvent)
-                    .filter(
+                        db.query(CalendarEvent)
+                        .filter(
                             CalendarEvent.calendar_id == local_cal.id,
                             CalendarEvent.origin == "caldav",
                             CalendarEvent.dtstart >= start,
                             CalendarEvent.dtstart <= end,
-                        (
+                            (
                                 ~CalendarEvent.uid.in_(seen_uids)
-                            if seen_uids
-                            else CalendarEvent.uid.isnot(None)
-                        ),
+                                if seen_uids
+                                else CalendarEvent.uid.isnot(None)
+                            ),
                         )
-                    .all()
-                )
+                        .all()
+                    )
                     for ev in stale:
                         db.delete(ev)
                     result["deleted"] += len(stale)

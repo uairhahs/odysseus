@@ -8,7 +8,9 @@ from typing import List, Tuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
-from core.constants import BASE_DIR, PERSONAL_DIR, PERSONAL_UPLOADS_DIR
+# uused
+# from core.constants import BASE_DIR
+from core.constants import PERSONAL_DIR, PERSONAL_UPLOADS_DIR
 from core.middleware import require_admin
 from src.auth_helpers import require_privilege, require_user
 from src.rag_singleton import get_rag_manager

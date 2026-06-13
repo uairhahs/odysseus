@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 COOKBOOK = (ROOT / "static/js/cookbook.js").read_text(encoding="utf-8")
 HWFIT = (ROOT / "static/js/cookbook-hwfit.js").read_text(encoding="utf-8")
@@ -18,13 +17,16 @@ def test_server_dropdown_options_use_profile_keys_not_hosts():
     assert "s?.host || ''" in COOKBOOK
     assert "s?.port || ''" in COOKBOOK
     assert "s?.envPath || ''" in COOKBOOK
-    assert 'const value = _serverKey(s);' in COOKBOOK
+    assert "const value = _serverKey(s);" in COOKBOOK
     assert 'option value="${esc(s.host)}"' not in COOKBOOK
 
 
 def test_selected_server_helpers_prefer_profile_key_before_host_fallback():
     assert "_envState.remoteServerKey = _serverKey(s);" in COOKBOOK
-    assert "const selected = hostOrTask === _envState.remoteHost ? _selectedServer() : null;" in COOKBOOK
+    assert (
+        "const selected = hostOrTask === _envState.remoteHost ? _selectedServer() : null;"
+        in COOKBOOK
+    )
     assert "const srv = selected || _serverByVal(hostOrTask);" in COOKBOOK
     assert "const _want = _currentServerValue();" in COOKBOOK
 

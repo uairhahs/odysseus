@@ -9,11 +9,14 @@ import os
 import secrets
 import threading
 import time
-from pathlib import Path
+
+# from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import bcrypt
 import pyotp
+
+from src.constants import AUTH_FILE
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -51,7 +54,7 @@ ADMIN_PRIVILEGES["allowed_models_restricted"] = False
 # backwards for this sentinel.
 ADMIN_PRIVILEGES["block_all_models"] = False
 
-from src.constants import AUTH_FILE
+
 DEFAULT_AUTH_PATH = AUTH_FILE
 TOKEN_TTL = 60 * 60 * 24 * 7  # 7 days
 

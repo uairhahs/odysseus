@@ -36,6 +36,12 @@ from pydantic import BaseModel
 from sqlalchemy import and_, null, or_, true
 
 from src.auth_helpers import _auth_disabled, get_current_user
+from src.constants import DATA_DIR as _DATA_DIR
+from src.constants import (
+    MAIL_ATTACHMENTS_DIR,
+    SCHEDULED_EMAILS_DB,
+)
+from src.constants import SETTINGS_FILE as _SETTINGS_FILE
 from src.secret_storage import decrypt as _decrypt
 
 logger = logging.getLogger(__name__)
@@ -306,15 +312,12 @@ def _cleanup_compose_uploads(tokens) -> None:
             logger.warning(f"Failed to cleanup compose upload {token}: {e}")
 
 
-from src.constants import DATA_DIR as _DATA_DIR, MAIL_ATTACHMENTS_DIR, SETTINGS_FILE as _SETTINGS_FILE, SCHEDULED_EMAILS_DB
 DATA_DIR = Path(_DATA_DIR)
 SETTINGS_FILE = Path(_SETTINGS_FILE)
 # Override at deploy time via ODYSSEUS_MAIL_ATTACHMENTS_DIR. Defaults to a
 # subdir of the install's data/ tree so the app works out-of-the-box without
 # a hardcoded /home/<user>/ path.
-ATTACHMENTS_DIR = Path(
-    MAIL_ATTACHMENTS_DIR
-)
+ATTACHMENTS_DIR = Path(MAIL_ATTACHMENTS_DIR)
 ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 COMPOSE_UPLOADS_DIR = ATTACHMENTS_DIR / "_compose"
 COMPOSE_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -873,7 +876,10 @@ def _open_imap_connection(
             # rejected; close it before propagating. (#3174)
             try:
                 conn.shutdown()
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Failed to shutdown IMAP connection after STARTTLS failure: {e}"
+                )
                 pass
             raise
     elif port == 993:
@@ -918,8 +924,10 @@ def _imap_connect(account_id: str | None = None, owner: str = ""):
         # can't leak one descriptor per retry / background poller pass.
         try:
             conn.shutdown()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                f"Failed to shutdown IMAP connection after STARTTLS failure: {e}"
+            )
         raise
     return conn
 

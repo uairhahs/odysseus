@@ -11,12 +11,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from core.constants import internal_api_base
-from src.auth_helpers import get_current_user
-from src.constants import DATA_DIR, EMAIL_URGENCY_CACHE_DIR
-from src.task_scheduler import compute_next_run, HOUSEKEEPING_DEFAULTS
 from core.database import ScheduledTask, SessionLocal, TaskRun
 from routes.prefs_routes import _load_for_user, _save_for_user
 from src.auth_helpers import get_current_user
+from src.constants import DATA_DIR, EMAIL_URGENCY_CACHE_DIR
 from src.task_scheduler import HOUSEKEEPING_DEFAULTS, compute_next_run
 
 logger = logging.getLogger(__name__)
@@ -740,7 +738,9 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             owner_slug = "".join(
                 c if (c.isalnum() or c in "-_.@") else "_" for c in (user or "default")
             )
-            for state_path in [Path(DATA_DIR) / f"email_urgency_state_{owner_slug}.json"]:
+            for state_path in [
+                Path(DATA_DIR) / f"email_urgency_state_{owner_slug}.json"
+            ]:
                 try:
                     if state_path.exists():
                         state_path.unlink()

@@ -39,12 +39,8 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse
-from src.constants import DATA_DIR
 
-from src.llm_core import llm_call_async
-from src.upload_limits import read_upload_limited, EMAIL_COMPOSE_UPLOAD_MAX_BYTES
-
-from routes.email_helpers import (
+from routes.email_helpers import (  # ATTACHMENTS_DIR,
     _EMAIL_REPLY_SYS_PROMPT_BASE,
     _IMAP_TIMEOUT_SECONDS,
     _POOL_HOOKS,
@@ -66,6 +62,7 @@ from routes.email_helpers import (
     _extract_reply,
     _extract_text,
     _fetch_sender_thread_context,
+    _friendly_email_auth_error,
     _get_email_config,
     _imap,
     _imap_connect,
@@ -83,8 +80,9 @@ from routes.email_helpers import (
     require_user,
 )
 from routes.email_pollers import _start_poller
+from src.constants import DATA_DIR
 from src.llm_core import llm_call_async
-from src.upload_limits import read_upload_limited
+from src.upload_limits import EMAIL_COMPOSE_UPLOAD_MAX_BYTES, read_upload_limited
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -3948,7 +3946,10 @@ def setup_email_routes():
                     except Exception as e:
                         logger.warning(f"Error logging out: {e}")
             except Exception as e:
-                imap_result = {"ok": False, "error": _friendly_email_auth_error("IMAP", imap_host, e)}
+                imap_result = {
+                    "ok": False,
+                    "error": _friendly_email_auth_error("IMAP", imap_host, e),
+                }
 
         smtp_host = (body.get("smtp_host") or "").strip()
         if smtp_host:
@@ -3974,7 +3975,10 @@ def setup_email_routes():
                     except Exception as e:
                         logger.warning(f"Error quitting SMTP: {e}")
             except Exception as e:
-                smtp_result = {"ok": False, "error": _friendly_email_auth_error("SMTP", smtp_host, e)}
+                smtp_result = {
+                    "ok": False,
+                    "error": _friendly_email_auth_error("SMTP", smtp_host, e),
+                }
 
         return {
             "ok": imap_result["ok"] and (smtp_result is None or smtp_result["ok"]),

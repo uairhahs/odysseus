@@ -23,7 +23,7 @@ If either value is missing, do not guess credentials. Tell the user to create a 
 - **Note / freeform info ("note that the wifi password is ...")** → memory or todo without a due_date (depending on whether it's a fact about the user or an action item).
 - **Persistent fact / preference about the user** → memory.
 
-If the user says "reminder" + a time, default to TODO with due_date. Only switch to calendar if the user explicitly says "calendar", "event", "meeting", "appointment", or describes a time *range*.
+If the user says "reminder" + a time, default to TODO with due*date. Only switch to calendar if the user explicitly says "calendar", "event", "meeting", "appointment", or describes a time \_range*.
 
 ## Safety
 
@@ -110,7 +110,7 @@ python3 ~/.claude/skills/odysseus/scripts/odysseus_api.py POST /api/codex/memory
 
 The Cookbook surface lets you reproduce what a human would do in Odysseus → Cookbook: read which serves are running, tail their tmux output to see why they crashed, edit the launch command, relaunch, kill a stuck one. Use this when the user is debugging a model server that won't come up (compute-capability errors, OOM, missing kernels, wrong attention backend, etc.).
 
-- `GET /api/codex/cookbook/tasks` — list active serve/download/install tasks (sessionId, type, status, repo_id, remoteHost, payload._cmd). Requires `cookbook:read`.
+- `GET /api/codex/cookbook/tasks` — list active serve/download/install tasks (sessionId, type, status, repo_id, remoteHost, payload.\_cmd). Requires `cookbook:read`.
 - `GET /api/codex/cookbook/servers` — list configured servers (name, host, port, env type + path, model dirs). Requires `cookbook:read`.
 - `GET /api/codex/cookbook/cached?host=<NAME>` — list models already cached on the named server (HF cache + Ollama + extra modelDirs). Call BEFORE `serve` to see what's already on disk. Requires `cookbook:read`.
 - `GET /api/codex/cookbook/presets` — list saved serve presets (model + host + port + cmd). The user's saved preset usually has a working cmd — try `preset NAME` before composing your own. Requires `cookbook:read`.
@@ -145,6 +145,7 @@ python3 ~/.claude/skills/odysseus/scripts/odysseus_api.py cookbook serve \
 4. `cookbook serve repo "new cmd"` — try the next variation. Wait ~20s, then `cookbook output` on the new sessionId.
 
 **Hard limits this surface enforces:**
+
 - `cookbook serve` cmd allowlist + shell-metacharacter rejection — you cannot run arbitrary shell, only model-server binaries.
 - `cookbook stop` only targets task sessionIds matching `[a-zA-Z0-9_-]+`.
 - The agent CAN spawn GPU-pinning long-lived processes — always `cookbook stop` your previous attempt before relaunching, and check `cookbook tasks` for collisions on the same `--port` before launching.

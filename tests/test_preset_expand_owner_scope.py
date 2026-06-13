@@ -26,7 +26,9 @@ class _FakeRequest:
 def _expand_endpoint():
     router = setup_preset_routes(MagicMock())
     for route in router.routes:
-        if getattr(route, "path", "") == "/api/presets/expand" and "POST" in getattr(route, "methods", set()):
+        if getattr(route, "path", "") == "/api/presets/expand" and "POST" in getattr(
+            route, "methods", set()
+        ):
             return route.endpoint
     raise AssertionError("POST /api/presets/expand route not registered")
 
@@ -52,8 +54,10 @@ def test_expand_scopes_model_resolution_to_cookie_user(monkeypatch):
     seen = _patch_model_pipeline(monkeypatch)
     endpoint = _expand_endpoint()
 
-    req = _FakeRequest({"name": "Pirate", "prompt": "talks like a pirate", "model": "test-model"},
-                       current_user="alice")
+    req = _FakeRequest(
+        {"name": "Pirate", "prompt": "talks like a pirate", "model": "test-model"},
+        current_user="alice",
+    )
     result = asyncio.run(endpoint(req))
 
     assert seen["owner"] == "alice"
@@ -67,8 +71,12 @@ def test_expand_attributes_bearer_token_to_its_owner(monkeypatch):
     seen = _patch_model_pipeline(monkeypatch)
     endpoint = _expand_endpoint()
 
-    req = _FakeRequest({"name": "Pirate", "model": ""},
-                       current_user="api", api_token=True, api_token_owner="bob")
+    req = _FakeRequest(
+        {"name": "Pirate", "model": ""},
+        current_user="api",
+        api_token=True,
+        api_token_owner="bob",  # noqa: S106
+    )
     asyncio.run(endpoint(req))
 
     assert seen["owner"] == "bob"

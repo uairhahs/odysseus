@@ -20,21 +20,30 @@ import re
 import smtplib
 import sqlite3
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime  # , timedelta
 from email.message import EmailMessage
 from pathlib import Path
-from datetime import datetime, timedelta
-import uuid
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.constants import (
+    APP_DB,
+)
+from src.constants import DATA_DIR as _DATA_DIR
+from src.constants import (
+    EMAIL_CACHE_DB,
+    MAIL_ATTACHMENTS_DIR,
+)
+from src.constants import SETTINGS_FILE as _SETTINGS_FILE
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+logger = logging.getLogger(__name__)
 server = Server("email")
 EMAIL_SOCKET_TIMEOUT = float(os.environ.get("EMAIL_SOCKET_TIMEOUT", "20"))
-from src.constants import DATA_DIR as _DATA_DIR, APP_DB, EMAIL_CACHE_DB, SETTINGS_FILE as _SETTINGS_FILE, MAIL_ATTACHMENTS_DIR
+
 DATA_DIR = Path(_DATA_DIR)
 
 
@@ -111,10 +120,14 @@ def _default_document_owner() -> str | None:
         auth_path = DATA_DIR / "auth.json"
         if not auth_path.exists():
             return None
-        users = (json.loads(auth_path.read_text(encoding="utf-8")).get("users") or {})
+        users = json.loads(auth_path.read_text(encoding="utf-8")).get("users") or {}
         if not isinstance(users, dict) or not users:
             return None
-        admins = [name for name, data in users.items() if isinstance(data, dict) and data.get("is_admin")]
+        admins = [
+            name
+            for name, data in users.items()
+            if isinstance(data, dict) and data.get("is_admin")
+        ]
         if len(admins) == 1:
             return admins[0]
         if len(users) == 1:
@@ -346,7 +359,8 @@ def _imap_connect(account: str | None = None):
                 # Don't leak the open plain socket on a rejected STARTTLS. (#3174)
                 try:
                     conn.shutdown()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Error shutting down IMAP connection: %s", e)
                     pass
                 raise
     if getattr(conn, "sock", None):
@@ -358,7 +372,10 @@ def _imap_connect(account: str | None = None):
         # before propagating (shutdown() is the pre-auth low-level close). (#3174)
         try:
             conn.shutdown()
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Error shutting down IMAP connection after failed login: %s", e
+            )
             pass
         raise
     return conn
@@ -944,12 +961,16 @@ def _smtp_connect(account=None, cfg=None):
         )
         try:
             conn.starttls()
-        except Exception:
+        except Exception as e:
+            logger.warning("Error starting TLS: %s", e)
             # Don't leak the open plain socket on a rejected STARTTLS. SMTP has
             # no shutdown(); close() is the low-level socket close (no QUIT). (#3174)
             try:
                 conn.close()
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "Error closing SMTP connection after failed STARTTLS: %s", e
+                )
                 pass
             raise
     elif security == "ssl":
@@ -972,8 +993,10 @@ def _smtp_connect(account=None, cfg=None):
             # before propagating (SMTP has no shutdown(); close() = socket close). (#3174)
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Error closing SMTP connection after failed login: %s", e
+                )
             raise
     return conn
 
@@ -1130,7 +1153,8 @@ def _create_email_draft_document(
     source_message_id=None,
 ):
     """Create an Odysseus email compose document for user review. Does not send."""
-    from core.database import SessionLocal, Document, DocumentVersion
+    from core.database import Document, DocumentVersion, SessionLocal
+
     try:
         from src.event_bus import fire_event
     except Exception:
@@ -1158,7 +1182,7 @@ def _create_email_draft_document(
         if source_uid and source_folder:
             existing = (
                 db.query(Document)
-                .filter(Document.is_active == True)
+                .filter(Document.is_active.is_(True))
                 .filter(Document.language == "email")
                 .filter(Document.owner == doc_owner)
                 .filter(Document.source_email_uid == str(source_uid))
@@ -1167,7 +1191,9 @@ def _create_email_draft_document(
                 .first()
             )
             if existing and "\n---\n" in (existing.current_content or ""):
-                existing.current_content = _merge_email_reply_body(existing.current_content, body or "")
+                existing.current_content = _merge_email_reply_body(
+                    existing.current_content, body or ""
+                )
                 existing.version_count = (existing.version_count or 0) + 1
                 ver = DocumentVersion(
                     id=ver_id,
@@ -1182,7 +1208,8 @@ def _create_email_draft_document(
                 if fire_event:
                     try:
                         fire_event("document_updated", doc_owner)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Error firing document_updated event: %s", e)
                         pass
                 return {
                     "draft": True,
@@ -1224,8 +1251,8 @@ def _create_email_draft_document(
         if fire_event:
             try:
                 fire_event("document_created", doc_owner)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error firing document_created event: %s", e)
         return {
             "draft": True,
             "doc_id": doc_id,
@@ -1240,7 +1267,9 @@ def _create_email_draft_document(
         db.close()
 
 
-def _draft_reply_to_email(uid, body, folder="INBOX", reply_all=False, account=None, title=None):
+def _draft_reply_to_email(
+    uid, body, folder="INBOX", reply_all=False, account=None, title=None
+):
     """Create a threaded Odysseus reply draft document. Does not send."""
     conn = _imap_connect(account)
     conn.select(_q(folder), readonly=True)
@@ -1252,10 +1281,18 @@ def _draft_reply_to_email(uid, body, folder="INBOX", reply_all=False, account=No
     orig = email.message_from_bytes(raw)
 
     orig_subject = _decode_header(orig.get("Subject", ""))
-    reply_subject = orig_subject if orig_subject.lower().startswith("re:") else f"Re: {orig_subject}"
+    reply_subject = (
+        orig_subject
+        if orig_subject.lower().startswith("re:")
+        else f"Re: {orig_subject}"
+    )
     orig_message_id = orig.get("Message-ID", "")
     orig_references = orig.get("References", "")
-    new_references = (orig_references + " " + orig_message_id).strip() if orig_references else orig_message_id
+    new_references = (
+        (orig_references + " " + orig_message_id).strip()
+        if orig_references
+        else orig_message_id
+    )
 
     sender = _decode_header(orig.get("From", ""))
     _, sender_addr = email.utils.parseaddr(sender)
@@ -1292,17 +1329,23 @@ def _draft_reply_to_email(uid, body, folder="INBOX", reply_all=False, account=No
     )
 
 
-async def _ai_draft_reply_to_email(uid, folder="INBOX", reply_all=False, account=None, title=None):
+async def _ai_draft_reply_to_email(
+    uid, folder="INBOX", reply_all=False, account=None, title=None
+):
     """Generate a reply with Odysseus' AI-reply prompt/style, then create a compose doc."""
     read_result = _read_email(uid=uid, folder=folder, account=account)
     if "error" in read_result:
         return read_result
 
-    to_addr = read_result.get("from_address") or email.utils.parseaddr(read_result.get("from") or "")[1]
+    to_addr = (
+        read_result.get("from_address")
+        or email.utils.parseaddr(read_result.get("from") or "")[1]
+    )
     subject = read_result.get("subject") or ""
     reply_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
     original_body = read_result.get("body") or ""
-    message_id = read_result.get("message_id") or ""
+    # unused
+    # message_id = read_result.get("message_id") or ""
 
     if not original_body.strip():
         return {"error": "No email body available for AI reply"}
@@ -1315,9 +1358,9 @@ async def _ai_draft_reply_to_email(uid, folder="INBOX", reply_all=False, account
             _load_settings,
         )
         from src.endpoint_resolver import (
+            resolve_chat_fallback_candidates,
             resolve_endpoint,
             resolve_utility_fallback_candidates,
-            resolve_chat_fallback_candidates,
         )
         from src.llm_core import llm_call_async_with_fallback
     except Exception as exc:
@@ -1347,12 +1390,12 @@ async def _ai_draft_reply_to_email(uid, folder="INBOX", reply_all=False, account
 
     try:
         _add(*resolve_endpoint("utility", owner=None))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error resolving utility endpoint: %s", e)
     try:
         _add(*resolve_endpoint("default", owner=None))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error resolving default endpoint: %s", e)
     try:
         utility_fallbacks = resolve_utility_fallback_candidates(owner=None) or []
     except TypeError:
@@ -1760,12 +1803,24 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "to": {"type": "string", "description": "Recipient email address(es), comma-separated"},
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient email address(es), comma-separated",
+                    },
                     "subject": {"type": "string", "description": "Email subject line"},
                     "body": {"type": "string", "description": "Draft body"},
-                    "cc": {"type": "string", "description": "CC address(es), comma-separated (optional)"},
-                    "bcc": {"type": "string", "description": "BCC address(es), comma-separated (optional)"},
-                    "title": {"type": "string", "description": "Optional Odysseus document title"},
+                    "cc": {
+                        "type": "string",
+                        "description": "CC address(es), comma-separated (optional)",
+                    },
+                    "bcc": {
+                        "type": "string",
+                        "description": "BCC address(es), comma-separated (optional)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional Odysseus document title",
+                    },
                     **ACCOUNT_PROP,
                 },
                 "required": ["to", "subject", "body"],
@@ -1783,12 +1838,24 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "to": {"type": "string", "description": "Recipient email address(es), comma-separated"},
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient email address(es), comma-separated",
+                    },
                     "subject": {"type": "string", "description": "Email subject line"},
                     "body": {"type": "string", "description": "Draft body"},
-                    "cc": {"type": "string", "description": "CC address(es), comma-separated (optional)"},
-                    "bcc": {"type": "string", "description": "BCC address(es), comma-separated (optional)"},
-                    "title": {"type": "string", "description": "Optional Odysseus document title"},
+                    "cc": {
+                        "type": "string",
+                        "description": "CC address(es), comma-separated (optional)",
+                    },
+                    "bcc": {
+                        "type": "string",
+                        "description": "BCC address(es), comma-separated (optional)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional Odysseus document title",
+                    },
                     **ACCOUNT_PROP,
                 },
                 "required": ["to", "subject", "body"],
@@ -1829,7 +1896,6 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-
             name="draft_email_reply",
             description=(
                 "Create an Odysseus email reply draft document for an existing email UID. "
@@ -1841,18 +1907,31 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "uid": {"type": "string", "description": "Exact Email UID from list_emails/read_email; never invent UID 1"},
+                    "uid": {
+                        "type": "string",
+                        "description": "Exact Email UID from list_emails/read_email; never invent UID 1",
+                    },
                     "body": {"type": "string", "description": "Draft reply body text"},
-                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)", "default": "INBOX"},
-                    "reply_all": {"type": "boolean", "description": "Reply to all recipients (default: false)", "default": False},
-                    "title": {"type": "string", "description": "Optional Odysseus document title"},
+                    "folder": {
+                        "type": "string",
+                        "description": "IMAP folder (default: INBOX)",
+                        "default": "INBOX",
+                    },
+                    "reply_all": {
+                        "type": "boolean",
+                        "description": "Reply to all recipients (default: false)",
+                        "default": False,
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional Odysseus document title",
+                    },
                     **ACCOUNT_PROP,
                 },
                 "required": ["uid", "body"],
             },
         ),
         Tool(
-
             name="ai_draft_email_reply",
             description=(
                 "Generate an AI reply using Odysseus' existing AI Reply behavior, "
@@ -1864,10 +1943,24 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "uid": {"type": "string", "description": "Exact Email UID from list_emails/read_email; never invent UID 1"},
-                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)", "default": "INBOX"},
-                    "reply_all": {"type": "boolean", "description": "Reply to all recipients (default: false)", "default": False},
-                    "title": {"type": "string", "description": "Optional Odysseus document title"},
+                    "uid": {
+                        "type": "string",
+                        "description": "Exact Email UID from list_emails/read_email; never invent UID 1",
+                    },
+                    "folder": {
+                        "type": "string",
+                        "description": "IMAP folder (default: INBOX)",
+                        "default": "INBOX",
+                    },
+                    "reply_all": {
+                        "type": "boolean",
+                        "description": "Reply to all recipients (default: false)",
+                        "default": False,
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional Odysseus document title",
+                    },
                     **ACCOUNT_PROP,
                 },
                 "required": ["uid"],
@@ -2268,7 +2361,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             subject = arguments.get("subject")
             body = arguments.get("body")
             if not to or not subject or body is None:
-                return [TextContent(type="text", text="Error: to, subject, and body are required")]
+                return [
+                    TextContent(
+                        type="text", text="Error: to, subject, and body are required"
+                    )
+                ]
             result = _create_email_draft_document(
                 to=to,
                 subject=subject,
@@ -2279,21 +2376,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 account=acct,
             )
             acct_note = f" from {result['account']}" if result.get("account") else ""
-            return [TextContent(
-                type="text",
-                text=(
-                    f"Created Odysseus email draft `{result['title']}` "
-                    f"(document ID: {result['doc_id']}){acct_note}. "
-                    "It has not been sent; open the document in Odysseus to review and send."
-                ),
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Created Odysseus email draft `{result['title']}` "
+                        f"(document ID: {result['doc_id']}){acct_note}. "
+                        "It has not been sent; open the document in Odysseus to review and send."
+                    ),
+                )
+            ]
 
         elif name == "draft_email":
             to = arguments.get("to")
             subject = arguments.get("subject")
             body = arguments.get("body")
             if not to or not subject or body is None:
-                return [TextContent(type="text", text="Error: to, subject, and body are required")]
+                return [
+                    TextContent(
+                        type="text", text="Error: to, subject, and body are required"
+                    )
+                ]
             result = _create_email_draft_document(
                 to=to,
                 subject=subject,
@@ -2304,14 +2407,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 account=acct,
             )
             acct_note = f" from {result['account']}" if result.get("account") else ""
-            return [TextContent(
-                type="text",
-                text=(
-                    f"Created Odysseus email draft `{result['title']}` "
-                    f"(document ID: {result['doc_id']}){acct_note}. "
-                    "It has not been sent; open the document in Odysseus to review and send."
-                ),
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Created Odysseus email draft `{result['title']}` "
+                        f"(document ID: {result['doc_id']}){acct_note}. "
+                        "It has not been sent; open the document in Odysseus to review and send."
+                    ),
+                )
+            ]
 
         elif name == "reply_to_email":
             uid = arguments.get("uid")
@@ -2351,7 +2456,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             uid = arguments.get("uid")
             body = arguments.get("body")
             if not uid or body is None:
-                return [TextContent(type="text", text="Error: uid and body are required")]
+                return [
+                    TextContent(type="text", text="Error: uid and body are required")
+                ]
             result = _draft_reply_to_email(
                 uid=uid,
                 body=body,
@@ -2363,14 +2470,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if "error" in result:
                 return [TextContent(type="text", text=f"Error: {result['error']}")]
             acct_note = f" from {result['account']}" if result.get("account") else ""
-            return [TextContent(
-                type="text",
-                text=(
-                    f"Created Odysseus reply draft `{result['title']}` for UID {uid} "
-                    f"(document ID: {result['doc_id']}){acct_note}. "
-                    "It has not been sent; open the document in Odysseus to review and send."
-                ),
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Created Odysseus reply draft `{result['title']}` for UID {uid} "
+                        f"(document ID: {result['doc_id']}){acct_note}. "
+                        "It has not been sent; open the document in Odysseus to review and send."
+                    ),
+                )
+            ]
 
         elif name == "ai_draft_email_reply":
             uid = arguments.get("uid")
@@ -2386,20 +2495,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if "error" in result:
                 return [TextContent(type="text", text=f"Error: {result['error']}")]
             acct_note = f" from {result['account']}" if result.get("account") else ""
-            return [TextContent(
-                type="text",
-                text=(
-                    f"Generated AI reply and created Odysseus compose draft "
-                    f"`{result['title']}` for UID {uid} (document ID: {result['doc_id']}){acct_note}. "
-                    "It has not been sent; open the document in Odysseus to review and send."
-                ),
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Generated AI reply and created Odysseus compose draft "
+                        f"`{result['title']}` for UID {uid} (document ID: {result['doc_id']}){acct_note}. "
+                        "It has not been sent; open the document in Odysseus to review and send."
+                    ),
+                )
+            ]
 
         elif name == "draft_email_reply":
             uid = arguments.get("uid")
             body = arguments.get("body")
             if not uid or body is None:
-                return [TextContent(type="text", text="Error: uid and body are required")]
+                return [
+                    TextContent(type="text", text="Error: uid and body are required")
+                ]
             result = _draft_reply_to_email(
                 uid=uid,
                 body=body,
@@ -2411,14 +2524,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if "error" in result:
                 return [TextContent(type="text", text=f"Error: {result['error']}")]
             acct_note = f" from {result['account']}" if result.get("account") else ""
-            return [TextContent(
-                type="text",
-                text=(
-                    f"Created Odysseus reply draft `{result['title']}` for UID {uid} "
-                    f"(document ID: {result['doc_id']}){acct_note}. "
-                    "It has not been sent; open the document in Odysseus to review and send."
-                ),
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Created Odysseus reply draft `{result['title']}` for UID {uid} "
+                        f"(document ID: {result['doc_id']}){acct_note}. "
+                        "It has not been sent; open the document in Odysseus to review and send."
+                    ),
+                )
+            ]
 
         elif name == "ai_draft_email_reply":
             uid = arguments.get("uid")
@@ -2434,14 +2549,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if "error" in result:
                 return [TextContent(type="text", text=f"Error: {result['error']}")]
             acct_note = f" from {result['account']}" if result.get("account") else ""
-            return [TextContent(
-                type="text",
-                text=(
-                    f"Generated AI reply and created Odysseus compose draft "
-                    f"`{result['title']}` for UID {uid} (document ID: {result['doc_id']}){acct_note}. "
-                    "It has not been sent; open the document in Odysseus to review and send."
-                ),
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Generated AI reply and created Odysseus compose draft "
+                        f"`{result['title']}` for UID {uid} (document ID: {result['doc_id']}){acct_note}. "
+                        "It has not been sent; open the document in Odysseus to review and send."
+                    ),
+                )
+            ]
 
         elif name == "archive_email":
             uid = arguments.get("uid")

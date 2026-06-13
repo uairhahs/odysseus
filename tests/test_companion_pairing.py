@@ -75,8 +75,8 @@ import companion.routes as R  # noqa: E402
 from companion.routes import mint_pairing_token, setup_companion_routes  # noqa: E402
 from core.middleware import require_admin  # noqa: E402
 
-
 # --- token minting: shown once, hashed at rest -----------------------------
+
 
 def test_mint_token_returns_raw_once_and_stores_only_a_hash(monkeypatch):
     monkeypatch.setitem(sys.modules, "core.database", _db)
@@ -98,7 +98,9 @@ def test_mint_token_returns_raw_once_and_stores_only_a_hash(monkeypatch):
 def test_mint_pairing_token_invalidates_cache(monkeypatch):
     # The mint must flip the auth middleware's cache so the token works on the
     # very next request, with no restart.
-    monkeypatch.setattr(P, "mint_token", lambda owner, name="companion": ("id1", "ody_demo"))
+    monkeypatch.setattr(
+        P, "mint_token", lambda owner, name="companion": ("id1", "ody_demo")
+    )
     invalidate = MagicMock()
     token_id, raw = mint_pairing_token("alice", invalidate)
     assert (token_id, raw) == ("id1", "ody_demo")
@@ -106,7 +108,9 @@ def test_mint_pairing_token_invalidates_cache(monkeypatch):
 
 
 def test_mint_pairing_token_tolerates_no_invalidator(monkeypatch):
-    monkeypatch.setattr(P, "mint_token", lambda owner, name="companion": ("id1", "ody_demo"))
+    monkeypatch.setattr(
+        P, "mint_token", lambda owner, name="companion": ("id1", "ody_demo")
+    )
     # Must not blow up if the app didn't expose an invalidator.
     assert mint_pairing_token("alice", None) == ("id1", "ody_demo")
 
@@ -128,6 +132,7 @@ def test_find_admin_user_ignores_invalid_auth_shape(tmp_path, monkeypatch, paylo
 
 
 # --- admin-only gate: a bearer/non-admin caller is rejected ----------------
+
 
 def _admin_mgr(is_admin):
     return SimpleNamespace(is_admin=lambda u: is_admin, is_configured=True)
@@ -163,6 +168,7 @@ def test_admin_user_passes_the_gate(monkeypatch):
 
 
 # --- CSRF: minting is POST, never GET --------------------------------------
+
 
 def _pair_methods():
     router = setup_companion_routes()
@@ -230,7 +236,7 @@ def test_pair_get_renders_form_without_minting(monkeypatch):
 
 
 def test_pair_post_json_returns_pairing_payload(monkeypatch):
-    mint = MagicMock(return_value=("tok123", "ody_raw"))
+    mint = MagicMock(return_value=("tok123", "ody_raw"))  # noqa: S105
     monkeypatch.setattr(R, "require_admin", lambda request: None, raising=False)
     monkeypatch.setattr(R, "get_current_user", lambda request: "alice")
     monkeypatch.setattr(R, "mint_pairing_token", mint)
@@ -242,15 +248,22 @@ def test_pair_post_json_returns_pairing_payload(monkeypatch):
     mint.assert_called_once_with("alice", request.app.state.invalidate_token_cache)
     assert response["host"] == "192.168.1.50"
     assert response["port"] == 7000
-    assert response["token"] == "ody_raw"
-    assert response["token_id"] == "tok123"
+    assert response["token"] == "ody_raw"  # noqa: S105
+    assert response["token_id"] == "tok123"  # noqa: S105
     assert response["payload"] == {
         "v": 1,
         "host": "192.168.1.50",
         "port": 7000,
         "token": "ody_raw",
     }
-    for secret_key in ("token_hash", "token_prefix", "scopes", "is_active", "owner", "name"):
+    for secret_key in (
+        "token_hash",
+        "token_prefix",
+        "scopes",
+        "is_active",
+        "owner",
+        "name",
+    ):
         assert secret_key not in response
         assert secret_key not in response["payload"]
 
@@ -258,7 +271,9 @@ def test_pair_post_json_returns_pairing_payload(monkeypatch):
 def test_pair_post_json_qr_failure_returns_null_qr(monkeypatch):
     monkeypatch.setattr(R, "require_admin", lambda request: None, raising=False)
     monkeypatch.setattr(R, "get_current_user", lambda request: "alice")
-    monkeypatch.setattr(R, "mint_pairing_token", lambda owner, invalidate: ("tok123", "ody_raw"))
+    monkeypatch.setattr(
+        R, "mint_pairing_token", lambda owner, invalidate: ("tok123", "ody_raw")
+    )
     monkeypatch.setattr(R._pairing, "lan_ip_candidates", lambda: ["192.168.1.50"])
     monkeypatch.setattr(R._pairing, "pairing_qr_png_data_uri", lambda payload: None)
 
@@ -267,7 +282,7 @@ def test_pair_post_json_qr_failure_returns_null_qr(monkeypatch):
     assert response["qr"] is None
     assert response["host"] == "192.168.1.50"
     assert response["port"] == 7000
-    assert response["token"] == "ody_raw"
+    assert response["token"] == "ody_raw"  # noqa: S105
     assert response["payload"] == {
         "v": 1,
         "host": "192.168.1.50",
@@ -279,7 +294,9 @@ def test_pair_post_json_qr_failure_returns_null_qr(monkeypatch):
 def test_pair_post_html_escapes_pairing_values(monkeypatch):
     monkeypatch.setattr(R, "require_admin", lambda request: None, raising=False)
     monkeypatch.setattr(R, "get_current_user", lambda request: "alice")
-    monkeypatch.setattr(R, "mint_pairing_token", lambda owner, invalidate: ("tok<123>", "ody_<raw>&"))
+    monkeypatch.setattr(
+        R, "mint_pairing_token", lambda owner, invalidate: ("tok<123>", "ody_<raw>&")
+    )
     monkeypatch.setattr(R._pairing, "lan_ip_candidates", lambda: ["host<one>&"])
     monkeypatch.setattr(R._pairing, "pairing_qr_png_data_uri", lambda payload: None)
 

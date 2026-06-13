@@ -3,7 +3,8 @@
 import asyncio
 import json
 import logging
-import os
+
+# import os
 import time
 from typing import Any, AsyncGenerator, Dict, List
 
@@ -190,6 +191,7 @@ def _recover_empty_session_model(
     if current_model:
         try:
             from src.chatgpt_subscription import is_chatgpt_subscription_base
+
             is_chatgpt_subscription = is_chatgpt_subscription_base(endpoint_url)
             if not is_chatgpt_subscription:
                 return False
@@ -219,7 +221,10 @@ def _recover_empty_session_model(
         if not is_chatgpt_subscription:
             try:
                 from src.chatgpt_subscription import is_chatgpt_subscription_base
-                is_chatgpt_subscription = is_chatgpt_subscription_base(getattr(ep, "base_url", "") or endpoint_url)
+
+                is_chatgpt_subscription = is_chatgpt_subscription_base(
+                    getattr(ep, "base_url", "") or endpoint_url
+                )
             except Exception:
                 is_chatgpt_subscription = False
         try:
@@ -245,6 +250,7 @@ def _recover_empty_session_model(
                 try:
                     from src.chatgpt_subscription import fetch_available_models
                     from src.endpoint_resolver import resolve_endpoint_runtime
+
                     _base, api_key = resolve_endpoint_runtime(ep, owner=owner)
                     if api_key:
                         live_models = fetch_available_models(api_key)
@@ -263,7 +269,9 @@ def _recover_empty_session_model(
                 visible = _visible_models(cached, getattr(ep, "hidden_models", None))
             except Exception:
                 visible = cached
-            if current_model and current_model in {str(item).strip() for item in visible}:
+            if current_model and current_model in {
+                str(item).strip() for item in visible
+            }:
                 return False
         if not visible:
             return False
@@ -502,7 +510,8 @@ def setup_chat_routes(
         # manual form posts that still send plan_mode=true.
         plan_mode = False
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
-        workspace = ""
+        # assigned, but unused
+        # workspace = ""
         # Plan mode is a modifier on agent mode — it only makes sense with tools.
         if plan_mode:
             chat_mode = "agent"

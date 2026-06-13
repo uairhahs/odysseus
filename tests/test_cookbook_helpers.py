@@ -36,6 +36,8 @@ def _norm(s: str) -> str:
     """Normalize whitespace and quote style so cosmetic differences don't matter."""
     s = re.sub(r"\s+", " ", s)
     s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
     return s.strip()
 
 
@@ -160,9 +162,15 @@ def test_pip_install_fallback_chain_prefers_venv_safe_install():
     assert "python3 -m pip install -q -U huggingface_hub" in chain
     # Fallback: --user first, then guarded --break-system-packages for PEP-668 pip.
     assert "python3 -m pip install --user -q -U huggingface_hub" in chain
-    assert "python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages" in chain
+    assert (
+        "python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages"
+        in chain
+    )
     assert "--user --break-system-packages" in chain
-    assert "python3 -m pip install --user --break-system-packages -q -U huggingface_hub" in chain
+    assert (
+        "python3 -m pip install --user --break-system-packages -q -U huggingface_hub"
+        in chain
+    )
     assert "uv pip install -q -U huggingface_hub" in chain
     # No python -m pip fallback in uv-managed runtimes
     assert "python3 -m pip" not in chain
@@ -178,7 +186,9 @@ def test_pip_install_fallback_chain_allows_custom_python_command():
     chain = _pip_install_fallback_chain("hf_transfer", python_cmd="pip", upgrade=False)
     assert "pip install -q hf_transfer" in chain
     assert "pip install --user -q hf_transfer" in chain
-    assert "pip install --help 2>/dev/null | grep -q -- --break-system-packages" in chain
+    assert (
+        "pip install --help 2>/dev/null | grep -q -- --break-system-packages" in chain
+    )
     assert "pip install --user --break-system-packages -q hf_transfer" in chain
     # venv check uses the python executable derived from the pip command
     assert (
@@ -194,9 +204,15 @@ def test_pip_install_fallback_chain_accepts_python_executable():
 
     assert "python -m pip install -q 'llama-cpp-python[server]'" in chain
     assert "python -m pip install --user -q 'llama-cpp-python[server]'" in chain
-    assert "python -m pip install --help 2>/dev/null | grep -q -- --break-system-packages" in chain
+    assert (
+        "python -m pip install --help 2>/dev/null | grep -q -- --break-system-packages"
+        in chain
+    )
     assert "python install " not in chain
-    assert 'python -c "import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)"' in chain
+    assert (
+        'python -c "import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)"'
+        in chain
+    )
 
 
 def test_pip_install_fallback_chain_propagates_failure_in_venv():
@@ -345,15 +361,26 @@ def test_pip_install_runner_guards_break_system_packages():
     )
     script = "\n".join(lines)
 
-    assert "python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages" in script
-    assert 'python3 -m pip install --no-cache-dir --user --break-system-packages "llama-cpp-python[server]"' in script
-    assert "python3 -m pip install --no-cache-dir --user 'llama-cpp-python[server]'" in script
+    assert (
+        "python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages"
+        in script
+    )
+    assert (
+        'python3 -m pip install --no-cache-dir --user --break-system-packages "llama-cpp-python[server]"'
+        in script
+    )
+    assert (
+        "python3 -m pip install --no-cache-dir --user 'llama-cpp-python[server]'"
+        in script
+    )
     assert "pip does not support --break-system-packages" in script
 
 
 def test_pip_install_runner_leaves_plain_commands_unchanged():
     lines = []
-    _append_pip_install_runner_lines(lines, "python3 -m pip install --no-cache-dir vllm")
+    _append_pip_install_runner_lines(
+        lines, "python3 -m pip install --no-cache-dir vllm"
+    )
 
     assert lines == ["python3 -m pip install --no-cache-dir vllm"]
 

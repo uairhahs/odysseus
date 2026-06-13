@@ -30,6 +30,14 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.types import TypeDecorator
 
+from src.constants import (
+    AUTH_FILE,
+    DATA_DIR,
+    MEMORY_FILE,
+    SETTINGS_FILE,
+    USER_PREFS_FILE,
+)
+
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
@@ -58,7 +66,7 @@ class TimestampMixin:
 
 
 # Get database URL from environment, default to SQLite in DATA_DIR
-from src.constants import DATA_DIR, AUTH_FILE, MEMORY_FILE, USER_PREFS_FILE, SETTINGS_FILE
+
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/app.db")
 
 # Create engine
@@ -458,8 +466,10 @@ class ModelEndpoint(TimestampMixin, Base):
     # providers that need refresh tokens instead of a static API key.
     provider_auth_id = Column(String, nullable=True, index=True)
 
+
 class ProviderAuthSession(TimestampMixin, Base):
     """Encrypted OAuth/session credentials for refresh-aware model providers."""
+
     __tablename__ = "provider_auth_sessions"
 
     id = Column(String, primary_key=True, index=True)
@@ -1006,9 +1016,11 @@ def _migrate_add_model_endpoint_owner_column():
             f"model_endpoints.owner migration failed: {e}"
         )
 
+
 def _migrate_add_provider_auth_id_column():
     """Add provider_auth_id column to model_endpoints if it doesn't exist."""
     import sqlite3
+
     db_path = DATABASE_URL.replace("sqlite:///", "")
     if not os.path.exists(db_path):
         return
@@ -1017,33 +1029,21 @@ def _migrate_add_provider_auth_id_column():
         cursor = conn.execute("PRAGMA table_info(model_endpoints)")
         columns = [row[1] for row in cursor.fetchall()]
         if columns and "provider_auth_id" not in columns:
-            conn.execute("ALTER TABLE model_endpoints ADD COLUMN provider_auth_id VARCHAR")
-            conn.execute("CREATE INDEX IF NOT EXISTS ix_model_endpoints_provider_auth_id ON model_endpoints(provider_auth_id)")
+            conn.execute(
+                "ALTER TABLE model_endpoints ADD COLUMN provider_auth_id VARCHAR"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS ix_model_endpoints_provider_auth_id ON model_endpoints(provider_auth_id)"
+            )
             conn.commit()
-            logging.getLogger(__name__).info("Migrated: added 'provider_auth_id' column + index to model_endpoints")
+            logging.getLogger(__name__).info(
+                "Migrated: added 'provider_auth_id' column + index to model_endpoints"
+            )
         conn.close()
     except Exception as e:
-        logging.getLogger(__name__).warning(f"model_endpoints.provider_auth_id migration failed: {e}")
-
-
-def _migrate_add_provider_auth_id_column():
-    """Add provider_auth_id column to model_endpoints if it doesn't exist."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
-        return
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute("PRAGMA table_info(model_endpoints)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if columns and "provider_auth_id" not in columns:
-            conn.execute("ALTER TABLE model_endpoints ADD COLUMN provider_auth_id VARCHAR")
-            conn.execute("CREATE INDEX IF NOT EXISTS ix_model_endpoints_provider_auth_id ON model_endpoints(provider_auth_id)")
-            conn.commit()
-            logging.getLogger(__name__).info("Migrated: added 'provider_auth_id' column + index to model_endpoints")
-        conn.close()
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"model_endpoints.provider_auth_id migration failed: {e}")
+        logging.getLogger(__name__).warning(
+            f"model_endpoints.provider_auth_id migration failed: {e}"
+        )
 
 
 def _migrate_add_model_type_column():
@@ -1982,6 +1982,7 @@ def _migrate_seed_email_account():
         import json as _json
         import uuid as _uuid
         from pathlib import Path
+
         settings_file = Path(SETTINGS_FILE)
         if not settings_file.exists():
             return

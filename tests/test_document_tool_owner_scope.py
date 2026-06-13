@@ -9,8 +9,12 @@ from src import tool_implementations as tools
 
 
 def _norm(s: str) -> str:
-    """Strip all whitespace to bypass Trunk/Prettier formatting."""
-    return re.sub(r"\s+", "", s).replace('"', "'")
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def _unwrap_sqla(value):

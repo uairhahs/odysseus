@@ -1,9 +1,14 @@
 """Shared test configuration - ensure project root is on sys.path and stub heavy deps."""
-import sys
-import os
-import types
+
 import importlib.util
+import json
+import os
+import pathlib
+import sys
+import types
 from unittest.mock import MagicMock
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,6 +22,26 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # file-backed DB across processes - tests needing that must set DATABASE_URL.
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_data_dir(tmp_path_factory):
+    """
+    Ensure the data/ directory exists and contains a minimal auth.json
+    so that core.database initialization does not crash during discovery.
+    """
+    # Create a temporary directory that acts as the 'data' folder
+    test_data_dir = tmp_path_factory.mktemp("data")
+    auth_file = test_data_dir / "auth.json"
+    auth_file.write_text(json.dumps({"users": []}))
+
+    # Force the application to look at this temporary directory
+    # Adjust 'os.path.dirname(DATABASE_URL...)' or however your code
+    # determines the data path if necessary.
+    os.environ.setdefault("DATA_DIR", str(test_data_dir))
+
+    return test_data_dir
+
+
 # Pre-import real heavy modules BEFORE any test file's module-level stubs can
 # replace them with MagicMock. Some test files (e.g. test_llm_core_sanitize_*)
 # stub sqlalchemy/core.database at module scope with `if mod not in sys.modules`,
@@ -25,9 +50,11 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 try:
     import sqlalchemy  # noqa: F401
     import sqlalchemy.orm  # noqa: F401
+
     import core.database  # noqa: F401
 except ImportError:
     pass  # not installed - the stubs below will handle it
+
 
 def _has_module(mod_name: str) -> bool:
     try:
@@ -39,11 +66,25 @@ def _has_module(mod_name: str) -> bool:
 # Stub optional dependencies only when they are not installed. Do not replace
 # real FastAPI/Starlette/Pydantic modules: route tests import their subpackages.
 for mod_name in [
-    "sqlalchemy", "sqlalchemy.orm", "sqlalchemy.types", "sqlalchemy.ext", "sqlalchemy.ext.declarative",
-    "sqlalchemy.ext.hybrid", "sqlalchemy.sql", "sqlalchemy.sql.expression",
-    "sqlalchemy.sql.sqltypes", "bcrypt", "pyotp",
-    "httpx", "fastapi", "fastapi.responses", "fastapi.routing",
-    "starlette", "starlette.responses", "starlette.middleware", "starlette.middleware.base",
+    "sqlalchemy",
+    "sqlalchemy.orm",
+    "sqlalchemy.types",
+    "sqlalchemy.ext",
+    "sqlalchemy.ext.declarative",
+    "sqlalchemy.ext.hybrid",
+    "sqlalchemy.sql",
+    "sqlalchemy.sql.expression",
+    "sqlalchemy.sql.sqltypes",
+    "bcrypt",
+    "pyotp",
+    "httpx",
+    "fastapi",
+    "fastapi.responses",
+    "fastapi.routing",
+    "starlette",
+    "starlette.responses",
+    "starlette.middleware",
+    "starlette.middleware.base",
     "pydantic",
 ]:
     if mod_name not in sys.modules and not _has_module(mod_name):
@@ -64,14 +105,16 @@ def pytest_configure(config):
     unknown-mark warnings still surface genuine typos outside the taxonomy. This
     only registers marker names; it imports no production module.
     """
-    import pathlib
+
     from tests._taxonomy import discover_markers
 
     tests_dir = pathlib.Path(__file__).parent
     paths = list(tests_dir.rglob("test_*.py")) + list(tests_dir.rglob("*_test.py"))
     for marker_name in discover_markers(paths):
         if marker_name.startswith("sub_"):
-            config.addinivalue_line("markers", f"{marker_name}: taxonomy sub-area marker")
+            config.addinivalue_line(
+                "markers", f"{marker_name}: taxonomy sub-area marker"
+            )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -82,6 +125,7 @@ def pytest_collection_modifyitems(config, items):
     production module. See ``tests/_taxonomy.py`` for the classification rules.
     """
     import pytest
+
     from tests._taxonomy import markers_for_path
 
     for item in items:

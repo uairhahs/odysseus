@@ -123,6 +123,7 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
             # preset. Lazy import keeps this module free of the heavy core
             # package import graph at load time.
             from core.atomic_io import atomic_write_json
+
             atomic_write_json(self.presets_file, presets, indent=2)
             self.presets = presets
             return True

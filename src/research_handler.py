@@ -16,8 +16,8 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from src.research_utils import is_low_quality, strip_thinking
 from src.constants import DEEP_RESEARCH_DIR
+from src.research_utils import is_low_quality, strip_thinking
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

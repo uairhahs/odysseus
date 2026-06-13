@@ -223,7 +223,9 @@ def _pip_command(python_cmd: str) -> str:
     cmd = python_cmd.strip()
     if " -m pip" in cmd or cmd in {"pip", "pip3"}:
         return python_cmd
-    if cmd in {"python", "python3", "python.exe"} or cmd.endswith(("/python", "/python3", "\\python.exe")):
+    if cmd in {"python", "python3", "python.exe"} or cmd.endswith(
+        ("/python", "/python3", "\\python.exe")
+    ):
         return f"{python_cmd} -m pip"
     return python_cmd
 
@@ -274,9 +276,9 @@ def _pip_install_fallback_chain(
     # Traditional pip commands: try plain install, then --user outside a venv.
     pip_cmd = _pip_command(python_cmd)
     base = _pip_install_attempt(f"{pip_cmd} install -q{upgrade_flag} {pkg}")
-    user = _pip_install_attempt(
-        f"{pip_cmd} install --user -q{upgrade_flag} {pkg}")
-    user_break_system = _pip_install_attempt(f"{pip_cmd} install --user --break-system-packages -q{upgrade_flag} {pkg}"
+    user = _pip_install_attempt(f"{pip_cmd} install --user -q{upgrade_flag} {pkg}")
+    user_break_system = _pip_install_attempt(
+        f"{pip_cmd} install --user --break-system-packages -q{upgrade_flag} {pkg}"
     )
     user_fallback = f"( {user} || {{ {_pip_break_system_packages_check(pip_cmd)} && {user_break_system}; }} )"
     # Derive the python executable for the venv detection check.
@@ -371,7 +373,9 @@ def _append_pip_install_runner_lines(runner_lines: list[str], cmd: str) -> None:
     runner_lines.append(f"if {help_check}; then")
     runner_lines.append(f"  {cmd}")
     runner_lines.append("else")
-    runner_lines.append('  echo "[odysseus] pip does not support --break-system-packages; installing without it."')
+    runner_lines.append(
+        '  echo "[odysseus] pip does not support --break-system-packages; installing without it."'
+    )
     runner_lines.append(f"  {without_break}")
     runner_lines.append("fi")
 

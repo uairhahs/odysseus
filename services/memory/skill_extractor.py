@@ -271,11 +271,14 @@ async def maybe_extract_skill(
         _initial_status = "draft"
         try:
             from routes.prefs_routes import _load_for_user as _load_prefs
+
             _prefs = _load_prefs(owner) or {}
             if _prefs.get("auto_approve_skills", True):
                 _initial_status = "published"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "[skill-extract] failed to load user prefs: %s", e, exc_info=True
+            )
 
         entry = skills_manager.add_skill(
             title=title,

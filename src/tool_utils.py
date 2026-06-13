@@ -12,14 +12,17 @@ _mcp_manager = None
 # MCP Manager singleton
 # ---------------------------------------------------------------------------
 
+
 def set_mcp_manager(manager):
     """Set the global MCP manager instance."""
     global _mcp_manager
     _mcp_manager = manager
 
+
 def get_mcp_manager():
     """Get the global MCP manager instance."""
     return _mcp_manager
+
 
 # ---------------------------------------------------------------------------
 # Helpers

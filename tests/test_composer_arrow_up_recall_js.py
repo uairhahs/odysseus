@@ -9,6 +9,7 @@ untouched; multiline caret navigation is not hijacked; Shift/Alt/Ctrl/Meta+Arrow
 are ignored; IME composition does not trigger recall; last message is read from
 #chat-history (dataset.raw), not session sidebar metadata.
 """
+
 import json
 import shutil
 import subprocess
@@ -82,7 +83,7 @@ console.log(JSON.stringify(results));
 def _run(cases: list) -> list:
     js = _HARNESS.replace("CASES_JSON", json.dumps(cases))
     proc = subprocess.run(
-        ["node", "--input-type=module"],
+        ["node", "--input-type=module"],  # noqa: S607
         input=js,
         capture_output=True,
         text=True,
@@ -167,7 +168,7 @@ def test_wire_is_idempotent():
     console.log(JSON.stringify({{ ok1, ok2, wired: composer._arrowUpRecallWired }}));
     """
     proc = subprocess.run(
-        ["node", "--input-type=module"],
+        ["node", "--input-type=module"],  # noqa: S607
         input=js,
         capture_output=True,
         text=True,
@@ -209,7 +210,7 @@ def test_get_last_user_message_from_chat_history():
     }}));
     """
     proc = subprocess.run(
-        ["node", "--input-type=module"],
+        ["node", "--input-type=module"],  # noqa: S607
         input=js,
         capture_output=True,
         text=True,
@@ -265,7 +266,7 @@ def test_integration_recalls_from_chat_history_dom():
     console.log(JSON.stringify({{ value: composer.value, prevented }}));
     """
     proc = subprocess.run(
-        ["node", "--input-type=module"],
+        ["node", "--input-type=module"],  # noqa: S607
         input=js,
         capture_output=True,
         text=True,
@@ -274,4 +275,7 @@ def test_integration_recalls_from_chat_history_dom():
         timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout.strip()) == {"value": "stored prompt", "prevented": True}
+    assert json.loads(proc.stdout.strip()) == {
+        "value": "stored prompt",
+        "prevented": True,
+    }

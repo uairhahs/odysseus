@@ -43,7 +43,9 @@ function _pushRecent(mid) {
   next.unshift(mid);
   _saveList(RECENT_KEY, next.slice(0, RECENT_MAX));
 }
-function _loadFavorites() { return _loadList(FAVORITES_KEY); }
+function _loadFavorites() {
+  return _loadList(FAVORITES_KEY);
+}
 function _toggleFavorite(mid) {
   const favs = _loadFavorites();
   const i = favs.indexOf(mid);
@@ -418,8 +420,8 @@ function _initModelPickerDropdown() {
       listEl.appendChild(empty);
     }
     function _addRow(m) {
-      const row = document.createElement('div');
-      row.className = 'model-switch-item';
+      const row = document.createElement("div");
+      row.className = "model-switch-item";
       if (m.stale) {
         row.classList.add("model-switch-stale");
         row.style.opacity = "0.45";
@@ -444,8 +446,8 @@ function _initModelPickerDropdown() {
       // a redundant "offline" pill on top of that just added clutter.
       // (Class kept on `row` so the opacity rule still applies; the text
       // badge is gone.)
-      const epSpan = document.createElement('span');
-      epSpan.className = 'model-switch-ep';
+      const epSpan = document.createElement("span");
+      epSpan.className = "model-switch-ep";
       // Don't show endpoint name if it matches the model name (local self-hosted)
       const _epDisplay =
         m.epName &&
@@ -545,8 +547,11 @@ function _initModelPickerDropdown() {
         .filter((m) => !shown.has(m.mid))
         .slice(0, RECENT_MAX);
       if (recentModels.length) {
-        _addSection('Recent');
-        recentModels.forEach(m => { shown.add(m.mid); _addRow(m); });
+        _addSection("Recent");
+        recentModels.forEach((m) => {
+          shown.add(m.mid);
+          _addRow(m);
+        });
       }
     }
 

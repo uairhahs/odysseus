@@ -4,33 +4,36 @@
  * Markdown rendering and content processing utilities
  */
 
-import uiModule from './ui.js';
-import { splitTableRow } from './markdown/tableRow.js';
-import { replaceEmojiShortcodes, hasEmojiShortcode } from './emojiShortcodes.js';
+import uiModule from "./ui.js";
+import { splitTableRow } from "./markdown/tableRow.js";
+import {
+  replaceEmojiShortcodes,
+  hasEmojiShortcode,
+} from "./emojiShortcodes.js";
 
 var escapeHtml = uiModule.esc;
 
 function safeLinkUrl(rawUrl) {
-  const url = String(rawUrl || '').trim();
-  if (url.startsWith('#')) {
-    return /^#[A-Za-z0-9_-]*$/.test(url) ? url : '';
+  const url = String(rawUrl || "").trim();
+  if (url.startsWith("#")) {
+    return /^#[A-Za-z0-9_-]*$/.test(url) ? url : "";
   }
   try {
     const parsed = new URL(url, window.location.origin);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
       return parsed.href;
     }
   } catch (_) {
-    return '';
+    return "";
   }
-  return '';
+  return "";
 }
 
 function linkHtml(text, url) {
   const safeUrl = safeLinkUrl(url);
   const safeText = escapeHtml(text);
   if (!safeUrl) return safeText;
-  if (safeUrl.startsWith('#')) {
+  if (safeUrl.startsWith("#")) {
     return `<a href="${safeUrl}" class="chat-link">${safeText}</a>`;
   }
   return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${safeText}</a>`;
@@ -38,10 +41,11 @@ function linkHtml(text, url) {
 
 function _isModelEndpointUrl(rawUrl) {
   try {
-    const parsed = new URL(String(rawUrl || ''), window.location.origin);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-    const path = parsed.pathname.replace(/\/+$/, '');
-    return path === '/v1';
+    const parsed = new URL(String(rawUrl || ""), window.location.origin);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      return false;
+    const path = parsed.pathname.replace(/\/+$/, "");
+    return path === "/v1";
   } catch (_) {
     return false;
   }
@@ -62,21 +66,40 @@ function _isModelEndpointUrl(rawUrl) {
  * dangerous URL schemes before the (now safe) fragment is handed back.
  */
 const _ALLOWED_HTML_BAD_TAGS = new Set([
-  'SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META',
-  'STYLE', 'BASE', 'FORM', 'NOSCRIPT', 'TEMPLATE',
+  "SCRIPT",
+  "IFRAME",
+  "OBJECT",
+  "EMBED",
+  "LINK",
+  "META",
+  "STYLE",
+  "BASE",
+  "FORM",
+  "NOSCRIPT",
+  "TEMPLATE",
   // Foreign-content roots. SVG/MathML have their own parser rules and are a
   // classic mutation-XSS vehicle — e.g. an SVG-namespaced <script>, whose
   // `tagName` is the lower-case 'script' and would slip a name check that
   // assumed HTML's upper-casing. They aren't needed in the <details>/<a>
   // fragments we preserve, so drop the whole subtree.
-  'SVG', 'MATH',
+  "SVG",
+  "MATH",
 ]);
 const _ALLOWED_HTML_URL_ATTRS = new Set([
-  'href', 'src', 'srcset', 'xlink:href', 'action', 'formaction', 'background', 'poster',
+  "href",
+  "src",
+  "srcset",
+  "xlink:href",
+  "action",
+  "formaction",
+  "background",
+  "poster",
 ]);
 
 function _compactUrlSchemeValue(value) {
-  return String(value || '').replace(/[\u0000-\u0020\u007f-\u009f]+/g, '').toLowerCase();
+  return String(value || "")
+    .replace(/[\u0000-\u0020\u007f-\u009f]+/g, "")
+    .toLowerCase();
 }
 
 function _isDangerousUrl(value) {
@@ -84,13 +107,15 @@ function _isDangerousUrl(value) {
 }
 
 function _isDangerousSrcset(value) {
-  return String(value || '').split(',').some(candidate => _isDangerousUrl(candidate));
+  return String(value || "")
+    .split(",")
+    .some((candidate) => _isDangerousUrl(candidate));
 }
 
 function _cleanAllowedHtmlOnce(htmlString) {
-  const tpl = document.createElement('template');
+  const tpl = document.createElement("template");
   tpl.innerHTML = htmlString;
-  for (const el of Array.from(tpl.content.querySelectorAll('*'))) {
+  for (const el of Array.from(tpl.content.querySelectorAll("*"))) {
     // Upper-case the tag for comparison: HTML tagNames are upper-case, but
     // SVG/MathML elements preserve their original (lower/camel) case, so a
     // raw `Set.has(el.tagName)` would miss e.g. a namespaced <script>.
@@ -102,11 +127,11 @@ function _cleanAllowedHtmlOnce(htmlString) {
       const name = attr.name.toLowerCase();
       // Drop every inline event handler (onerror, onclick, onmouseover, ...)
       // and srcdoc (a frame-less script vector).
-      if (name.startsWith('on') || name === 'srcdoc') {
+      if (name.startsWith("on") || name === "srcdoc") {
         el.removeAttribute(attr.name);
         continue;
       }
-      if (name === 'style') {
+      if (name === "style") {
         const value = _compactUrlSchemeValue(attr.value);
         if (/javascript:|vbscript:|data:|expression\(/.test(value)) {
           el.removeAttribute(attr.name);
@@ -116,7 +141,11 @@ function _cleanAllowedHtmlOnce(htmlString) {
       // Neutralize javascript:/vbscript:/data: in URL-bearing attributes.
       // Strip control/space chars first so e.g. "java\tscript:" can't slip by.
       if (_ALLOWED_HTML_URL_ATTRS.has(name)) {
-        if (name === 'srcset' ? _isDangerousSrcset(attr.value) : _isDangerousUrl(attr.value)) {
+        if (
+          name === "srcset"
+            ? _isDangerousSrcset(attr.value)
+            : _isDangerousUrl(attr.value)
+        ) {
           el.removeAttribute(attr.name);
         }
       }
@@ -126,10 +155,10 @@ function _cleanAllowedHtmlOnce(htmlString) {
 }
 
 function sanitizeAllowedHtml(html) {
-  const raw = String(html == null ? '' : html);
+  const raw = String(html == null ? "" : html);
   // Non-browser context (e.g. a future SSR/Node import): fail closed by
   // escaping rather than trusting the markup.
-  if (typeof document === 'undefined') return escapeHtml(raw);
+  if (typeof document === "undefined") return escapeHtml(raw);
 
   // Sanitize to a fixpoint. Re-parsing the serialized output can mutate the
   // tree (the basis of mutation-XSS), so re-clean until it stops changing.
@@ -146,32 +175,43 @@ function sanitizeAllowedHtml(html) {
  * Check if text has unclosed think tag
  */
 export function hasUnclosedThinkTag(text) {
-  text = text || '';
+  text = text || "";
   const openCount =
-    (text.match(/<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>/gi) || []).length
-    + (text.match(/<\|channel>thought/gi) || []).length;
+    (text.match(/<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>/gi) || []).length +
+    (text.match(/<\|channel>thought/gi) || []).length;
   const closeCount =
-    (text.match(/<\/(?:think(?:ing)?|thought)>/gi) || []).length
-    + (text.match(/<channel\|>/gi) || []).length;
+    (text.match(/<\/(?:think(?:ing)?|thought)>/gi) || []).length +
+    (text.match(/<channel\|>/gi) || []).length;
   return openCount > closeCount;
 }
 
 export function startsWithReasoningPrefix(text) {
-  return /^\s*(?:thinking(?:\s+process)?\s*:|the user |i need |i should |i will |they are |the question |i can )/i.test(text || '');
+  return /^\s*(?:thinking(?:\s+process)?\s*:|the user |i need |i should |i will |they are |the question |i can )/i.test(
+    text || "",
+  );
 }
 
 export function normalizeThinkingMarkup(text) {
   if (!text) return text;
   let normalized = text;
-  normalized = normalized.replace(/<thought(\s+[^>]*)?>/gi, (_m, attrs = '') => `<think${attrs || ''}>`);
-  normalized = normalized.replace(/<\/thought>/gi, '</think>');
-  normalized = normalized.replace(/<\|channel>thought\s*\n?([\s\S]*?)<channel\|>\s*/gi, (_m, content = '') => {
-    const thought = String(content || '').trim();
-    return thought ? `<think>${thought}</think>\n` : '';
-  });
-  normalized = normalized.replace(/<\|channel>response\s*\n?([\s\S]*?)<channel\|>/gi, (_m, content = '') => content || '');
-  normalized = normalized.replace(/<\|channel>response\s*\n?/gi, '');
-  normalized = normalized.replace(/<channel\|>/gi, '');
+  normalized = normalized.replace(
+    /<thought(\s+[^>]*)?>/gi,
+    (_m, attrs = "") => `<think${attrs || ""}>`,
+  );
+  normalized = normalized.replace(/<\/thought>/gi, "</think>");
+  normalized = normalized.replace(
+    /<\|channel>thought\s*\n?([\s\S]*?)<channel\|>\s*/gi,
+    (_m, content = "") => {
+      const thought = String(content || "").trim();
+      return thought ? `<think>${thought}</think>\n` : "";
+    },
+  );
+  normalized = normalized.replace(
+    /<\|channel>response\s*\n?([\s\S]*?)<channel\|>/gi,
+    (_m, content = "") => content || "",
+  );
+  normalized = normalized.replace(/<\|channel>response\s*\n?/gi, "");
+  normalized = normalized.replace(/<channel\|>/gi, "");
   return normalized;
 }
 
@@ -184,38 +224,63 @@ function normalizePlainThinking(text) {
   if (!startsWithReasoningPrefix(trimmed)) return text;
 
   const replyStarts = [
-    'Hey', 'Hi ', 'Hi!', 'Hello', 'Sure', 'Yes', 'No ', 'No,', 'Yo', 'OK',
-    'Here', 'Absolutely', 'Of course', 'Great', 'Alright', 'Thanks', 'Welcome',
-    'Good ', "I'm happy", "I'd be"
+    "Hey",
+    "Hi ",
+    "Hi!",
+    "Hello",
+    "Sure",
+    "Yes",
+    "No ",
+    "No,",
+    "Yo",
+    "OK",
+    "Here",
+    "Absolutely",
+    "Of course",
+    "Great",
+    "Alright",
+    "Thanks",
+    "Welcome",
+    "Good ",
+    "I'm happy",
+    "I'd be",
   ];
   const prefixRegex = /^(thinking(?:\s+process)?\s*:)\s*/i;
-  const escapedReplyStarts = replyStarts.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const escapedReplyStarts = replyStarts.map((value) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
   const boundaryRegex = new RegExp(
-    `^([\\s\\S]*?)(\\n\\n(?=${escapedReplyStarts.join('|')}|I |What|Let|This |As ))[\\s\\S]*$`,
-    'i'
+    `^([\\s\\S]*?)(\\n\\n(?=${escapedReplyStarts.join("|")}|I |What|Let|This |As ))[\\s\\S]*$`,
+    "i",
   );
   const boundaryMatch = boundaryRegex.exec(trimmed);
 
   if (boundaryMatch) {
-    const thinkBlock = boundaryMatch[1].replace(prefixRegex, '').trim();
+    const thinkBlock = boundaryMatch[1].replace(prefixRegex, "").trim();
     const reply = trimmed.slice(boundaryMatch[1].length).trimStart();
     if (thinkBlock && reply) return `<think>${thinkBlock}</think>\n\n${reply}`;
   }
 
-  const lines = trimmed.split('\n');
+  const lines = trimmed.split("\n");
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index].trim();
     if (!line) continue;
     if (replyStarts.some((prefix) => line.startsWith(prefix))) {
-      const thinkBlock = lines.slice(0, index).join('\n').replace(prefixRegex, '').trim();
-      const reply = lines.slice(index).join('\n').trim();
+      const thinkBlock = lines
+        .slice(0, index)
+        .join("\n")
+        .replace(prefixRegex, "")
+        .trim();
+      const reply = lines.slice(index).join("\n").trim();
       if (thinkBlock && reply) return `<think>${thinkBlock}</think>\n${reply}`;
     }
   }
 
-  const withoutPrefix = trimmed.replace(prefixRegex, '');
+  const withoutPrefix = trimmed.replace(prefixRegex, "");
   for (const prefix of replyStarts) {
-    const rx = new RegExp(`[.!?]\\s*(${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`);
+    const rx = new RegExp(
+      `[.!?]\\s*(${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
+    );
     const match = rx.exec(withoutPrefix);
     if (match && match.index > 20) {
       const thinkBlock = withoutPrefix.slice(0, match.index + 1).trim();
@@ -237,20 +302,27 @@ export function extractThinkingBlocks(text) {
   let normalized = normalizePlainThinking(text);
   // Collapse <think>short</think>...real thinking...</think> into one block
   // Models sometimes emit a trivial first block then continue thinking outside tags
-  normalized = normalized.replace(/<think(?:ing)?(?:\s+[^>]*)?>.{0,30}<\/think(?:ing)?>\s*([\s\S]*?)<\/think(?:ing)?>/gi, (m, content) => {
-    return '<think>' + content.trim() + '</think>';
-  });
+  normalized = normalized.replace(
+    /<think(?:ing)?(?:\s+[^>]*)?>.{0,30}<\/think(?:ing)?>\s*([\s\S]*?)<\/think(?:ing)?>/gi,
+    (m, content) => {
+      return "<think>" + content.trim() + "</think>";
+    },
+  );
 
   // Merge consecutive <think> blocks (some models split thinking across multiple tags)
-  normalized = normalized.replace(/<\/think(?:ing)?>\s*<think(?:ing)?(?:\s+[^>]*)?>/gi, '\n\n');
+  normalized = normalized.replace(
+    /<\/think(?:ing)?>\s*<think(?:ing)?(?:\s+[^>]*)?>/gi,
+    "\n\n",
+  );
 
   // Extract thinking time attribute if present
   const timeMatch = normalized.match(/<think(?:ing)?\s+time="([\d.]+)"/i);
   const thinkingTime = timeMatch ? timeMatch[1] : null;
   // Strip time attribute for content extraction
-  normalized = normalized.replace(/<think(?:ing)?\s+time="[\d.]+"/gi, '<think');
+  normalized = normalized.replace(/<think(?:ing)?\s+time="[\d.]+"/gi, "<think");
 
-  const thinkRegex = /<think(?:ing)?(?:\s+[^>]*)?>([\s\S]*?)<\/think(?:ing)?>/gi;
+  const thinkRegex =
+    /<think(?:ing)?(?:\s+[^>]*)?>([\s\S]*?)<\/think(?:ing)?>/gi;
   const thinkingBlocks = [];
   let match;
 
@@ -261,7 +333,7 @@ export function extractThinkingBlocks(text) {
   }
 
   // Remove all complete <think>/<thinking> blocks
-  let cleanContent = normalized.replace(thinkRegex, '');
+  let cleanContent = normalized.replace(thinkRegex, "");
 
   // If there's an unclosed tag, decide between two cases:
   // (a) Stray opener at the very start with no real reply before it — typical
@@ -276,16 +348,22 @@ export function extractThinkingBlocks(text) {
     if (gemmaThoughtStart >= 0) {
       const leakedThought = cleanContent
         .slice(gemmaThoughtStart)
-        .replace(/^<\|channel>thought\s*\n?/i, '')
+        .replace(/^<\|channel>thought\s*\n?/i, "")
         .trim();
-      if (gemmaThoughtStart === 0 && leakedThought) thinkingBlocks.push(leakedThought);
+      if (gemmaThoughtStart === 0 && leakedThought)
+        thinkingBlocks.push(leakedThought);
       cleanContent = cleanContent.slice(0, gemmaThoughtStart);
     } else {
-      const strayOpener = cleanContent.match(/^\s*<think(?:ing)?(?:\s+[^>]*)?>([\s\S]*)$/i);
+      const strayOpener = cleanContent.match(
+        /^\s*<think(?:ing)?(?:\s+[^>]*)?>([\s\S]*)$/i,
+      );
       if (strayOpener) {
         cleanContent = strayOpener[1];
       } else {
-        cleanContent = cleanContent.replace(/<think(?:ing)?(?:\s+[^>]*)?>[\s\S]*$/gi, '');
+        cleanContent = cleanContent.replace(
+          /<think(?:ing)?(?:\s+[^>]*)?>[\s\S]*$/gi,
+          "",
+        );
       }
     }
   }
@@ -298,12 +376,11 @@ export function extractThinkingBlocks(text) {
   }
 
   // Strip any remaining orphaned closing tags
-  cleanContent = cleanContent.replace(/<\/think(?:ing)?>/gi, '');
+  cleanContent = cleanContent.replace(/<\/think(?:ing)?>/gi, "");
 
   // Merge all thinking blocks into one — no reason to show multiple dropdowns
-  const mergedBlocks = thinkingBlocks.length > 1
-    ? [thinkingBlocks.join('\n\n')]
-    : thinkingBlocks;
+  const mergedBlocks =
+    thinkingBlocks.length > 1 ? [thinkingBlocks.join("\n\n")] : thinkingBlocks;
 
   return {
     thinkingBlocks: mergedBlocks,
@@ -315,9 +392,15 @@ export function extractThinkingBlocks(text) {
 /**
  * Create a collapsible thinking section
  */
-function createThinkingSection(thinkingContent, index = 0, thinkingTime = null) {
+function createThinkingSection(
+  thinkingContent,
+  index = 0,
+  thinkingTime = null,
+) {
   const id = `thinking-${Date.now()}-${index}`;
-  const timeHtml = thinkingTime ? `<span style="font-size:11px;opacity:0.4;font-variant-numeric:tabular-nums;">${thinkingTime}s</span>` : '';
+  const timeHtml = thinkingTime
+    ? `<span style="font-size:11px;opacity:0.4;font-variant-numeric:tabular-nums;">${thinkingTime}s</span>`
+    : "";
   return `
     <div class="thinking-section">
       <div class="thinking-header" data-thinking-id="${id}">
@@ -357,15 +440,20 @@ function createTaskCompletedMarker() {
 // the surrounding text color (project rule: never colorful emoji). Operates on
 // rendered HTML: only touches text outside tags and skips <code>/<pre>.
 const _EMOJI_RE = /\p{Extended_Pictographic}/u;
-const _emojiSeg = (typeof Intl !== 'undefined' && Intl.Segmenter)
-  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+const _emojiSeg =
+  typeof Intl !== "undefined" && Intl.Segmenter
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
 
 function _emojiCodepoints(emoji) {
   // Twemoji filename rule: strip U+FE0F unless the sequence has a ZWJ (U+200D).
-  const s = emoji.indexOf('‍') >= 0 ? emoji : emoji.replace(/️/g, '');
+  const s = emoji.indexOf("‍") >= 0 ? emoji : emoji.replace(/️/g, "");
   const cps = [];
-  for (const ch of s) { const c = ch.codePointAt(0); if (c) cps.push(c.toString(16)); }
-  return cps.join('-');
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (c) cps.push(c.toString(16));
+  }
+  return cps.join("-");
 }
 function _emojiImg(emoji) {
   const code = _emojiCodepoints(emoji);
@@ -378,7 +466,7 @@ function _emojiImg(emoji) {
 }
 function _svgifyText(text) {
   if (!_emojiSeg) return text;
-  let out = '';
+  let out = "";
   for (const { segment } of _emojiSeg.segment(text)) {
     out += _EMOJI_RE.test(segment) ? _emojiImg(segment) : segment;
   }
@@ -386,7 +474,10 @@ function _svgifyText(text) {
 }
 /** When "Text-only Emojis" is on, keep Unicode in HTML so deEmojify() can strip them. */
 function _useSvgEmoji() {
-  return typeof document === 'undefined' || !document.body?.classList.contains('text-emojis');
+  return (
+    typeof document === "undefined" ||
+    !document.body?.classList.contains("text-emojis")
+  );
 }
 
 // `opts.shortcodes` (default true) controls the issue-#345 `:name:` → emoji
@@ -402,13 +493,14 @@ export function svgifyEmoji(html, opts) {
   const hasUnicode = _EMOJI_RE.test(html);
   const hasShortcode = allowShortcodes && hasEmojiShortcode(html);
   if (!hasUnicode && !hasShortcode) return html;
-  const parts = html.split(/(<[^>]*>)/);   // odd indices = tags
+  const parts = html.split(/(<[^>]*>)/); // odd indices = tags
   let codeDepth = 0;
   for (let i = 0; i < parts.length; i++) {
     if (i % 2 === 1) {
       const t = parts[i].toLowerCase();
       if (/^<(pre|code)[\s>]/.test(t)) codeDepth++;
-      else if (/^<\/(pre|code)\s*>/.test(t)) codeDepth = Math.max(0, codeDepth - 1);
+      else if (/^<\/(pre|code)\s*>/.test(t))
+        codeDepth = Math.max(0, codeDepth - 1);
       continue;
     }
     if (codeDepth !== 0) continue;
@@ -419,7 +511,7 @@ export function svgifyEmoji(html, opts) {
     if (_EMOJI_RE.test(seg)) seg = _svgifyText(seg);
     parts[i] = seg;
   }
-  return parts.join('');
+  return parts.join("");
 }
 /**
  * Generic collapsible section that reuses the thinking-dropdown styling and its
@@ -427,7 +519,7 @@ export function svgifyEmoji(html, opts) {
  * the "View <label>" / "Hide <label>" text via data-label. Used e.g. for the
  * vision-model image description on a user's photo message.
  */
-export function createCollapsible(contentMarkdown, label = 'details') {
+export function createCollapsible(contentMarkdown, label = "details") {
   const id = `collapse-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const safeLabel = escapeHtml(label);
   return `
@@ -443,10 +535,11 @@ export function createCollapsible(contentMarkdown, label = 'details') {
 export function processWithThinking(text) {
   const { thinkingBlocks, content, thinkingTime } = extractThinkingBlocks(text);
 
-  let html = '';
-  let visibleContent = content || '';
+  let html = "";
+  let visibleContent = content || "";
   const doneOnly = /^\s*\[DONE\]\s*$/i.test(visibleContent);
-  const hadTrailingDone = !doneOnly && /(?:^|\n)\s*\[DONE\]\s*$/i.test(visibleContent);
+  const hadTrailingDone =
+    !doneOnly && /(?:^|\n)\s*\[DONE\]\s*$/i.test(visibleContent);
 
   // Add thinking sections (collapsed by default)
   thinkingBlocks.forEach((block, index) => {
@@ -457,7 +550,10 @@ export function processWithThinking(text) {
   if (doneOnly) {
     html += createTaskCompletedMarker();
   } else {
-    if (hadTrailingDone) visibleContent = visibleContent.replace(/\n?\s*\[DONE\]\s*$/i, '').trimEnd();
+    if (hadTrailingDone)
+      visibleContent = visibleContent
+        .replace(/\n?\s*\[DONE\]\s*$/i, "")
+        .trimEnd();
     if (visibleContent) html += mdToHtml(visibleContent);
     if (hadTrailingDone) html += createTaskCompletedMarker();
   }
@@ -472,7 +568,7 @@ export function mdToHtml(src, opts) {
   const allowedHtmlBlocks = [];
   const codeBlocks = [];
   const mermaidBlocks = [];
-  let s = (src ?? '');
+  let s = src ?? "";
 
   // Extract fenced code blocks before any markdown/HTML preservation passes.
   // Otherwise placeholders from the allowed-HTML sanitizer (e.g.
@@ -481,30 +577,51 @@ export function mdToHtml(src, opts) {
   // the final <pre><code> block.
   s = s.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
     const cleaned = code
-      .replace(/\r\n/g, '\n')
-      .replace(/[ \t]+$/gm, '')
-      .replace(/^\s*\n+/, '')
-      .replace(/\n+\s*$/g, '');
+      .replace(/\r\n/g, "\n")
+      .replace(/[ \t]+$/gm, "")
+      .replace(/^\s*\n+/, "")
+      .replace(/\n+\s*$/g, "");
 
     // Mermaid diagrams: render as diagram instead of code block
-    if (lang && lang.toLowerCase() === 'mermaid') {
-      const mermaidId = 'mermaid-' + Date.now() + '-' + mermaidBlocks.length;
-      const raw = cleaned.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    if (lang && lang.toLowerCase() === "mermaid") {
+      const mermaidId = "mermaid-" + Date.now() + "-" + mermaidBlocks.length;
+      const raw = cleaned
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
       const placeholder = `___MERMAID_BLOCK_${mermaidBlocks.length}___`;
-      mermaidBlocks.push(`<div class="mermaid-container"><pre class="mermaid" id="${mermaidId}">${escapeHtml(raw)}</pre></div>`);
+      mermaidBlocks.push(
+        `<div class="mermaid-container"><pre class="mermaid" id="${mermaidId}">${escapeHtml(raw)}</pre></div>`,
+      );
       return placeholder;
     }
 
-    const escaped = cleaned.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const escaped = cleaned
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
     const placeholder = `___CODE_BLOCK_${codeBlocks.length}___`;
 
-    const langClass = lang ? ` class="language-${lang}"` : '';
-    const runnableLangs = ['python','py','javascript','js','html','bash','sh','shell','zsh'];
-    const runBtn = (lang && runnableLangs.includes(lang.toLowerCase()))
-      ? `<button type="button" class="run-code" data-code="${escapeHtml(escaped)}" data-lang="${lang}" title="Run code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>`
-      : '';
+    const langClass = lang ? ` class="language-${lang}"` : "";
+    const runnableLangs = [
+      "python",
+      "py",
+      "javascript",
+      "js",
+      "html",
+      "bash",
+      "sh",
+      "shell",
+      "zsh",
+    ];
+    const runBtn =
+      lang && runnableLangs.includes(lang.toLowerCase())
+        ? `<button type="button" class="run-code" data-code="${escapeHtml(escaped)}" data-lang="${lang}" title="Run code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>`
+        : "";
     const editBtn = `<button type="button" class="edit-code" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`;
-    codeBlocks.push(`<pre><code${langClass} data-lang="${lang || ''}">${escapeHtml(escaped)}</code>${runBtn}${editBtn}<button type="button" class="copy-code" data-code="${escapeHtml(escaped)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></pre>`);
+    codeBlocks.push(
+      `<pre><code${langClass} data-lang="${lang || ""}">${escapeHtml(escaped)}</code>${runBtn}${editBtn}<button type="button" class="copy-code" data-code="${escapeHtml(escaped)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></pre>`,
+    );
 
     return placeholder;
   });
@@ -514,25 +631,29 @@ export function mdToHtml(src, opts) {
   // right but slip into other formats when listing many in a table.
   // These regexes upgrade the broken forms to proper markdown links so
   // the standard `[text](url)` handler below picks them up.
-  const ANCHOR_KIND = '(?:session|document|note|image|email|event|task|skill|research)';
+  const ANCHOR_KIND =
+    "(?:session|document|note|image|email|event|task|skill|research)";
   // Case A: `[Name] [#kind-id]` — agent put the URL in brackets, often
   // in a table cell next to the label. Pair them.
   s = s.replace(
-    new RegExp(`\\[([^\\]\\n]+?)\\]\\s*\\[#(${ANCHOR_KIND}-[A-Za-z0-9_-]+)\\]`, 'g'),
-    '[$1](#$2)',
+    new RegExp(
+      `\\[([^\\]\\n]+?)\\]\\s*\\[#(${ANCHOR_KIND}-[A-Za-z0-9_-]+)\\]`,
+      "g",
+    ),
+    "[$1](#$2)",
   );
   // Case B: bare `[#kind-id]` with no preceding label — give it a
   // generic "→ open" link text so it still renders as a button.
   s = s.replace(
-    new RegExp(`\\[#(${ANCHOR_KIND}-[A-Za-z0-9_-]+)\\]`, 'g'),
-    '[→ open](#$1)',
+    new RegExp(`\\[#(${ANCHOR_KIND}-[A-Za-z0-9_-]+)\\]`, "g"),
+    "[→ open](#$1)",
   );
   // Case C: bare `#kind-id` in plain text — only when it's word-
   // boundary delimited and NOT already inside a markdown link or
   // anchor syntax. Use a lookbehind for `](` or `[` to skip those.
   s = s.replace(
-    new RegExp(`(^|[^\\[(])#(${ANCHOR_KIND}-[A-Za-z0-9_-]+)\\b`, 'g'),
-    '$1[#$2](#$2)',
+    new RegExp(`(^|[^\\[(])#(${ANCHOR_KIND}-[A-Za-z0-9_-]+)\\b`, "g"),
+    "$1[#$2](#$2)",
   );
 
   // Convert markdown links [text](url) to clickable links
@@ -545,7 +666,7 @@ export function mdToHtml(src, opts) {
   // (placed by markdown link replacement above) and URLs in backticks.
   s = s.replace(
     /(^|[\s(<])(https?:\/\/[^\s<>"'`\]]+[^\s<>"'`\].,;:!?])/g,
-    (match, prefix, url) => `${prefix}${linkHtml(url, url)}`
+    (match, prefix, url) => `${prefix}${linkHtml(url, url)}`,
   );
 
   // Autolink scheme-less domains the model often emits as plain text
@@ -559,17 +680,19 @@ export function mdToHtml(src, opts) {
   s = s.replace(
     /(^|[\s(<])((?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|ai|co|dev|app|gov|edu|news|info|tech|xyz|me)(?=$|[\/\s<>"'`\]).,;:!?])(?:\/[^\s<>"'`\])]*)?)/gi,
     (match, prefix, domain) => {
-      const trail = (domain.match(/[.,;:!?)]+$/) || [''])[0];
+      const trail = (domain.match(/[.,;:!?)]+$/) || [""])[0];
       const core = trail ? domain.slice(0, -trail.length) : domain;
-      return `${prefix}${linkHtml(core, 'https://' + core)}${trail}`;
-    }
+      return `${prefix}${linkHtml(core, "https://" + core)}${trail}`;
+    },
   );
 
   // Extract <details>...</details> blocks and replace with placeholders
   // Default to open so agent output is visible
   s = s.replace(/<details>([\s\S]*?)<\/details>/gi, (match) => {
     const placeholder = `___ALLOWED_HTML_${allowedHtmlBlocks.length}___`;
-    allowedHtmlBlocks.push(sanitizeAllowedHtml(match.replace(/<details>/i, '<details open>')));
+    allowedHtmlBlocks.push(
+      sanitizeAllowedHtml(match.replace(/<details>/i, "<details open>")),
+    );
     return placeholder;
   });
 
@@ -581,9 +704,9 @@ export function mdToHtml(src, opts) {
   });
 
   // Now escape everything else
-  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  s = s.replace(/\n{3,}/g, '\n\n');
+  s = s.replace(/\n{3,}/g, "\n\n");
 
   // KaTeX math rendering (after code blocks are extracted, so math in code is safe)
   const mathBlocks = [];
@@ -592,130 +715,209 @@ export function mdToHtml(src, opts) {
     // Handle before $$/$ so all common delimiters render.
     s = s.replace(/\\\[([\s\S]*?)\\\]/g, (match, math) => {
       try {
-        const raw = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const raw = math
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">");
         const placeholder = `___MATH_BLOCK_${mathBlocks.length}___`;
-        mathBlocks.push(katex.renderToString(raw.trim(), { displayMode: true, throwOnError: false }));
+        mathBlocks.push(
+          katex.renderToString(raw.trim(), {
+            displayMode: true,
+            throwOnError: false,
+          }),
+        );
         return placeholder;
-      } catch (e) { return match; }
+      } catch (e) {
+        return match;
+      }
     });
     // Inline math: \( ... \)  — GPT-style inline delimiter. Single-line only
     // ([^\n]) so a stray escaped paren in prose can't swallow across lines.
     s = s.replace(/\\\(([^\n]*?)\\\)/g, (match, math) => {
       try {
-        const raw = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const raw = math
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">");
         const placeholder = `___MATH_BLOCK_${mathBlocks.length}___`;
-        mathBlocks.push(katex.renderToString(raw.trim(), { displayMode: false, throwOnError: false }));
+        mathBlocks.push(
+          katex.renderToString(raw.trim(), {
+            displayMode: false,
+            throwOnError: false,
+          }),
+        );
         return placeholder;
-      } catch (e) { return match; }
+      } catch (e) {
+        return match;
+      }
     });
     // Display math: $$...$$
     s = s.replace(/\$\$([\s\S]*?)\$\$/g, (match, math) => {
       try {
-        const raw = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const raw = math
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">");
         const placeholder = `___MATH_BLOCK_${mathBlocks.length}___`;
-        mathBlocks.push(katex.renderToString(raw.trim(), { displayMode: true, throwOnError: false }));
+        mathBlocks.push(
+          katex.renderToString(raw.trim(), {
+            displayMode: true,
+            throwOnError: false,
+          }),
+        );
         return placeholder;
-      } catch (e) { return match; }
+      } catch (e) {
+        return match;
+      }
     });
     // Inline math: $...$  (not preceded/followed by $ or digit, not spanning multiple lines)
     s = s.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g, (match, math) => {
       try {
-        const raw = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const raw = math
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">");
         const placeholder = `___MATH_BLOCK_${mathBlocks.length}___`;
-        mathBlocks.push(katex.renderToString(raw.trim(), { displayMode: false, throwOnError: false }));
+        mathBlocks.push(
+          katex.renderToString(raw.trim(), {
+            displayMode: false,
+            throwOnError: false,
+          }),
+        );
         return placeholder;
-      } catch (e) { return match; }
+      } catch (e) {
+        return match;
+      }
     });
   }
 
   // Handle pipe tables
-  s = s.replace(/(?:^|\n)([^\n]*\|[^\n]*\|[^\n]*)(?:\n([^\n]*\|[^\n]*\|[^\n]*))*/g, (table) => {
-    if (table.includes('___CODE_BLOCK_') || table.includes('___ALLOWED_HTML_')) return table;
+  s = s.replace(
+    /(?:^|\n)([^\n]*\|[^\n]*\|[^\n]*)(?:\n([^\n]*\|[^\n]*\|[^\n]*))*/g,
+    (table) => {
+      if (
+        table.includes("___CODE_BLOCK_") ||
+        table.includes("___ALLOWED_HTML_")
+      )
+        return table;
 
-    const rows = table.trim().split('\n');
-    if (rows.length < 2) return table;
+      const rows = table.trim().split("\n");
+      if (rows.length < 2) return table;
 
-    let html = '<table style="border-collapse: collapse; width: 100%; margin: 10px 0;">';
+      let html =
+        '<table style="border-collapse: collapse; width: 100%; margin: 10px 0;">';
 
-    rows.forEach((row, idx) => {
-      if (idx === 1 && /^[\s|:\-]+$/.test(row)) {
-        html += '<tbody>';
-        return;
-      }
-      const cells = splitTableRow(row);
-      if (cells.length === 0) return;
+      rows.forEach((row, idx) => {
+        if (idx === 1 && /^[\s|:\-]+$/.test(row)) {
+          html += "<tbody>";
+          return;
+        }
+        const cells = splitTableRow(row);
+        if (cells.length === 0) return;
 
-      html += '<tr>';
+        html += "<tr>";
 
-      cells.forEach(cell => {
-        const tag = idx === 0 ? 'th' : 'td';
-        html += `<${tag} style="padding: 8px; text-align: left; border-bottom: 1px solid var(--border);">${cell.trim()}</${tag}>`;
+        cells.forEach((cell) => {
+          const tag = idx === 0 ? "th" : "td";
+          html += `<${tag} style="padding: 8px; text-align: left; border-bottom: 1px solid var(--border);">${cell.trim()}</${tag}>`;
+        });
+
+        html += "</tr>";
       });
 
-      html += '</tr>';
-    });
-
-    html += '</tbody></table>';
-    return html;
-  });
+      html += "</tbody></table>";
+      return html;
+    },
+  );
 
   // Inline code (but not placeholders)
   s = s.replace(/`([^`]+?)`/g, (match, code) => {
-    if (code.startsWith('___CODE_BLOCK_') || code.startsWith('___ALLOWED_HTML_')) return match;
+    if (
+      code.startsWith("___CODE_BLOCK_") ||
+      code.startsWith("___ALLOWED_HTML_")
+    )
+      return match;
     return `<code>${code}</code>`;
   });
 
   // Horizontal rules (must come before bold/italic to avoid * conflicts)
-  s = s.replace(/^(?:---|\*\*\*|___)\s*$/gm, '<hr>');
+  s = s.replace(/^(?:---|\*\*\*|___)\s*$/gm, "<hr>");
 
   // Bold, italic, strikethrough
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  s = s
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  s = s.replace(/~~([^~]+)~~/g, "<del>$1</del>");
 
   // Headers
-  s = s.replace(/^###### (.*)$/gm, '<h6>$1</h6>')
-       .replace(/^##### (.*)$/gm, '<h5>$1</h5>')
-       .replace(/^#### (.*)$/gm, '<h4>$1</h4>')
-       .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-       .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-       .replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  s = s
+    .replace(/^###### (.*)$/gm, "<h6>$1</h6>")
+    .replace(/^##### (.*)$/gm, "<h5>$1</h5>")
+    .replace(/^#### (.*)$/gm, "<h4>$1</h4>")
+    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.*)$/gm, "<h1>$1</h1>");
 
   // Ordered lists (1. 2. 3. etc.)
-  s = s.replace(/^(\d+)\. (.*)$/gm, '<oli>$2</oli>');
-  s = s.replace(/(?:^|\n)(<oli>[\s\S]*?)(?=\n(?!<oli>)|$)/g, m => `<ol>${m.trim().replace(/<\/?oli>/g, (t) => t === '<oli>' ? '<li>' : '</li>')}</ol>`);
+  s = s.replace(/^(\d+)\. (.*)$/gm, "<oli>$2</oli>");
+  s = s.replace(
+    /(?:^|\n)(<oli>[\s\S]*?)(?=\n(?!<oli>)|$)/g,
+    (m) =>
+      `<ol>${m.trim().replace(/<\/?oli>/g, (t) => (t === "<oli>" ? "<li>" : "</li>"))}</ol>`,
+  );
 
   // GitHub-style task lists (- [ ] / - [x]) → checkbox items. Must run before
   // the generic unordered-list rule so the "- " prefix isn't consumed first.
   // Emits <uli> (with a class) so the unordered-list wrapper below treats it
   // as a list item. Used by plan mode: plan + progress render as a checklist.
   s = s.replace(/^(?:- |\* )\[([ xX])\] (.*)$/gm, (_m, mark, text) => {
-    const done = mark.toLowerCase() === 'x';
-    return `<uli class="task-item${done ? ' task-done' : ''}"><span class="task-check" aria-hidden="true"></span><span class="task-text">${text}</span></uli>`;
+    const done = mark.toLowerCase() === "x";
+    return `<uli class="task-item${done ? " task-done" : ""}"><span class="task-check" aria-hidden="true"></span><span class="task-text">${text}</span></uli>`;
   });
 
   // Unordered lists. <uli> may carry attributes (task-item class), so the
   // wrapper preserves them when converting <uli ...> → <li ...>.
-  s = s.replace(/^(?:- |\* )(.*)$/gm, '<uli>$1</uli>');
-  s = s.replace(/(^|\n)((?:<uli\b[^>]*>[^\n]*<\/uli>(?:\n|$))+)/g, (_, prefix, block) =>
-    `${prefix}<ul>${block.trim().replace(/<uli\b([^>]*)>/g, '<li$1>').replace(/<\/uli>/g, '</li>')}</ul>`);
+  s = s.replace(/^(?:- |\* )(.*)$/gm, "<uli>$1</uli>");
+  s = s.replace(
+    /(^|\n)((?:<uli\b[^>]*>[^\n]*<\/uli>(?:\n|$))+)/g,
+    (_, prefix, block) =>
+      `${prefix}<ul>${block
+        .trim()
+        .replace(/<uli\b([^>]*)>/g, "<li$1>")
+        .replace(/<\/uli>/g, "</li>")}</ul>`,
+  );
 
   // Blockquotes
-  s = s.replace(/^&gt; (.*)$/gm, '<bq>$1</bq>');
-  s = s.replace(/(?:^|\n)(<bq>[\s\S]*?)(?=\n(?!<bq>)|$)/g, m =>
-    `<blockquote>${m.trim().replace(/<\/?bq>/g, (t) => t === '<bq>' ? '<p>' : '</p>')}</blockquote>`);
+  s = s.replace(/^&gt; (.*)$/gm, "<bq>$1</bq>");
+  s = s.replace(
+    /(?:^|\n)(<bq>[\s\S]*?)(?=\n(?!<bq>)|$)/g,
+    (m) =>
+      `<blockquote>${m.trim().replace(/<\/?bq>/g, (t) => (t === "<bq>" ? "<p>" : "</p>"))}</blockquote>`,
+  );
 
   // Paragraphs - but NOT for code block placeholders or allowed HTML
-  s = s.replace(/^(?!<h\d|<ul>|<ol>|<li|<oli>|<\/li>|<pre>|<blockquote>|<bq>|<hr>|___CODE_BLOCK_|___ALLOWED_HTML_|___MATH_BLOCK_|___MERMAID_BLOCK_)([^\n]+)$/gm, '<p>$1</p>');
+  s = s.replace(
+    /^(?!<h\d|<ul>|<ol>|<li|<oli>|<\/li>|<pre>|<blockquote>|<bq>|<hr>|___CODE_BLOCK_|___ALLOWED_HTML_|___MATH_BLOCK_|___MERMAID_BLOCK_)([^\n]+)$/gm,
+    "<p>$1</p>",
+  );
 
   // Line breaks within paragraphs
   s = s.replace(/<p>([\s\S]*?)<\/p>/g, (match, content) => {
-    if (content.includes('___CODE_BLOCK_') || content.includes('___ALLOWED_HTML_') || content.includes('___MATH_BLOCK_') || content.includes('___MERMAID_BLOCK_')) return match;
-    const withLineBreaks = content.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>');
+    if (
+      content.includes("___CODE_BLOCK_") ||
+      content.includes("___ALLOWED_HTML_") ||
+      content.includes("___MATH_BLOCK_") ||
+      content.includes("___MERMAID_BLOCK_")
+    )
+      return match;
+    const withLineBreaks = content
+      .replace(/\n{2,}/g, "</p><p>")
+      .replace(/\n/g, "<br>");
     return `<p>${withLineBreaks}</p>`;
   });
 
   // Remove empty paragraphs
-  s = s.replace(/<p><\/p>/g, '');
+  s = s.replace(/<p><\/p>/g, "");
 
   // CRITICAL: Restore allowed HTML blocks first
   allowedHtmlBlocks.forEach((block, index) => {
@@ -748,11 +950,11 @@ export function squashOutsideCode(s) {
   const parts = String(s).split(/```/);
   for (let i = 0; i < parts.length; i += 2) {
     parts[i] = parts[i]
-      .replace(/\r\n/g, '\n')
-      .replace(/[ \t]+\n/g, '\n')
-      .replace(/\n{3,}/g, '\n\n');
+      .replace(/\r\n/g, "\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n");
   }
-  return parts.join('```');
+  return parts.join("```");
 }
 
 /**
@@ -762,10 +964,10 @@ export function renderContent(content) {
   if (Array.isArray(content)) {
     const texts = [];
     for (const blk of content) {
-      if (blk.type === 'text') texts.push(blk.text);
-      else if (blk.type === 'image_url') texts.push('[image]');
+      if (blk.type === "text") texts.push(blk.text);
+      else if (blk.type === "image_url") texts.push("[image]");
     }
-    return texts.join('\n');
+    return texts.join("\n");
   }
   return content;
 }
@@ -777,12 +979,12 @@ export function renderMermaid(container) {
   if (!window.mermaid) return;
   initMermaid();
   const target = container || document;
-  const pending = target.querySelectorAll('pre.mermaid:not([data-processed])');
+  const pending = target.querySelectorAll("pre.mermaid:not([data-processed])");
   if (pending.length === 0) return;
   try {
     window.mermaid.run({ nodes: pending });
   } catch (e) {
-    console.warn('Mermaid render error:', e);
+    console.warn("Mermaid render error:", e);
   }
 }
 
@@ -797,7 +999,7 @@ const markdownModule = {
   extractThinkingBlocks,
   normalizeThinkingMarkup,
   startsWithReasoningPrefix,
-  renderMermaid
+  renderMermaid,
 };
 
 export default markdownModule;
@@ -805,7 +1007,11 @@ export default markdownModule;
 // Mermaid is loaded async so it cannot delay the app shell.
 function initMermaid() {
   if (!window.mermaid || window.__odysseusMermaidReady) return;
-  window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+  window.mermaid.initialize({
+    startOnLoad: false,
+    theme: "dark",
+    securityLevel: "loose",
+  });
   window.__odysseusMermaidReady = true;
 }
 window.odysseusInitMermaid = initMermaid;
@@ -816,10 +1022,15 @@ initMermaid();
 // the inner text content instead — same content reproduces the same hash on
 // reload. LocalStorage holds a Set of expanded hashes; we observe the chat
 // history and re-expand matching sections as they're inserted.
-const THINK_EXPANDED_KEY = 'odysseus-thinking-expanded';
+const THINK_EXPANDED_KEY = "odysseus-thinking-expanded";
 function _loadExpandedSet() {
-  try { return new Set(JSON.parse(localStorage.getItem(THINK_EXPANDED_KEY) || '[]')); }
-  catch { return new Set(); }
+  try {
+    return new Set(
+      JSON.parse(localStorage.getItem(THINK_EXPANDED_KEY) || "[]"),
+    );
+  } catch {
+    return new Set();
+  }
 }
 function _saveExpandedSet(set) {
   try {
@@ -830,9 +1041,9 @@ function _saveExpandedSet(set) {
   } catch {}
 }
 function _hashThinkingContent(el) {
-  if (!el) return '';
-  const text = (el.textContent || '').trim();
-  if (!text) return '';
+  if (!el) return "";
+  const text = (el.textContent || "").trim();
+  if (!text) return "";
   let h = 0;
   for (let i = 0; i < text.length; i++) {
     h = (h * 31 + text.charCodeAt(i)) | 0;
@@ -841,25 +1052,25 @@ function _hashThinkingContent(el) {
 }
 function _setThinkingExpanded(content, toggle, header, expanded) {
   if (!content || !toggle) return;
-  content.classList.toggle('expanded', expanded);
-  toggle.classList.toggle('expanded', expanded);
-  const label_el = header?.querySelector('.thinking-header-left span');
+  content.classList.toggle("expanded", expanded);
+  toggle.classList.toggle("expanded", expanded);
+  const label_el = header?.querySelector(".thinking-header-left span");
   if (label_el) {
-    const label = label_el.dataset.label || 'thinking process';
+    const label = label_el.dataset.label || "thinking process";
     label_el.textContent = expanded ? `Hide ${label}` : `View ${label}`;
   }
 }
 
 // Delegated click handler for thinking toggle (CSP-safe, no inline onclick)
-document.addEventListener('click', function(e) {
-  const header = e.target.closest('.thinking-header[data-thinking-id]');
+document.addEventListener("click", function (e) {
+  const header = e.target.closest(".thinking-header[data-thinking-id]");
   if (!header) return;
   const id = header.dataset.thinkingId;
   const content = document.getElementById(id);
-  const toggle = document.getElementById(id + '-toggle');
+  const toggle = document.getElementById(id + "-toggle");
   if (!content || !toggle) return;
 
-  const willExpand = !content.classList.contains('expanded');
+  const willExpand = !content.classList.contains("expanded");
   _setThinkingExpanded(content, toggle, header, willExpand);
 
   // Persist by content hash so the choice survives a refresh.
@@ -878,21 +1089,21 @@ document.addEventListener('click', function(e) {
   window._thinkingWatcherWired = true;
   const _apply = (root) => {
     if (!root || !root.querySelectorAll) return;
-    const sections = root.matches?.('.thinking-section')
+    const sections = root.matches?.(".thinking-section")
       ? [root]
-      : [...root.querySelectorAll('.thinking-section')];
+      : [...root.querySelectorAll(".thinking-section")];
     if (!sections.length) return;
     const set = _loadExpandedSet();
     if (!set.size) return;
     for (const sec of sections) {
-      const content = sec.querySelector('.thinking-content');
+      const content = sec.querySelector(".thinking-content");
       if (!content) continue;
-      if (content.classList.contains('expanded')) continue;
+      if (content.classList.contains("expanded")) continue;
       const hash = _hashThinkingContent(content);
       if (!hash || !set.has(hash)) continue;
-      const header = sec.querySelector('.thinking-header[data-thinking-id]');
+      const header = sec.querySelector(".thinking-header[data-thinking-id]");
       const id = header?.dataset.thinkingId;
-      const toggle = id ? document.getElementById(id + '-toggle') : null;
+      const toggle = id ? document.getElementById(id + "-toggle") : null;
       _setThinkingExpanded(content, toggle, header, true);
     }
   };
@@ -908,8 +1119,8 @@ document.addEventListener('click', function(e) {
       }
     }).observe(root, { childList: true, subtree: true });
   };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start, { once: true });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start, { once: true });
   } else {
     start();
   }
@@ -918,83 +1129,111 @@ document.addEventListener('click', function(e) {
 function _endpointNameFromUrl(url) {
   try {
     const parsed = new URL(url, window.location.origin);
-    return parsed.host || parsed.hostname || 'Model endpoint';
+    return parsed.host || parsed.hostname || "Model endpoint";
   } catch (_) {
-    return 'Model endpoint';
+    return "Model endpoint";
   }
 }
 
 function _appendEndpointAddButtons(root) {
   if (!root || !root.querySelectorAll) return;
-  const anchors = root.matches?.('a[href]')
+  const anchors = root.matches?.("a[href]")
     ? [root]
-    : [...root.querySelectorAll('a[href]')];
+    : [...root.querySelectorAll("a[href]")];
   for (const anchor of anchors) {
-    if (anchor.dataset.endpointAddChecked === '1') continue;
-    anchor.dataset.endpointAddChecked = '1';
-    const href = anchor.getAttribute('href') || '';
+    if (anchor.dataset.endpointAddChecked === "1") continue;
+    anchor.dataset.endpointAddChecked = "1";
+    const href = anchor.getAttribute("href") || "";
     if (!_isModelEndpointUrl(href)) continue;
-    if (anchor.nextElementSibling?.classList?.contains('model-endpoint-add-btn')) continue;
+    if (
+      anchor.nextElementSibling?.classList?.contains("model-endpoint-add-btn")
+    )
+      continue;
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'model-endpoint-add-btn';
-    btn.dataset.endpointUrl = new URL(href, window.location.origin).href.replace(/\/+$/, '');
-    btn.title = 'Add this OpenAI-compatible endpoint to the model picker';
-    btn.innerHTML = '<span aria-hidden="true">+</span><span>Add to model picker</span>';
-    anchor.insertAdjacentElement('afterend', btn);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "model-endpoint-add-btn";
+    btn.dataset.endpointUrl = new URL(
+      href,
+      window.location.origin,
+    ).href.replace(/\/+$/, "");
+    btn.title = "Add this OpenAI-compatible endpoint to the model picker";
+    btn.innerHTML =
+      '<span aria-hidden="true">+</span><span>Add to model picker</span>';
+    anchor.insertAdjacentElement("afterend", btn);
   }
 }
 
 async function _registerEndpointFromButton(btn) {
-  const baseUrl = String(btn?.dataset?.endpointUrl || '').trim();
+  const baseUrl = String(btn?.dataset?.endpointUrl || "").trim();
   if (!baseUrl || !_isModelEndpointUrl(baseUrl)) return;
   const original = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<span aria-hidden="true">...</span><span>Adding</span>';
   try {
-    const existingRes = await fetch('/api/model-endpoints', { credentials: 'same-origin' });
+    const existingRes = await fetch("/api/model-endpoints", {
+      credentials: "same-origin",
+    });
     if (existingRes.ok) {
       const endpoints = await existingRes.json();
       const existing = Array.isArray(endpoints)
-        ? endpoints.find((ep) => String(ep.base_url || '').replace(/\/+$/, '') === baseUrl)
+        ? endpoints.find(
+            (ep) => String(ep.base_url || "").replace(/\/+$/, "") === baseUrl,
+          )
         : null;
       if (existing) {
-        btn.classList.add('added');
-        btn.innerHTML = '<span aria-hidden="true">✓</span><span>Already added</span>';
-        window.dispatchEvent(new CustomEvent('ge:model-endpoints-updated', { detail: { baseUrl } }));
-        if (window.modelsModule?.refreshModels) window.modelsModule.refreshModels(true);
-        if (window.sessionModule?.updateModelPicker) window.sessionModule.updateModelPicker();
-        uiModule.showToast?.(`Already in model picker: ${existing.name || _endpointNameFromUrl(baseUrl)}`);
+        btn.classList.add("added");
+        btn.innerHTML =
+          '<span aria-hidden="true">✓</span><span>Already added</span>';
+        window.dispatchEvent(
+          new CustomEvent("ge:model-endpoints-updated", {
+            detail: { baseUrl },
+          }),
+        );
+        if (window.modelsModule?.refreshModels)
+          window.modelsModule.refreshModels(true);
+        if (window.sessionModule?.updateModelPicker)
+          window.sessionModule.updateModelPicker();
+        uiModule.showToast?.(
+          `Already in model picker: ${existing.name || _endpointNameFromUrl(baseUrl)}`,
+        );
         return;
       }
     }
 
     const parsed = new URL(baseUrl, window.location.origin);
     const fd = new FormData();
-    fd.append('base_url', baseUrl);
-    fd.append('name', _endpointNameFromUrl(baseUrl));
-    fd.append('model_type', 'llm');
-    fd.append('endpoint_kind', 'auto');
-    fd.append('skip_probe', 'true');
+    fd.append("base_url", baseUrl);
+    fd.append("name", _endpointNameFromUrl(baseUrl));
+    fd.append("model_type", "llm");
+    fd.append("endpoint_kind", "auto");
+    fd.append("skip_probe", "true");
     if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(parsed.hostname)) {
-      fd.append('container_local', 'true');
+      fd.append("container_local", "true");
     }
-    const res = await fetch('/api/model-endpoints', {
-      method: 'POST',
-      credentials: 'same-origin',
+    const res = await fetch("/api/model-endpoints", {
+      method: "POST",
+      credentials: "same-origin",
       body: fd,
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}${body ? ': ' + body.slice(0, 160) : ''}`);
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `HTTP ${res.status}${body ? ": " + body.slice(0, 160) : ""}`,
+      );
     }
-    btn.classList.add('added');
+    btn.classList.add("added");
     btn.innerHTML = '<span aria-hidden="true">✓</span><span>Added</span>';
-    window.dispatchEvent(new CustomEvent('ge:model-endpoints-updated', { detail: { baseUrl } }));
-    if (window.modelsModule?.refreshModels) await window.modelsModule.refreshModels(true);
-    if (window.sessionModule?.updateModelPicker) window.sessionModule.updateModelPicker();
-    uiModule.showToast?.(`Model endpoint added: ${_endpointNameFromUrl(baseUrl)}`);
+    window.dispatchEvent(
+      new CustomEvent("ge:model-endpoints-updated", { detail: { baseUrl } }),
+    );
+    if (window.modelsModule?.refreshModels)
+      await window.modelsModule.refreshModels(true);
+    if (window.sessionModule?.updateModelPicker)
+      window.sessionModule.updateModelPicker();
+    uiModule.showToast?.(
+      `Model endpoint added: ${_endpointNameFromUrl(baseUrl)}`,
+    );
   } catch (err) {
     btn.disabled = false;
     btn.innerHTML = original;
@@ -1006,8 +1245,8 @@ async function _registerEndpointFromButton(btn) {
   if (window._modelEndpointLinkWatcherWired) return;
   window._modelEndpointLinkWatcherWired = true;
 
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest?.('.model-endpoint-add-btn');
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest?.(".model-endpoint-add-btn");
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
@@ -1026,8 +1265,8 @@ async function _registerEndpointFromButton(btn) {
       }
     }).observe(root, { childList: true, subtree: true });
   };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start, { once: true });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start, { once: true });
   } else {
     start();
   }

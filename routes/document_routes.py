@@ -29,8 +29,6 @@ from src.auth_helpers import get_current_user
 from src.constants import MAIL_ATTACHMENTS_DIR
 
 logger = logging.getLogger(__name__)
-# log only warnings and errors by default since some of these functions are best-effort
-logger.setLevel(logging.WARNING)
 
 
 def _get_session_or_404(db, session_id: str, user: Optional[str]):
@@ -891,8 +889,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             q = (
                 db.query(Document)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active)
-                .filter((not Document.archived) | (Document.archived.is_(None)))
+                .filter(Document.is_active.is_(True))
+                .filter((Document.archived.is_(False)) | (Document.archived.is_(None)))
             )
             q = _owner_session_filter(q, user)
             docs = q.all()
@@ -904,21 +902,6 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             import re as _re
 
             from src.document_actions import _JUNK_TITLES
-
-            _HEADER_RE = _re.compile(
-                r"^(to|from|cc|bcc|subject|reply-to):\s*(.*)$", _re.I
-            )
-            _PLACEHOLDER_VALS = {
-                "",
-                "empty",
-                "(empty)",
-                "-",
-                "—",
-                "none",
-                "n/a",
-                "na",
-                "tbd",
-            }
 
             to_delete = []
             for doc in docs:
@@ -937,6 +920,20 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 # is a header label (To:/From:/Subject:/...) with no real
                 # value (blank, "empty", "(empty)", "-", "none", "n/a").
                 _is_email_stub = False
+                _HEADER_RE = _re.compile(
+                    r"^(to|from|cc|bcc|subject|reply-to):\s*(.*)$", _re.I
+                )
+                _PLACEHOLDER_VALS = {
+                    "",
+                    "empty",
+                    "(empty)",
+                    "-",
+                    "—",
+                    "none",
+                    "n/a",
+                    "na",
+                    "tbd",
+                }
                 if (
                     title in ("new email", "new mail", "new message")
                     or doc.language == "email"
@@ -947,12 +944,14 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                         if ln.strip() and ln.strip() != "---"
                     ]
 
-                    def _is_filler(ln):
-                        m = _HEADER_RE.match(ln)
+                    def _is_filler(
+                        ln, header_re=_HEADER_RE, placeholder_vals=_PLACEHOLDER_VALS
+                    ):
+                        m = header_re.match(ln)
                         if not m:
                             return False
                         val = (m.group(2) or "").strip().lower()
-                        return val in _PLACEHOLDER_VALS
+                        return val in placeholder_vals
 
                     has_real_body = any(not _is_filler(ln) for ln in body_lines)
                     if body_lines and not has_real_body:
@@ -1041,8 +1040,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             q = (
                 db.query(Document)
                 .outerjoin(DbSession, Document.session_id == DbSession.id)
-                .filter(Document.is_active)
-                .filter((not Document.archived) | (Document.archived.is_(None)))
+                .filter(Document.is_active.is_(True))
+                .filter((Document.archived.is_(False)) | (Document.archived.is_(None)))
             )
             q = _owner_session_filter(q, user)
             docs = q.all()
@@ -1759,7 +1758,6 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         """
         import base64
         import email as _email_mod
-        import os as _os
         import shutil
         import tempfile
         import uuid as _uuid
@@ -1778,11 +1776,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         )
         from src.pdf_forms import fill_fields, stamp_annotations, stamp_signatures
 
-        _DATA_DIR = _Path(__file__).resolve().parent.parent / "data"
-        _BASE = _os.environ.get(
-            "ODYSSEUS_MAIL_ATTACHMENTS_DIR", str(_DATA_DIR / "mail-attachments")
-        )
-        _COMPOSE_DIR = _Path(_BASE) / "_compose"
+        _COMPOSE_DIR = _Path(MAIL_ATTACHMENTS_DIR) / "_compose"
         _COMPOSE_DIR.mkdir(parents=True, exist_ok=True)
 
         user = get_current_user(request)

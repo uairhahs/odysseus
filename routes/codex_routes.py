@@ -16,12 +16,10 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from core.constants import DATA_DIR
 from routes.shell_routes import TMUX_LOG_DIR
 from src.auth_helpers import require_authenticated_request, require_user
-from src.tool_implementations import do_manage_notes
 from src.constants import COOKBOOK_STATE_FILE
-
+from src.tool_implementations import do_manage_notes
 
 COOKBOOK_READ_SCOPES = {"cookbook:read", "cookbook:launch"}
 COOKBOOK_LAUNCH_SCOPES = {"cookbook:launch"}
@@ -95,7 +93,10 @@ def _scope_owner_all(request: Request, required: set[str]) -> str:
         scopes = set(getattr(request.state, "api_token_scopes", []) or [])
         missing = required - scopes
         if missing:
-            raise HTTPException(403, f"API token missing required scope: {' and '.join(sorted(missing))}")
+            raise HTTPException(
+                403,
+                f"API token missing required scope: {' and '.join(sorted(missing))}",
+            )
         owner = getattr(request.state, "api_token_owner", None)
         if not owner:
             raise HTTPException(403, "API token has no owner")
@@ -326,7 +327,9 @@ def setup_codex_routes(
         return "\n".join(lines).rstrip() + "\n"
 
     @router.post("/emails/draft-document")
-    async def codex_email_draft_document(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    async def codex_email_draft_document(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ):
         owner = _scope_owner_all(request, {"email:draft", "documents:write"})
         if documents_create_endpoint is None:
             raise HTTPException(503, "Documents integration is not available")
@@ -340,7 +343,9 @@ def setup_codex_routes(
             language="email",
             content=_email_draft_document_content(body),
         )
-        result = await _as_owner(request, owner, documents_create_endpoint, request, req)
+        result = await _as_owner(
+            request, owner, documents_create_endpoint, request, req
+        )
         if isinstance(result, dict):
             result = dict(result)
             result["draft_type"] = "document"
@@ -571,7 +576,7 @@ def setup_codex_routes(
     def _read_cookbook_state() -> dict:
         import json as _json
         from pathlib import Path as _Path
-        import json as _json
+
         p = _Path(COOKBOOK_STATE_FILE)
         if not p.exists():
             return {}
@@ -949,6 +954,9 @@ def setup_codex_routes(
         import json as _json
         import time as _t
         from pathlib import Path as _Path
+
+        from core.atomic_io import atomic_write_json
+
         cookbook_state_path = _Path(COOKBOOK_STATE_FILE)
         try:
             state = _json.loads(cookbook_state_path.read_text(encoding="utf-8"))

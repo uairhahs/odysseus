@@ -10,13 +10,12 @@ import hashlib
 import logging
 import os
 import re
-
-from src.constants import CHROMA_DIR
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
+from src.constants import CHROMA_DIR
 from src.embedding_lanes import (
     LANE_CUSTOM,
     LANE_FASTEMBED,

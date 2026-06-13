@@ -1505,17 +1505,21 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
             if not name:
                 continue
             full = all_skills.get(name) or {}
-            category = (s.get("category") or full.get("category") or "general").strip() or "general"
-            entries.append({
-                "type": "skill",
-                "token": f"/{name}",
-                "name": name,
-                "category": f"Skills / {category}",
-                "help": s.get("description") or full.get("description") or "",
-                "usage": f"/{name} <request>",
-                "uses": int(full.get("uses") or 0),
-                "last_used": full.get("last_used"),
-            })
+            category = (
+                s.get("category") or full.get("category") or "general"
+            ).strip() or "general"
+            entries.append(
+                {
+                    "type": "skill",
+                    "token": f"/{name}",
+                    "name": name,
+                    "category": f"Skills / {category}",
+                    "help": s.get("description") or full.get("description") or "",
+                    "usage": f"/{name} <request>",
+                    "uses": int(full.get("uses") or 0),
+                    "last_used": full.get("last_used"),
+                }
+            )
         entries.sort(key=lambda row: row["name"])
         return {"skills": entries, "count": len(entries)}
 
@@ -1703,10 +1707,13 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
             body = await request.json()
         except Exception:
             body = {}
-        request_text = (body.get("request") or "").strip() if isinstance(body, dict) else ""
+        request_text = (
+            (body.get("request") or "").strip() if isinstance(body, dict) else ""
+        )
 
         invokable = {
-            s.get("name"): s for s in skills_manager.index_for(owner=user)
+            s.get("name"): s
+            for s in skills_manager.index_for(owner=user)
             if (s.get("name") or "").strip()
         }
         match = invokable.get(skill_id)
@@ -1722,7 +1729,11 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
         message = (
             "Apply the skill below to my request, following its Procedure / Pitfalls / Verification.\n\n"
             f"--- BEGIN SKILL ---\n{md}\n--- END SKILL ---\n\n"
-            + (f"Request: {request_text}" if request_text else "Request: (use the skill as appropriate)")
+            + (
+                f"Request: {request_text}"
+                if request_text
+                else "Request: (use the skill as appropriate)"
+            )
         )
         return {
             "ok": True,

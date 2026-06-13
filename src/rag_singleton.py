@@ -3,9 +3,11 @@ RAG singleton instance for the application.
 """
 
 import logging
-import os
+
+# unused
+# import os
+# from pathlib import Path
 import time
-from pathlib import Path
 
 from src.constants import RAG_DIR
 

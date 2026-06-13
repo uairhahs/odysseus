@@ -36,7 +36,13 @@ from core.database import (
     TaskRun,
 )
 from core.middleware import require_admin
-from src.constants import DATA_DIR, SKILLS_DIR, SKILLS_FILE, GALLERY_DIR, GALLERY_UPLOADS_DIR
+from src.constants import (
+    DATA_DIR,
+    GALLERY_DIR,
+    GALLERY_UPLOADS_DIR,
+    SKILLS_DIR,
+    SKILLS_FILE,
+)
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

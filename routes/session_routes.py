@@ -8,15 +8,19 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
 
-from core.database import Document, GalleryImage
+from core.database import (
+    Document,
+    GalleryImage,
+)
 from core.database import Session as DbSession
-from core.database import SessionLocal, utcnow_naive
+from core.database import (
+    SessionLocal,
+    utcnow_naive,
+)
 from core.models import ChatMessage
 from core.session_manager import SessionManager
 from src.auth_helpers import _auth_disabled, effective_user, get_current_user
 from src.request_models import SessionResponse
-from core.database import Session as DbSession, SessionLocal, Document, GalleryImage, utcnow_naive
-from src.auth_helpers import get_current_user, effective_user, _auth_disabled
 from src.session_actions import is_session_recently_active
 
 

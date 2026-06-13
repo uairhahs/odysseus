@@ -17,6 +17,9 @@ from pathlib import Path
 def _norm(s: str) -> str:
     """Normalize whitespace and quote style so cosmetic differences don't matter."""
     s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
     return s.strip()
 
 

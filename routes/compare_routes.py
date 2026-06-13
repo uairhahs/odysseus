@@ -197,7 +197,7 @@ def setup_compare_routes(session_manager: SessionManager):
 
         # Both endpoints validated — only now create the ephemeral [CMP]
         # sessions and copy any resolved headers.
-        for sid, model, session_endpoint_url, headers in resolved:
+        for sid, model, session_endpoint_url, _headers in resolved:
             name = (
                 f"[CMP] {slot_name[sid]}" if blind else f"[CMP] {model.split('/')[-1]}"
             )

@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core.middleware import require_admin
-from src.request_models import PresetUpdateRequest
 from src.auth_helpers import effective_user
+from src.request_models import PresetUpdateRequest
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

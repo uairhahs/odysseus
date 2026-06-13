@@ -11,17 +11,21 @@
  */
 export function getLastUserMessageFromChatHistory(root = document) {
   const chatBox =
-    root && root.id === 'chat-history' && typeof root.querySelectorAll === 'function'
+    root &&
+    root.id === "chat-history" &&
+    typeof root.querySelectorAll === "function"
       ? root
-      : (root.getElementById ? root.getElementById('chat-history') : null);
-  if (!chatBox) return '';
+      : root.getElementById
+        ? root.getElementById("chat-history")
+        : null;
+  if (!chatBox) return "";
 
-  const users = chatBox.querySelectorAll('.msg-user');
+  const users = chatBox.querySelectorAll(".msg-user");
   const last = users[users.length - 1];
-  if (!last) return '';
+  if (!last) return "";
 
-  const bodyEl = last.querySelector('.body');
-  return last.dataset?.raw || (bodyEl ? bodyEl.textContent : '') || '';
+  const bodyEl = last.querySelector(".body");
+  return last.dataset?.raw || (bodyEl ? bodyEl.textContent : "") || "";
 }
 
 /**
@@ -37,14 +41,14 @@ export function wireArrowUpRecall(composer, getLastUserMessage, options = {}) {
 
   const { autoResize } = options;
 
-  composer.addEventListener('keydown', (e) => {
+  composer.addEventListener("keydown", (e) => {
     // Only ArrowUp, no modifier keys, no IME composition
-    if (e.key !== 'ArrowUp') return;
+    if (e.key !== "ArrowUp") return;
     if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.isComposing) return;
 
     // Literal emptiness — intentional whitespace is not empty
-    if (composer.value !== '') return;
+    if (composer.value !== "") return;
 
     const recalled = getLastUserMessage();
     if (!recalled) return;
