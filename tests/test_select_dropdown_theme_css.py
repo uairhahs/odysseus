@@ -1,17 +1,9 @@
-import re
 from pathlib import Path
+
+from tests.helpers.linter_compat import _norm
 
 STYLE_CSS = Path(__file__).resolve().parents[1] / "static" / "style.css"
 css = STYLE_CSS.read_text(encoding="utf-8")
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
 
 
 def test_native_select_options_use_theme_tokens():

@@ -1,17 +1,9 @@
 """Model-assisted route helpers must resolve endpoints with owner scope."""
 
 import ast
-import re
 from pathlib import Path
 
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
+from tests.helpers.linter_compat import _norm
 
 
 def _function_source(path: str, name: str) -> str:

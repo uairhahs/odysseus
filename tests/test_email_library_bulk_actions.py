@@ -1,12 +1,6 @@
-import re
 from pathlib import Path
 
-
-def _norm(s: str) -> str:
-    s = s.replace('"', "'")
-    s = re.sub(r"\s+", " ", s)
-    return s
-
+from tests.helpers.linter_compat import _norm
 
 _REPO = Path(__file__).resolve().parents[1]
 _EMAIL_LIBRARY = _REPO / "static" / "js" / "emailLibrary.js"

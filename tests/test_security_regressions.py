@@ -21,15 +21,7 @@ from pathlib import Path
 
 import pytest
 
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
-
+from tests.helpers.linter_compat import _norm
 
 # ── prompt-injection context wrapper ────────────────────────────
 

@@ -1,17 +1,8 @@
 """Static regressions for `/setup` account sign-in providers."""
 
-import re
 from pathlib import Path
 
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
-
+from tests.helpers.linter_compat import _norm
 
 _REPO = Path(__file__).resolve().parent.parent
 _SLASH = (_REPO / "static" / "js" / "slashCommands.js").read_text(encoding="utf-8")

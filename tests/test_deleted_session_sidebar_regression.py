@@ -1,20 +1,9 @@
-import re
 from pathlib import Path
+
+from tests.helpers.linter_compat import _norm
 
 APP_JS = Path("static/app.js")
 SESSIONS_JS = Path("static/js/sessions.js")
-
-
-import re
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
 
 
 def test_rail_delete_uses_hard_delete_endpoint():

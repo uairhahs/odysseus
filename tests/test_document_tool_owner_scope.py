@@ -1,20 +1,11 @@
 import asyncio
-import re
 import sys
 import types
 
 from sqlalchemy.sql.elements import False_, Null, True_
 
 from src import tool_implementations as tools
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
+from tests.helpers.linter_compat import _norm
 
 
 def _unwrap_sqla(value):

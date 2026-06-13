@@ -12,13 +12,7 @@ of the other tests in this suite.
 import re
 from pathlib import Path
 
-
-# normalise so linters don't break tests when file is formatted
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    return s.strip()
-
+from tests.helpers.linter_compat import _norm
 
 _REPO = Path(__file__).resolve().parent.parent
 _INDEX = Path(_REPO / "static" / "index.html").read_text(encoding="utf-8")

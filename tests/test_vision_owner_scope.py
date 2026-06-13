@@ -1,19 +1,10 @@
-import re
 from pathlib import Path
 
 from src import ai_interaction
 from src import document_processor as dp
+from tests.helpers.linter_compat import _norm
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
 
 
 def test_configured_vision_model_resolution_passes_owner(monkeypatch):

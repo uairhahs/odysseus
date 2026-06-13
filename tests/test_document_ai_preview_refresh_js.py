@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from tests.helpers.linter_compat import _norm
+
 SRC = Path(__file__).resolve().parent.parent / "static/js/document.js"
 
 
@@ -24,15 +26,6 @@ def _function_body(name: str) -> str:
         i += 1
     assert depth == 0, f"{name} body did not close"
     return text[start : i - 1]
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
 
 
 def test_markdown_preview_refresh_rerenders_visible_preview():

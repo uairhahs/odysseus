@@ -1,15 +1,10 @@
 """Regression guards for markdown raw-HTML sanitizer helpers."""
 
-import re
 from pathlib import Path
 
+from tests.helpers.linter_compat import _norm
+
 _REPO = Path(__file__).resolve().parent.parent
-
-
-def _norm(s: str) -> str:
-    s = s.replace('"', "'")
-    s = re.sub(r"\s+", " ", s)
-    return s
 
 
 def test_markdown_raw_html_sanitizer_checks_url_attr_edge_cases():

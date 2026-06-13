@@ -30,15 +30,7 @@ from routes.cookbook_helpers import (
     _venv_safe_local_pip_install_cmd,
     run_ssh_command_async,
 )
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
+from tests.helpers.linter_compat import _norm
 
 
 def test_safe_env_prefix_accepts_quoted_venv_path():

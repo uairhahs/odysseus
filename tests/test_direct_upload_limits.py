@@ -1,23 +1,13 @@
 import io
-import re
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, UploadFile
 
 from src.upload_limits import format_byte_limit, read_upload_limited
+from tests.helpers.linter_compat import _norm
 
 REPO = Path(__file__).resolve().parent.parent
-
-
-# normalise whitespace in strings for easier testing of source code content without worrying about formatting differences
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
 
 
 def _upload(name: str, data: bytes) -> UploadFile:

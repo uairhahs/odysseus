@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,15 +7,7 @@ from fastapi import HTTPException
 # Import the route helper during collection so sibling session tests that use
 # partial import stubs do not become the first loader of core.session_manager.
 from routes.session_routes import _reject_raw_endpoint_url_for_non_admin
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
+from tests.helpers.linter_compat import _norm
 
 
 def _request(user, *, admin=False):

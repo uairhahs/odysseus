@@ -3,18 +3,29 @@
 import re
 from pathlib import Path
 
+from tests.helpers.linter_compat import _norm
+
 _REPO = Path(__file__).resolve().parent.parent
 
 
 def test_live_tool_screenshot_does_not_template_raw_sse_value():
     chat = (_REPO / "static" / "js" / "chat.js").read_text(encoding="utf-8")
+    chat = _norm(chat)
 
-    assert "safeToolScreenshotSrc(json.screenshot)" in chat
-    assert "img.src = screenshotSrc" in chat
-    assert (
-        'details.innerHTML = `<summary>Screenshot</summary><img src="${json.screenshot}"'
-        not in chat
-    )
+    needles = [
+        ("safeToolScreenshotSrc(json.screenshot)", True),
+        ("img.src = screenshotSrc", True),
+        (
+            'details.innerHTML = `<summary>Screenshot</summary><img src="${json.screenshot}"',
+            False,
+        ),
+    ]
+    for needle, should_exist in needles:
+        needle = _norm(needle)
+        if should_exist:
+            assert needle in chat
+        else:
+            assert needle not in chat
 
 
 def test_restored_tool_screenshot_uses_raster_data_url_whitelist():

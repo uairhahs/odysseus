@@ -8,19 +8,11 @@ match the textarea's measured row heights. Keep these as static checks because
 document.js is browser-coupled and not importable in pytest.
 """
 
-import re
 from pathlib import Path
 
+from tests.helpers.linter_compat import _norm
+
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace and quote style so cosmetic differences don't matter."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    return s.strip()
 
 
 DOC_JS = _norm((ROOT / "static/js/document.js").read_text(encoding="utf-8"))
