@@ -13,8 +13,8 @@ from pydantic import BaseModel
 
 from core.database import Comparison, SessionLocal
 from core.session_manager import SessionManager
-from src.auth_helpers import get_current_user
 from routes.session_routes import _reject_raw_endpoint_url_for_non_admin
+from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -58,6 +58,7 @@ def _owned_endpoint_by_id(db, endpoint_id, owner):
     """
     from core.database import ModelEndpoint
     from src.auth_helpers import owner_filter
+
     q = db.query(ModelEndpoint).filter(ModelEndpoint.id == endpoint_id)
     return owner_filter(q, ModelEndpoint, owner).first()
 
@@ -89,7 +90,7 @@ def setup_compare_routes(session_manager: SessionManager):
         Returns the comparison ID and the two session IDs so the client
         can fire two independent SSE streams to /api/chat_stream.
         """
-        user = getattr(request.state, 'current_user', None)
+        user = getattr(request.state, "current_user", None)
         comp_id = str(uuid.uuid4())
         sid_a = str(uuid.uuid4())
         sid_b = str(uuid.uuid4())
@@ -122,16 +123,14 @@ def setup_compare_routes(session_manager: SessionManager):
         # resolution + raw-URL rejection up front means a 403 on either endpoint
         # aborts the whole request with nothing created and no header copied.
         from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
+
         resolved = []
         db = SessionLocal()
         try:
             for sid, model, endpoint, endpoint_id in [
-            
                 (sid_a, model_a, endpoint_a, endpoint_a_id),
-               
-            (sid_b, model_b, endpoint_b, endpoint_b_id),
-            ,
-        ]:
+                (sid_b, model_b, endpoint_b, endpoint_b_id),
+            ]:
                 # Prefer an explicit endpoint id: it pins the EXACT registered
                 # endpoint (and its api_key), even when two endpoints visible to
                 # the caller share a base_url with different keys — a URL-only
@@ -151,7 +150,8 @@ def setup_compare_routes(session_manager: SessionManager):
                     endpoint = ep.base_url
                 elif not endpoint:
                     raise HTTPException(
-                        422, "endpoint_a/endpoint_b or endpoint_a_id/endpoint_b_id is required"
+                        422,
+                        "endpoint_a/endpoint_b or endpoint_a_id/endpoint_b_id is required",
                     )
                 else:
                     # Resolve the supplied URL to a ModelEndpoint the caller owns
@@ -179,12 +179,18 @@ def setup_compare_routes(session_manager: SessionManager):
                 # `_reject_raw_endpoint_url_for_non_admin` is a no-op and `ep`
                 # is None. Mirrors the registered-endpoint path in session_routes.
                 session_endpoint_url = (
-                    build_chat_url(normalize_base(ep.base_url)) if ep is not None else endpoint
+                    build_chat_url(normalize_base(ep.base_url))
+                    if ep is not None
+                    else endpoint
                 )
                 # Headers come only from a matched endpoint's key; None when
                 # `ep` is None (raw admin URL or no match), so a comparison can
                 # never inherit another user's key/headers.
-                headers = build_headers(ep.api_key, ep.base_url) if (ep and ep.api_key) else None
+                headers = (
+                    build_headers(ep.api_key, ep.base_url)
+                    if (ep and ep.api_key)
+                    else None
+                )
                 resolved.append((sid, model, session_endpoint_url, headers))
         finally:
             db.close()

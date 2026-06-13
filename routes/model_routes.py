@@ -595,18 +595,27 @@ def _is_chat_model(model_id: str) -> bool:
     return True
 
 
-def _delete_orphaned_provider_auth(db, auth_id: Optional[str], exclude_ep_id: Optional[str] = None) -> bool:
+def _delete_orphaned_provider_auth(
+    db, auth_id: Optional[str], exclude_ep_id: Optional[str] = None
+) -> bool:
     """Delete a ProviderAuthSession once no endpoint still references it."""
     if not auth_id:
         return False
     from core.database import ProviderAuthSession
-    still_referenced = db.query(ModelEndpoint.id).filter(
-        ModelEndpoint.provider_auth_id == auth_id,
-        ModelEndpoint.id != exclude_ep_id,
-    ).first()
+
+    still_referenced = (
+        db.query(ModelEndpoint.id)
+        .filter(
+            ModelEndpoint.provider_auth_id == auth_id,
+            ModelEndpoint.id != exclude_ep_id,
+        )
+        .first()
+    )
     if still_referenced is not None:
         return False
-    auth_row = db.query(ProviderAuthSession).filter(ProviderAuthSession.id == auth_id).first()
+    auth_row = (
+        db.query(ProviderAuthSession).filter(ProviderAuthSession.id == auth_id).first()
+    )
     if auth_row is None:
         return False
     db.delete(auth_row)
@@ -648,25 +657,37 @@ def _resolve_probe_key(ep) -> Optional[str]:
     """API key/bearer to probe an endpoint with."""
     try:
         from src.endpoint_resolver import resolve_endpoint_runtime
+
         _base, key = resolve_endpoint_runtime(ep, owner=getattr(ep, "owner", None))
         return key
     except Exception as exc:
-        logger.warning("Probe key resolution failed for %s: %s", getattr(ep, "id", "?"), exc)
+        logger.warning(
+            "Probe key resolution failed for %s: %s", getattr(ep, "id", "?"), exc
+        )
         return None
 
 
-def _delete_orphaned_provider_auth(db, auth_id: Optional[str], exclude_ep_id: Optional[str] = None) -> bool:
+def _delete_orphaned_provider_auth(
+    db, auth_id: Optional[str], exclude_ep_id: Optional[str] = None
+) -> bool:
     """Delete a ProviderAuthSession once no endpoint still references it."""
     if not auth_id:
         return False
     from core.database import ProviderAuthSession
-    still_referenced = db.query(ModelEndpoint.id).filter(
-        ModelEndpoint.provider_auth_id == auth_id,
-        ModelEndpoint.id != exclude_ep_id,
-    ).first()
+
+    still_referenced = (
+        db.query(ModelEndpoint.id)
+        .filter(
+            ModelEndpoint.provider_auth_id == auth_id,
+            ModelEndpoint.id != exclude_ep_id,
+        )
+        .first()
+    )
     if still_referenced is not None:
         return False
-    auth_row = db.query(ProviderAuthSession).filter(ProviderAuthSession.id == auth_id).first()
+    auth_row = (
+        db.query(ProviderAuthSession).filter(ProviderAuthSession.id == auth_id).first()
+    )
     if auth_row is None:
         return False
     db.delete(auth_row)
@@ -708,11 +729,15 @@ def _resolve_probe_key(ep) -> Optional[str]:
     """API key/bearer to probe an endpoint with."""
     try:
         from src.endpoint_resolver import resolve_endpoint_runtime
+
         _base, key = resolve_endpoint_runtime(ep, owner=getattr(ep, "owner", None))
         return key
     except Exception as exc:
-        logger.warning("Probe key resolution failed for %s: %s", getattr(ep, "id", "?"), exc)
+        logger.warning(
+            "Probe key resolution failed for %s: %s", getattr(ep, "id", "?"), exc
+        )
         return None
+
 
 def _probe_single_model(
     base: str, api_key: str, model_id: str, timeout: int = 10, with_tools: bool = False
@@ -890,6 +915,7 @@ def _probe_endpoint(base_url: str, api_key: str = None, timeout: int = 5) -> Lis
     provider = _safe_detect_provider(base)
     if provider == "chatgpt-subscription":
         from src.chatgpt_subscription import fetch_available_models
+
         if api_key:
             return fetch_available_models(api_key, timeout=timeout)
         return []
@@ -987,7 +1013,6 @@ def _probe_endpoint(base_url: str, api_key: str = None, timeout: int = 5) -> Lis
     return []
 
 
-
 def _ping_endpoint(
     base_url: str, api_key: str = None, timeout: float = 1.5
 ) -> Dict[str, Any]:
@@ -1080,8 +1105,6 @@ def _ping_endpoint(
         last_error = str(e)[:120]
 
     return {"reachable": False, "status_code": None, "error": last_error}
-
-
 
 
 def _model_endpoint_error_message(base_url: str, ping: Dict[str, Any] = None) -> str:
@@ -1490,8 +1513,7 @@ def setup_model_routes(model_discovery):
                 raise HTTPException(401, "Not authenticated")
         except HTTPException:
             raise
-        except Exception as e as e:
-            logger.warning(f"Error checking auth for /models: {e}")
+        except Exception as e:
             logger.error("Auth gate error in GET /api/models, failing closed: %s", e)
             raise HTTPException(status_code=500, detail="Internal error")
         # Admins see every endpoint (they manage the global pool); regular
@@ -1869,10 +1891,14 @@ def setup_model_routes(model_discovery):
                                 r.cached_models = json.dumps(probed)
                                 db.commit()
                                 all_models = probed
-                                visible = _visible_models(all_models, r.hidden_models, pinned)
+                                visible = _visible_models(
+                                    all_models, r.hidden_models, pinned
+                                )
                                 status = "online"
                         except Exception as _refill_err:
-                            logger.debug(f"opportunistic cached_models refill failed for {r.id}: {_refill_err!r}")
+                            logger.debug(
+                                f"opportunistic cached_models refill failed for {r.id}: {_refill_err!r}"
+                            )
                 base = _normalize_base(r.base_url)
                 kind = _effective_endpoint_kind(r, base)
                 results.append(
@@ -2690,7 +2716,9 @@ def setup_model_routes(model_discovery):
             cleared_loaded_sessions = _clear_loaded_sessions_for_endpoint(ep.base_url)
             auth_id = getattr(ep, "provider_auth_id", None)
             db.delete(ep)
-            cleared_provider_auth = _delete_orphaned_provider_auth(db, auth_id, exclude_ep_id=ep_id)
+            cleared_provider_auth = _delete_orphaned_provider_auth(
+                db, auth_id, exclude_ep_id=ep_id
+            )
             db.commit()
             _invalidate_models_cache()
             _local_probe_cache["data"] = None

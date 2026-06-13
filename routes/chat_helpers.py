@@ -102,7 +102,9 @@ def _enforce_chat_privileges(request, sess) -> None:
     # (block all) from "user clicked [All]" (no restriction), since both
     # otherwise produce an empty `allowed_models` list.
     if privs.get("block_all_models"):
-        raise HTTPException(403, f"Your account is not allowed to use model '{sess.model}'.")
+        raise HTTPException(
+            403, f"Your account is not allowed to use model '{sess.model}'."
+        )
 
     allowed_raw = privs.get("allowed_models")
     allowed = allowed_raw if isinstance(allowed_raw, list) else []
@@ -235,29 +237,23 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     """
     import requests as _req
 
+    from src.chatgpt_subscription import is_chatgpt_subscription_base
     from src.endpoint_resolver import (
-        (
         build_chat_url,
-       
         build_headers,
-       
         build_models_url,
-       
         normalize_base,
-    ),
         resolve_endpoint_runtime,
     )
-    from src.chatgpt_subscription import is_chatgpt_subscription_base
 
     current_url = sess.endpoint_url or ""
     owner = getattr(sess, "owner", None)
     db = SessionLocal()
     try:
-        q = db.query(ModelEndpoint).filter(
-            ModelEndpoint.is_enabled._is(True)
-        )
+        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled._is(True))
         if owner:
             from src.auth_helpers import owner_filter
+
             q = owner_filter(q, ModelEndpoint, owner)
         endpoints = q.all()
     finally:
@@ -294,7 +290,9 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             new_model = models[0]
             chat_url = build_chat_url(base)
             new_headers = build_headers(api_key, base)
-            persisted_headers = {} if is_chatgpt_subscription_base(base) else new_headers
+            persisted_headers = (
+                {} if is_chatgpt_subscription_base(base) else new_headers
+            )
 
             sess.model = new_model
             sess.endpoint_url = chat_url
@@ -303,11 +301,13 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             # Persist
             _db = SessionLocal()
             try:
-                _db.query(DBSession).filter(DBSession.id == session_id).update({
-                    "model": new_model,
-                    "endpoint_url": chat_url,
-                    "headers": persisted_headers,
-                })
+                _db.query(DBSession).filter(DBSession.id == session_id).update(
+                    {
+                        "model": new_model,
+                        "endpoint_url": chat_url,
+                        "headers": persisted_headers,
+                    }
+                )
                 _db.commit()
             finally:
                 _db.close()
@@ -431,7 +431,7 @@ def _session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
 def _has_auth_keys(headers) -> bool:
     """True if a headers dict carries an Authorization/x-api-key entry."""
     return isinstance(headers, dict) and any(
-        k.lower() in ('authorization', 'x-api-key') for k in headers
+        k.lower() in ("authorization", "x-api-key") for k in headers
     )
 
 
@@ -439,7 +439,10 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
     """Ensure session has auth headers — resolve from endpoint DB if missing."""
     try:
         from src.chatgpt_subscription import is_chatgpt_subscription_base
-        is_chatgpt_subscription = is_chatgpt_subscription_base(getattr(sess, "endpoint_url", "") or "")
+
+        is_chatgpt_subscription = is_chatgpt_subscription_base(
+            getattr(sess, "endpoint_url", "") or ""
+        )
     except Exception:
         is_chatgpt_subscription = False
     has_auth = _has_auth_keys(sess.headers)
@@ -448,6 +451,7 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
 
     try:
         from src.endpoint_resolver import build_headers, resolve_endpoint_runtime
+
         db = SessionLocal()
         try:
             target_url = getattr(sess, "endpoint_url", "") or ""
@@ -467,7 +471,11 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 try:
                     base, api_key = resolve_endpoint_runtime(ep, owner=owner)
                 except Exception as e:
-                    logger.warning("Failed to resolve provider auth for session %s: %s", session_id, e)
+                    logger.warning(
+                        "Failed to resolve provider auth for session %s: %s",
+                        session_id,
+                        e,
+                    )
                     return
                 if not api_key:
                     # No usable key (e.g. ChatGPT Subscription needs re-auth).
@@ -485,8 +493,12 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                     if stored is not None and _has_auth_keys(stored.headers):
                         stale_q.update({"headers": {}})
                         db.commit()
-                        logger.info(f"Cleared persisted ChatGPT Subscription bearer from session {session_id}")
-                    logger.debug(f"Resolved request-local ChatGPT Subscription auth for session {session_id}")
+                        logger.info(
+                            f"Cleared persisted ChatGPT Subscription bearer from session {session_id}"
+                        )
+                    logger.debug(
+                        f"Resolved request-local ChatGPT Subscription auth for session {session_id}"
+                    )
                     return
                 update_q = db.query(DBSession).filter(DBSession.id == session_id)
                 if owner:
@@ -537,6 +549,7 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
         owner = getattr(sess, "owner", None)
         if owner:
             from src.auth_helpers import owner_filter
+
             q = owner_filter(q, ModelEndpoint, owner)
         endpoints = q.all()
         for ep in endpoints:

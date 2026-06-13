@@ -13,11 +13,15 @@ from datetime import timezone
 # from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.constants import MAX_READ_CHARS, DEEP_RESEARCH_DIR, VAULT_FILE
-from src.tool_utils import get_mcp_manager
 from core.constants import internal_api_base
 from routes.shell_routes import TMUX_LOG_DIR
-from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS
+from src.constants import (
+    DEEP_RESEARCH_DIR,
+    MAX_OUTPUT_CHARS,
+    MAX_READ_CHARS,
+    VAULT_FILE,
+)
+from src.tool_utils import get_mcp_manager
 
 
 def get_mcp_manager():
@@ -809,8 +813,11 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         if not _status_arg:
             try:
                 from routes.prefs_routes import _load_for_user as _load_prefs
+
                 _prefs = _load_prefs(owner) or {}
-                _status_arg = "published" if _prefs.get("auto_approve_skills", True) else "draft"
+                _status_arg = (
+                    "published" if _prefs.get("auto_approve_skills", True) else "draft"
+                )
             except Exception:
                 _status_arg = "draft"
         entry = sm.add_skill(
@@ -3278,6 +3285,7 @@ async def _ensure_served_endpoint(
 ) -> Dict[str, Any]:
     """Register/fetch a model endpoint for a running serve session."""
     import httpx
+
     endpoint_host, container_local = _infer_serve_host(host)
     port = _infer_serve_port(cmd)
     base_url = f"http://{endpoint_host}:{port}/v1"
@@ -3297,12 +3305,21 @@ async def _ensure_served_endpoint(
                 data=payload,
                 headers=_internal_headers(),
             )
-            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            data = (
+                resp.json()
+                if resp.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
         if resp.status_code >= 400:
             logger.debug(
                 f"ensure endpoint failed for {model!r}: status={resp.status_code} data={data}"
             )
-            return {"added": False, "endpoint_id": "", "base_url": base_url, "error": data}
+            return {
+                "added": False,
+                "endpoint_id": "",
+                "base_url": base_url,
+                "error": data,
+            }
         ep_id = data.get("id") if isinstance(data, dict) else None
         return {
             "added": bool(ep_id),
@@ -3312,7 +3329,12 @@ async def _ensure_served_endpoint(
         }
     except Exception as e:
         logger.debug(f"ensure endpoint exception for {model!r}: {e}")
-        return {"added": False, "endpoint_id": "", "base_url": base_url, "error": str(e)}
+        return {
+            "added": False,
+            "endpoint_id": "",
+            "base_url": base_url,
+            "error": str(e),
+        }
 
 
 async def _cookbook_register_task(
@@ -3384,7 +3406,7 @@ async def _cookbook_register_task(
             "platform": "linux",
             "_serveReady": False,
             "_endpointAdded": bool(endpoint_added),
-        "_endpointId": endpoint_id or "",
+            "_endpointId": endpoint_id or "",
         }
     )
     state["tasks"] = tasks
@@ -3842,8 +3864,11 @@ async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
                 session_id=sid,
                 model=repo_id,
                 host=host,
-                cmd=(f"ollama pull {repo_id}" if backend == "ollama" else f"hf download {repo_id}"),
-               
+                cmd=(
+                    f"ollama pull {repo_id}"
+                    if backend == "ollama"
+                    else f"hf download {repo_id}"
+                ),
                 task_type="download",
             )
             note = (
@@ -3858,17 +3883,12 @@ async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
                 else ""
             )
             return {
-                
                 "output": f"Download started: {repo_id} on {where} (session: {sid}){note}{default_note}",
-               
                 "session_id": sid,
-               
                 "host": host,
-               
                 "task_type": "download",
                 "phase": "running",
                 "exit_code": 0,
-            ,
             }
         return {"error": data.get("error", "Download failed"), "exit_code": 1}
     except Exception as e:
@@ -3952,7 +3972,9 @@ async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
             if endpoint_id:
                 endpoint_added = True
             else:
-                endpoint_meta = await _ensure_served_endpoint(model=repo_id, cmd=cmd, host=host)
+                endpoint_meta = await _ensure_served_endpoint(
+                    model=repo_id, cmd=cmd, host=host
+                )
                 endpoint_added = bool(endpoint_meta.get("added"))
                 endpoint_id = endpoint_meta.get("endpoint_id", "") or endpoint_id
             registered = await _cookbook_register_task(
@@ -3961,23 +3983,20 @@ async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
                 host=host,
                 cmd=cmd,
                 task_type="serve",
-                endpoint_added=endpoint_added, endpoint_id=endpoint_id or "",
+                endpoint_added=endpoint_added,
+                endpoint_id=endpoint_id or "",
             )
             note = (
                 "" if registered else " (state-write failed — task may not show in UI)"
             )
             return {
-                
                 "output": f"Serving {repo_id} (session: {sid}){note}",
-               
                 "session_id": sid,
-               
                 "task_type": "serve",
                 "phase": "running",
                 "host": host,
                 "endpoint_id": endpoint_id,
                 "exit_code": 0,
-            ,
             }
         # FastAPI HTTPException puts the message under `detail`, not `error`.
         # Surface BOTH so the agent sees "Invalid characters in cmd" (from
@@ -4927,7 +4946,9 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
             if endpoint_id:
                 endpoint_added = True
             else:
-                endpoint_meta = await _ensure_served_endpoint(model=repo_id, cmd=cmd, host=host)
+                endpoint_meta = await _ensure_served_endpoint(
+                    model=repo_id, cmd=cmd, host=host
+                )
                 endpoint_added = bool(endpoint_meta.get("added"))
                 endpoint_id = endpoint_meta.get("endpoint_id", "") or endpoint_id
             registered = await _cookbook_register_task(
@@ -4936,7 +4957,8 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
                 host=host,
                 cmd=cmd,
                 task_type="serve",
-                endpoint_added=endpoint_added, endpoint_id=endpoint_id or "",
+                endpoint_added=endpoint_added,
+                endpoint_id=endpoint_id or "",
             )
             note = (
                 "" if registered else " (state-write failed — task may not show in UI)"
@@ -4944,7 +4966,9 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
             return {
                 "output": f"Launched preset {chosen.get('name')!r}: {repo_id} on {host or 'local'} (session: {sid}){note}",
                 "session_id": sid,
-                "host": host, "endpoint_id": endpoint_id, "exit_code": 0,
+                "host": host,
+                "endpoint_id": endpoint_id,
+                "exit_code": 0,
             }
         return {"error": data.get("error", "Serve failed"), "exit_code": 1}
     except Exception as e:
