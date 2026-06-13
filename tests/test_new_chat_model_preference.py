@@ -1,7 +1,16 @@
+import re
 from pathlib import Path
 
-
 APP_JS = Path("static/app.js")
+
+
+def _norm(s: str) -> str:
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
 
 
 def _slice(source, start_marker, end_marker):
@@ -28,17 +37,19 @@ def test_desktop_new_chat_actions_use_shared_preference_helper():
     source = APP_JS.read_text(encoding="utf-8")
 
     rail_handler = _slice(
-        source,
-        "// New session button on icon rail",
-        "// Mobile new chat button",
+        source, "// New session button on icon rail", "// Mobile new chat button"
     )
     brand_handler = _slice(
         source,
-        "// Logo click \u2192 new chat",
-        "const sidebarNewChatBtn = el('sidebar-new-chat-btn');",
+        "// Logo click → new chat",
+        'const docBtn2 = el("overflow-doc-btn");',
     )
 
-    assert "if (await _createDirectChatFromPreferredModel()) return;" in rail_handler
-    assert "if (await _createDirectChatFromPreferredModel()) return;" in brand_handler
-    assert "const dc = await _refreshDefaultChat();" not in rail_handler
-    assert "const dc = await _refreshDefaultChat();" not in brand_handler
+    assert _norm("if (await _createDirectChatFromPreferredModel()) return;") in _norm(
+        rail_handler
+    )
+    assert _norm("if (await _createDirectChatFromPreferredModel()) return;") in _norm(
+        brand_handler
+    )
+    assert _norm("const dc = await _refreshDefaultChat();") not in _norm(rail_handler)
+    assert _norm("const dc = await _refreshDefaultChat();") not in _norm(brand_handler)

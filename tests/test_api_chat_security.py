@@ -318,7 +318,10 @@ def _sync_chat_endpoint(webhook_routes, session_manager):
 
 
 @pytest.mark.parametrize(
-    "base_url",
+    # The package pytest-base-url registers its own fixture named base_url.
+    # Test's parametrize fixture base_url collides with that plugin's fixture name, causing a scope mismatch.
+    # renamed argument to avoid the collision.
+    "target_base_url",
     [
         "http://127.0.0.1:11434/v1",
         "http://localhost:11434/v1",
@@ -328,7 +331,7 @@ def _sync_chat_endpoint(webhook_routes, session_manager):
 )
 @pytest.mark.asyncio
 async def test_api_chat_direct_base_url_rejects_local_private_targets(
-    monkeypatch, base_url
+    monkeypatch, target_base_url
 ):
     webhook_routes = _load_webhook_routes_for_test(monkeypatch)
     _install_sync_chat_stubs(monkeypatch)
@@ -338,7 +341,7 @@ async def test_api_chat_direct_base_url_rejects_local_private_targets(
     body = types.SimpleNamespace(
         message="hello",
         api_key="test-key",
-        base_url=base_url,
+        base_url=target_base_url,
         model="test-model",
         provider=None,
         session=None,
