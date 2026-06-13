@@ -1,4 +1,5 @@
 """Skill URL importer — GitHub path parsing."""
+
 import pytest
 
 from services.memory.skill_importer import (
@@ -32,9 +33,7 @@ def test_parse_github_tree_directory():
 
 
 def test_parse_raw_github():
-    src = parse_skill_source(
-        "https://raw.githubusercontent.com/o/r/main/path/SKILL.md"
-    )
+    src = parse_skill_source("https://raw.githubusercontent.com/o/r/main/path/SKILL.md")
     assert src.owner == "o"
     assert src.repo == "r"
     assert src.ref == "main"
@@ -102,11 +101,13 @@ def test_list_github_dir_accepts_api_github_response(monkeypatch):
             return None
 
         def json(self):
-            return [{
-                "name": "SKILL.md",
-                "type": "file",
-                "download_url": "https://raw.githubusercontent.com/o/r/main/SKILL.md",
-            }]
+            return [
+                {
+                    "name": "SKILL.md",
+                    "type": "file",
+                    "download_url": "https://raw.githubusercontent.com/o/r/main/SKILL.md",
+                }
+            ]
 
     class _Client:
         def __init__(self, *args, **kwargs):
@@ -174,5 +175,7 @@ def test_fetch_bytes_surfaces_github_error_detail(monkeypatch):
             return {"message": "Forbidden"}
 
     _mock_httpx_client(monkeypatch, _Resp())
-    with pytest.raises(SkillImportError, match="GitHub request failed \\(403\\): Forbidden"):
+    with pytest.raises(
+        SkillImportError, match="GitHub request failed \\(403\\): Forbidden"
+    ):
         _fetch_bytes("https://raw.githubusercontent.com/o/r/main/SKILL.md")

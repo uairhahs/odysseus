@@ -15,7 +15,7 @@ import logging
 from collections import namedtuple
 
 # from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS
-# from src.tool_utils import _truncate, get_mcp_manager, set_mcp_manager
+from src.tool_utils import _truncate, get_mcp_manager, set_mcp_manager  # noqa: F401
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

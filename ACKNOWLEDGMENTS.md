@@ -45,81 +45,81 @@ These services are pulled as images by the project's `docker-compose.yml`
 and run alongside Odysseus on `docker compose up`. They are not modified —
 just composed.
 
-| Service | Image | Purpose | License |
-|---|---|---|---|
-| [SearXNG](https://github.com/searxng/searxng) | `searxng/searxng:2026.5.31-7159b8aed` (pinned tag; see compose) | Default metasearch backend | AGPL-3.0 |
-| [ChromaDB](https://github.com/chroma-core/chroma) | `chromadb/chroma:latest` | Vector store for memory / RAG | Apache-2.0 |
-| [ntfy](https://github.com/binwiederhier/ntfy) | `binwiederhier/ntfy` | Push notifications (self-hosted reminders) | Apache-2.0 / GPL-2.0 |
+| Service                                           | Image                                                           | Purpose                                    | License              |
+| ------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------ | -------------------- |
+| [SearXNG](https://github.com/searxng/searxng)     | `searxng/searxng:2026.5.31-7159b8aed` (pinned tag; see compose) | Default metasearch backend                 | AGPL-3.0             |
+| [ChromaDB](https://github.com/chroma-core/chroma) | `chromadb/chroma:latest`                                        | Vector store for memory / RAG              | Apache-2.0           |
+| [ntfy](https://github.com/binwiederhier/ntfy)     | `binwiederhier/ntfy`                                            | Push notifications (self-hosted reminders) | Apache-2.0 / GPL-2.0 |
 
 ## Bundled front-end libraries
 
 Vendored in `static/lib/` and served directly:
 
-| Library | Purpose | License |
-|---|---|---|
-| [highlight.js](https://github.com/highlightjs/highlight.js) v11.9.0 | Code syntax highlighting | BSD-3-Clause |
-| [SheetJS / xlsx](https://github.com/SheetJS/sheetjs) (`xlsx.full.min.js`) | Spreadsheet (`.xlsx`) read/write | Apache-2.0 |
-| [docx](https://github.com/dolanmiu/docx) (`docx.umd.min.js`) | Generate `.docx` documents | MIT |
-| [mammoth.js](https://github.com/mwilliamson/mammoth.js) | Convert `.docx` → HTML | BSD-2-Clause |
-| [html2pdf.js](https://github.com/eKoopmans/html2pdf.js) | HTML → PDF export (bundles jsPDF + html2canvas) | MIT |
-| [jsPDF](https://github.com/parallax/jsPDF) (bundled in html2pdf) | PDF generation | MIT |
-| [html2canvas](https://github.com/niklasvh/html2canvas) (bundled in html2pdf) | DOM → canvas rasterization | MIT |
-| [node-qrcode](https://github.com/soldair/node-qrcode) (`qrcode.min.js`) | QR-code rendering (2FA setup) | MIT |
+| Library                                                                      | Purpose                                         | License      |
+| ---------------------------------------------------------------------------- | ----------------------------------------------- | ------------ |
+| [highlight.js](https://github.com/highlightjs/highlight.js) v11.9.0          | Code syntax highlighting                        | BSD-3-Clause |
+| [SheetJS / xlsx](https://github.com/SheetJS/sheetjs) (`xlsx.full.min.js`)    | Spreadsheet (`.xlsx`) read/write                | Apache-2.0   |
+| [docx](https://github.com/dolanmiu/docx) (`docx.umd.min.js`)                 | Generate `.docx` documents                      | MIT          |
+| [mammoth.js](https://github.com/mwilliamson/mammoth.js)                      | Convert `.docx` → HTML                          | BSD-2-Clause |
+| [html2pdf.js](https://github.com/eKoopmans/html2pdf.js)                      | HTML → PDF export (bundles jsPDF + html2canvas) | MIT          |
+| [jsPDF](https://github.com/parallax/jsPDF) (bundled in html2pdf)             | PDF generation                                  | MIT          |
+| [html2canvas](https://github.com/niklasvh/html2canvas) (bundled in html2pdf) | DOM → canvas rasterization                      | MIT          |
+| [node-qrcode](https://github.com/soldair/node-qrcode) (`qrcode.min.js`)      | QR-code rendering (2FA setup)                   | MIT          |
 
 ## Front-end libraries loaded at runtime (CDN)
 
 Referenced from `cdn.jsdelivr.net` / `cdnjs.cloudflare.com` at runtime — not vendored:
 
-| Library | Purpose | License |
-|---|---|---|
-| [KaTeX](https://github.com/KaTeX/KaTeX) 0.16.22 | Math typesetting | MIT |
-| [Mermaid](https://github.com/mermaid-js/mermaid) 11 | Diagrams from text | MIT |
-| [Pyodide](https://github.com/pyodide/pyodide) 0.27.5 | In-browser Python runtime | MPL-2.0 |
-| [PDFObject](https://github.com/pipwerks/PDFObject) 2.1.1 | Inline PDF embedding | MIT |
+| Library                                                  | Purpose                   | License |
+| -------------------------------------------------------- | ------------------------- | ------- |
+| [KaTeX](https://github.com/KaTeX/KaTeX) 0.16.22          | Math typesetting          | MIT     |
+| [Mermaid](https://github.com/mermaid-js/mermaid) 11      | Diagrams from text        | MIT     |
+| [Pyodide](https://github.com/pyodide/pyodide) 0.27.5     | In-browser Python runtime | MPL-2.0 |
+| [PDFObject](https://github.com/pipwerks/PDFObject) 2.1.1 | Inline PDF embedding      | MIT     |
 
 ## Fonts
 
 Bundled in `static/fonts/`:
 
-| Font | License | Author |
-|---|---|---|
-| [Fira Code](https://github.com/tonsky/FiraCode) | SIL Open Font License 1.1 | Nikita Prokopov & contributors |
-| [Inter](https://github.com/rsms/inter) | SIL Open Font License 1.1 | Rasmus Andersson |
-| [GohuFont](https://font.gohu.org/) (`fonts/custom/GohuFont.ttf`) | WTFPL | Hugo Chargois |
+| Font                                                             | License                   | Author                         |
+| ---------------------------------------------------------------- | ------------------------- | ------------------------------ |
+| [Fira Code](https://github.com/tonsky/FiraCode)                  | SIL Open Font License 1.1 | Nikita Prokopov & contributors |
+| [Inter](https://github.com/rsms/inter)                           | SIL Open Font License 1.1 | Rasmus Andersson               |
+| [GohuFont](https://font.gohu.org/) (`fonts/custom/GohuFont.ttf`) | WTFPL                     | Hugo Chargois                  |
 
 ## Python dependencies
 
 Core (`requirements.txt`) and optional (`requirements-optional.txt`):
 
-| Package | License |
-|---|---|
-| FastAPI | MIT |
-| Uvicorn | BSD-3-Clause |
-| python-multipart | Apache-2.0 |
-| python-dotenv | BSD-3-Clause |
-| HTTPX | BSD-3-Clause |
-| Pydantic / pydantic-settings | MIT |
-| SQLAlchemy | MIT |
-| pypdf | BSD-3-Clause |
-| BeautifulSoup4 | MIT |
-| charset-normalizer | MIT |
-| NumPy | BSD-3-Clause |
-| ChromaDB (chromadb-client) | Apache-2.0 |
-| fastembed | Apache-2.0 |
-| youtube-transcript-api | MIT |
-| markdown | BSD-3-Clause |
-| icalendar | BSD-2-Clause |
-| caldav | GPL-3.0-or-later OR Apache-2.0 (dual; used under Apache-2.0) |
-| cryptography | Apache-2.0 / BSD-3-Clause |
-| bcrypt | Apache-2.0 |
-| MCP (Model Context Protocol SDK) | MIT |
-| pyotp | MIT |
-| qrcode\[pil] | BSD-3-Clause |
-| croniter | MIT |
-| pytest / pytest-asyncio | MIT / Apache-2.0 |
-| duckduckgo-search (optional) | MIT |
-| markitdown (optional — Office/EPUB text extraction) | MIT |
-| **PyMuPDF** *(optional — form-filling only)* | **AGPL-3.0** — see note below |
+| Package                                             | License                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------ |
+| FastAPI                                             | MIT                                                          |
+| Uvicorn                                             | BSD-3-Clause                                                 |
+| python-multipart                                    | Apache-2.0                                                   |
+| python-dotenv                                       | BSD-3-Clause                                                 |
+| httpx                                               | BSD-3-Clause                                                 |
+| Pydantic / pydantic-settings                        | MIT                                                          |
+| SQLAlchemy                                          | MIT                                                          |
+| pypdf                                               | BSD-3-Clause                                                 |
+| BeautifulSoup4                                      | MIT                                                          |
+| charset-normalizer                                  | MIT                                                          |
+| NumPy                                               | BSD-3-Clause                                                 |
+| ChromaDB (chromadb-client)                          | Apache-2.0                                                   |
+| fastembed                                           | Apache-2.0                                                   |
+| youtube-transcript-api                              | MIT                                                          |
+| markdown                                            | BSD-3-Clause                                                 |
+| icalendar                                           | BSD-2-Clause                                                 |
+| caldav                                              | GPL-3.0-or-later OR Apache-2.0 (dual; used under Apache-2.0) |
+| cryptography                                        | Apache-2.0 / BSD-3-Clause                                    |
+| bcrypt                                              | Apache-2.0                                                   |
+| MCP (Model Context Protocol SDK)                    | MIT                                                          |
+| pyotp                                               | MIT                                                          |
+| qrcode\[pil]                                        | BSD-3-Clause                                                 |
+| croniter                                            | MIT                                                          |
+| pytest / pytest-asyncio                             | MIT / Apache-2.0                                             |
+| duckduckgo-search (optional)                        | MIT                                                          |
+| markitdown (optional — Office/EPUB text extraction) | MIT                                                          |
+| **PyMuPDF** _(optional — form-filling only)_        | **AGPL-3.0** — see note below                                |
 
 ## Companion services (interoperated with, not bundled)
 
@@ -146,14 +146,14 @@ concerns from earlier are resolved:
   detection** uses **`charset-normalizer`** (MIT). chardet (LGPL-2.1) has been
   removed entirely.
 - **PyMuPDF (AGPL-3.0)** is no longer a core dependency. It is **optional** and
-  used *only* by the PDF form-filling feature (`src/pdf_forms.py` and the form
+  used _only_ by the PDF form-filling feature (`src/pdf_forms.py` and the form
   endpoints in `routes/document_routes.py`), lazy-imported and listed in
   `requirements-optional.txt`. The MIT core runs without it. If you choose to
-  install it, AGPL's network clause then applies to *that feature* for your
+  install it, AGPL's network clause then applies to _that feature_ for your
   deployment (Artifex also sells a commercial PyMuPDF license that lifts this).
 - **`caldav`** (Python lib) is **dual-licensed GPL-3.0-or-later OR Apache-2.0**.
   Odysseus uses it under **Apache-2.0**, which is permissive and MIT-compatible.
-- **`markitdown`** (Microsoft) is **MIT** and used only as an *optional* dependency for Office/EPUB text
+- **`markitdown`** (Microsoft) is **MIT** and used only as an _optional_ dependency for Office/EPUB text
   extraction (`src/markitdown_runtime.py`), lazy-imported with graceful fallback — the MIT core runs without
   it. The cloud `az-doc-intel` extra is deliberately **not** installed, keeping extraction fully local.
 
@@ -161,7 +161,7 @@ concerns from earlier are resolved:
 
 ## Thanks to
 
-Most of Odysseus's code was written *with* AI models, not just by a human.
+Most of Odysseus's code was written _with_ AI models, not just by a human.
 The project would not exist without them — credit where credit is due:
 
 - **gpt-oss-120b** — the legend that kicked this project off.
