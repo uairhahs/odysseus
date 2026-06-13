@@ -15,6 +15,7 @@ from sqlalchemy import true
 
 from src.auth_helpers import _auth_disabled, get_current_user
 from src.endpoint_resolver import resolve_endpoint
+from src.constants import DEEP_RESEARCH_DIR
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9-]{1,128}$")
 
@@ -48,9 +49,9 @@ def _first_chat_model(models) -> str:
     return models[0] if models else ""
 
 
-def _resolve_research_endpoint(sess) -> tuple:
+def _resolve_research_endpoint(sess, owner: Optional[str] = None) -> tuple:
     """Return (endpoint_url, model, headers) for Deep Research, checking admin overrides."""
-    owner = getattr(sess, "owner", None) or None
+    owner = owner or getattr(sess, "owner", None) or None
     url, model, headers = resolve_endpoint(
         "research",
         fallback_url=sess.endpoint_url,
@@ -86,6 +87,38 @@ def _owned_enabled_endpoint(db, owner, endpoint_id=None):
     return owner_filter(q, ModelEndpoint, owner).first()
 
 
+def _resolve_endpoint_runtime(ep, owner=None, model: Optional[str] = None):
+    """Resolve a ModelEndpoint row into (chat_url, model, headers).
+
+    Mirrors endpoint_resolver.resolve_endpoint's provider-auth handling for
+    panel-selected research endpoints. ChatGPT Subscription endpoints keep
+    OAuth tokens in ProviderAuthSession, so ep.api_key is intentionally empty.
+    """
+    from src.endpoint_resolver import (
+        build_chat_url,
+        build_headers,
+        resolve_endpoint_runtime as resolve_model_endpoint_runtime,
+    )
+
+    try:
+        base, api_key = resolve_model_endpoint_runtime(ep, owner=owner)
+    except Exception as e:
+        logger.warning("Could not resolve endpoint credentials for research: %s", e)
+        return None
+
+    ep_model = (model or "").strip()
+    if not ep_model:
+        try:
+            models = json.loads(ep.cached_models) if ep.cached_models else []
+            if models:
+                ep_model = _first_chat_model(models)
+        except Exception:
+            pass
+    if not ep_model:
+        return None
+    return build_chat_url(base), ep_model, build_headers(api_key, base)
+
+
 def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     router = APIRouter(tags=["research"])
 
@@ -112,7 +145,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         if entry is not None:
             return entry.get("owner", "") == user
         # Task no longer in memory — check the persisted JSON.
-        path = Path("data/deep_research") / f"{session_id}.json"
+        path = Path(DEEP_RESEARCH_DIR) / f"{session_id}.json"
         if not path.exists():
             return False
         try:
@@ -178,7 +211,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     def _assert_owns_research(session_id: str, user: str) -> None:
         """404-not-403 ownership gate for a research session's on-disk JSON.
         Use BEFORE returning any data or mutating the file."""
-        path = Path("data/deep_research") / f"{session_id}.json"
+        path = Path(DEEP_RESEARCH_DIR) / f"{session_id}.json"
         if not path.exists():
             raise HTTPException(404, "Research not found")
         try:
@@ -243,7 +276,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     ):
         user = _require_user(request)
         """List all completed research for the Library panel."""
-        data_dir = Path("data/deep_research")
+        data_dir = Path(DEEP_RESEARCH_DIR)
         items = []
         for p in data_dir.glob("*.json"):
             try:
@@ -296,7 +329,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         summary, stats — used by the Library preview panel."""
         user = _require_user(request)
         _validate_session_id(session_id)
-        path = Path("data/deep_research") / f"{session_id}.json"
+        path = Path(DEEP_RESEARCH_DIR) / f"{session_id}.json"
         if not path.exists():
             raise HTTPException(404, "Research not found")
         try:
@@ -316,7 +349,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         """Soft-archive / restore a research report (sets `archived` in its JSON)."""
         user = _require_user(request)
         _validate_session_id(session_id)
-        path = Path("data/deep_research") / f"{session_id}.json"
+        path = Path(DEEP_RESEARCH_DIR) / f"{session_id}.json"
         if not path.exists():
             raise HTTPException(404, "Research not found")
         try:
@@ -336,7 +369,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         """Delete a research result from disk."""
         user = _require_user(request)
         _validate_session_id(session_id)
-        data_dir = Path("data/deep_research")
+        data_dir = Path(DEEP_RESEARCH_DIR)
         json_path = data_dir / f"{session_id}.json"
         deleted = False
         if json_path.exists():
@@ -417,6 +450,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 ep = _owned_enabled_endpoint(db, user, body.endpoint_id)
                 if not ep:
                     raise HTTPException(404, "Endpoint not found or disabled")
+                resolved = _resolve_endpoint_runtime(ep, owner=user, model=body.model)
+                if not resolved:
+                    raise HTTPException(400, "Endpoint is not configured with a usable model.")
+                ep_url, ep_model, ep_headers = resolved
                 base = normalize_base(ep.base_url)
                 ep_url = build_chat_url(base)
                 ep_headers = build_headers(ep.api_key, base)
@@ -464,6 +501,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                     # /api/v1/chat fallback (webhook_routes._first_enabled_endpoint).
                     ep = _owned_enabled_endpoint(db, user)
                     if ep:
+                        resolved = _resolve_endpoint_runtime(ep, owner=user)
+                        if resolved:
+                            ep_url, ep_model, ep_headers = resolved
                         base = normalize_base(ep.base_url)
                         ep_url = build_chat_url(base)
                         ep_headers = build_headers(ep.api_key, base)
@@ -550,7 +590,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             raise HTTPException(404, "No research found for this session")
         result = research_handler.get_result(session_id)
         if result is None:
-            p = Path("data/deep_research") / f"{session_id}.json"
+            p = Path(DEEP_RESEARCH_DIR) / f"{session_id}.json"
             if p.exists():
                 d = json.loads(p.read_text(encoding="utf-8"))
                 return {
@@ -595,7 +635,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         sources = research_handler.get_sources(session_id) or []
         query = ""
 
-        path = Path("data/deep_research") / f"{session_id}.json"
+        path = Path(DEEP_RESEARCH_DIR) / f"{session_id}.json"
         if path.exists():
             try:
                 disk = json.loads(path.read_text(encoding="utf-8"))

@@ -10,14 +10,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException
 
-from core.constants import BASE_DIR
+from core.constants import EMBEDDING_ENDPOINT_FILE, FASTEMBED_CACHE_DIR
 from core.middleware import require_admin
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 
-_ENDPOINT_FILE = os.path.join(BASE_DIR, "data", "embedding_endpoint.json")
+_ENDPOINT_FILE = EMBEDDING_ENDPOINT_FILE
 
 # Track in-progress downloads
 _downloading: dict = {}
@@ -40,14 +40,7 @@ def _cache_dir() -> str:
     default lived in /tmp, which many systems wipe on reboot — forcing a
     full re-download of the embedding model after every restart.
     """
-    env = os.environ.get("FASTEMBED_CACHE_PATH")
-    if env:
-        return env
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data",
-        "fastembed_cache",
-    )
+    return FASTEMBED_CACHE_DIR
 
 
 def _model_cache_name(hf_source: str) -> str:

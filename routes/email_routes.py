@@ -39,6 +39,10 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse
+from src.constants import DATA_DIR
+
+from src.llm_core import llm_call_async
+from src.upload_limits import read_upload_limited, EMAIL_COMPOSE_UPLOAD_MAX_BYTES
 
 from routes.email_helpers import (
     _EMAIL_REPLY_SYS_PROMPT_BASE,
@@ -87,7 +91,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
 ODYSSEUS_MAIL_ORIGIN = "odysseus-ui"
-EMAIL_COMPOSE_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
 
 
 def _email_tag_owner_aliases(account_id: str | None, owner: str = "") -> list[str]:
@@ -3630,7 +3633,7 @@ def setup_email_routes():
         _slug = "".join(
             c if (c.isalnum() or c in "-_.@") else "_" for c in (owner or "default")
         )
-        path = _P(f"data/email_urgency_state_{_slug}.json")
+        path = _P(DATA_DIR) / f"email_urgency_state_{_slug}.json"
         if not path.exists():
             return {"total_unread": 0, "total_urgent": 0, "max_score": 0, "per_uid": {}}
         try:
@@ -3945,7 +3948,7 @@ def setup_email_routes():
                     except Exception as e:
                         logger.warning(f"Error logging out: {e}")
             except Exception as e:
-                imap_result = {"ok": False, "error": str(e)[:200]}
+                imap_result = {"ok": False, "error": _friendly_email_auth_error("IMAP", imap_host, e)}
 
         smtp_host = (body.get("smtp_host") or "").strip()
         if smtp_host:
@@ -3971,7 +3974,7 @@ def setup_email_routes():
                     except Exception as e:
                         logger.warning(f"Error quitting SMTP: {e}")
             except Exception as e:
-                smtp_result = {"ok": False, "error": str(e)[:200]}
+                smtp_result = {"ok": False, "error": _friendly_email_auth_error("SMTP", smtp_host, e)}
 
         return {
             "ok": imap_result["ok"] and (smtp_result is None or smtp_result["ok"]),

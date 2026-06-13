@@ -15,6 +15,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from core.database import Note, SessionLocal
 from src.auth_helpers import get_current_user
+from src.constants import DATA_DIR
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -182,7 +183,7 @@ async def dispatch_reminder(
             _slug = "".join(
                 c if (c.isalnum() or c in "-_.@") else "_" for c in (owner or "default")
             )
-            cache_path = _P(f"data/note_pings_{_slug}.json")
+            cache_path = _P(DATA_DIR) / f"note_pings_{_slug}.json"
             if cache_path.exists():
                 cache = _json.loads(cache_path.read_text(encoding="utf-8"))
             last = cache.get(cache_key)
@@ -640,7 +641,7 @@ async def dispatch_reminder(
                     c if (c.isalnum() or c in "-_.@") else "_"
                     for c in (owner or "default")
                 )
-                _STATE = _P(f"data/note_pings_{_slug}.json")
+                _STATE = _P(DATA_DIR) / f"note_pings_{_slug}.json"
             _STATE.parent.mkdir(parents=True, exist_ok=True)
             try:
                 _cache = cache or (

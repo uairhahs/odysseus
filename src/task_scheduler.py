@@ -1389,7 +1389,7 @@ class TaskScheduler:
         self, task, crew, db, session_id: str, endpoint_url: str, model: str
     ) -> str:
         """Gather raw data from all integrations, hand it to the LLM to write the check-in."""
-        from src.agent_tools import get_mcp_manager
+        from src.tool_utils import get_mcp_manager
         from src.tool_implementations import do_manage_notes
 
         tz_name = _resolve_task_timezone(db, task)
@@ -2303,7 +2303,7 @@ class TaskScheduler:
         have to special-case each tool's schema; the MCP tool ignores keys it
         doesn't recognise.
         """
-        from src.agent_tools import get_mcp_manager
+        from src.tool_utils import get_mcp_manager
 
         mcp = get_mcp_manager()
         if not mcp:

@@ -36,7 +36,7 @@ from core.database import (
     TaskRun,
 )
 from core.middleware import require_admin
-from src.constants import DATA_DIR
+from src.constants import DATA_DIR, SKILLS_DIR, SKILLS_FILE, GALLERY_DIR, GALLERY_UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -115,7 +115,7 @@ def setup_admin_wipe_routes(session_manager):
                 # Skills live as SKILL.md files under data/skills/. Drop
                 # the entire directory; the SkillsManager re-creates the
                 # tree on next write.
-                skills_dir = os.path.join(DATA_DIR, "skills")
+                skills_dir = SKILLS_DIR
                 count = 0
                 if os.path.isdir(skills_dir):
                     # Count SKILL.md files for the response — quick walk.
@@ -123,7 +123,7 @@ def setup_admin_wipe_routes(session_manager):
                         count += sum(1 for f in files if f == "SKILL.md")
                     _rmtree_quiet(skills_dir)
                 # Legacy fallback file
-                legacy = os.path.join(DATA_DIR, "skills.json")
+                legacy = SKILLS_FILE
                 if os.path.exists(legacy):
                     try:
                         os.remove(legacy)
@@ -159,8 +159,8 @@ def setup_admin_wipe_routes(session_manager):
                 db.query(GalleryAlbum).delete()
                 db.commit()
                 # Also drop the upload dir so disk doesn't keep orphans.
-                _rmtree_quiet(os.path.join(DATA_DIR, "gallery"))
-                _rmtree_quiet(os.path.join(DATA_DIR, "gallery_uploads"))
+                _rmtree_quiet(GALLERY_DIR)
+                _rmtree_quiet(GALLERY_UPLOADS_DIR)
                 return {"status": "deleted", "kind": kind, "count": count}
 
             if kind == "calendar":

@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from src.constants import TTS_CACHE_DIR
+
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
@@ -38,7 +40,7 @@ class TTSService:
       "endpoint:<id>"   — OpenAI-compatible /audio/speech via ModelEndpoint
     """
 
-    def __init__(self, cache_dir: str = "data/tts_cache"):
+    def __init__(self, cache_dir: str = TTS_CACHE_DIR):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._kokoro = None  # lazy-init

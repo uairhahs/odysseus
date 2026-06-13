@@ -30,6 +30,21 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
 # Tools that are ALWAYS included regardless of retrieval results.
+# Keep this deliberately tiny. Domain tools (web, documents, email,
+# cookbook/model serving, files, settings, etc.) are injected by retrieval or
+# keyword intent so a trivial agent prompt like "test" does not carry every
+# domain's schemas and rules.
+ALWAYS_AVAILABLE = frozenset({
+    # Memory is ambient — "remember this" can follow any message regardless
+    # of topic. Without this, RAG drops it and the agent falls back to
+    # app_api /api/memory/add which fails with 422 on first attempt.
+    "manage_memory",
+    # Ask the user a multiple-choice question for a decision/clarification.
+    # Always reachable so the agent can pause and ask at any point.
+    "ask_user",
+    # Write back to the active plan (tick steps done / revise) during execution.
+    "update_plan",
+})
 # These are the most commonly needed and should never be missing.
 ALWAYS_AVAILABLE = frozenset(
     {
@@ -410,6 +425,10 @@ class ToolIndex:
         r"|\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\b",  # at 7:30 am / at 7am
         re.I,
     )
+    _WEB_RE = re.compile(
+        r"https?://|www\.|\b(?:visit|open|fetch|check|read)\s+(?:this\s+)?(?:url|link|site|website|page)\b",
+        re.I,
+    )
 
     # Keyword hints: if the query mentions these words, force-include the tools.
     _KEYWORD_HINTS = {
@@ -420,13 +439,13 @@ class ToolIndex:
         frozenset(
             {
                 "email",
-                "mail",
-                "gmail",
+                "emails", "mail",
+                "mails", "gmail",
                 "googlemail",
                 "message",
-                "send",
+                "messages", "send",
                 "reply",
-                "inbox",
+                "replies", "inbox",
                 "unread",
             }
         ): {
@@ -632,8 +651,8 @@ class ToolIndex:
                 "section",
                 "line",
                 "the doc",
-                "the document",
-                "in the doc",
+                "the docs", "the document",
+                "the documents", "in the doc", "in the docs", "in document",
             }
         ): {"edit_document", "update_document", "create_document", "suggest_document"},
         # Document deletion / management — include generic open/find/read/show
@@ -647,11 +666,11 @@ class ToolIndex:
                 "remove document",
                 "remove the doc",
                 "trash",
-                "list documents",
-                "list docs",
+                "list document", "list documents",
+                "list doc", "list docs",
                 "all my docs",
-                "my documents",
-                "my docs",
+                "my document", "my documents",
+                "my doc", "my docs",
                 "my files",
                 "open the",
                 "open my",
@@ -868,6 +887,11 @@ class ToolIndex:
         # the agent can actually create the cron job instead of fumbling.
         if self._SCHEDULE_RE.search(ql):
             base.add("manage_tasks")
+        # URL/site requests need web tools even when embedding retrieval is
+        # stubbed/unavailable. Keep this structural, not always-on, so trivial
+        # prompts do not drag web schemas into the agent context.
+        if self._WEB_RE.search(query):
+            base.update({"web_search", "web_fetch"})
         return base
 
 

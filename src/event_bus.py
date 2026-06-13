@@ -14,6 +14,8 @@ from typing import Optional
 
 from sqlalchemy import null
 
+from src.constants import AUTH_FILE
+
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
@@ -58,9 +60,7 @@ def _resolve_event_owner(owner: Optional[str]) -> Optional[str]:
         return owner
 
     try:
-        from src.constants import DATA_DIR
-
-        auth_path = os.path.join(DATA_DIR, "auth.json")
+        auth_path = AUTH_FILE
         with open(auth_path, "r", encoding="utf-8") as f:
             users = json.load(f).get("users") or {}
         for username, data in users.items():

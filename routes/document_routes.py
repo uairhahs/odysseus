@@ -26,6 +26,7 @@ from routes.document_helpers import (
     _version_to_dict,
 )
 from src.auth_helpers import get_current_user
+from src.constants import MAIL_ATTACHMENTS_DIR
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort

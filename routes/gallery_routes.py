@@ -21,13 +21,30 @@ from routes.gallery_helpers import (
     _image_to_dict,
     _owner_filter,
 )
-from src.auth_helpers import get_current_user, require_privilege
-from src.upload_limits import read_upload_limited
+from src.auth_helpers import get_current_user, owner_filter, require_privilege
+from src.upload_limits import (
+    read_upload_limited,
+    GALLERY_UPLOAD_MAX_BYTES,
+    GALLERY_TRANSFORM_UPLOAD_MAX_BYTES,
+)
+from src.constants import GENERATED_IMAGES_DIR
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 
+
+def _current_user_is_admin(request: Request, user: str | None) -> bool:
+    if not user:
+        return False
+    auth_mgr = getattr(request.app.state, "auth_manager", None)
+    is_admin = getattr(auth_mgr, "is_admin", None)
+    if not callable(is_admin):
+        return False
+    try:
+        return bool(is_admin(user))
+    except Exception:
+        return False
 GALLERY_UPLOAD_MAX_BYTES = int(
     os.getenv("ODYSSEUS_GALLERY_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
 )
@@ -44,7 +61,7 @@ def _sanitize_gallery_filename(filename: str) -> str:
     return safe_name
 
 
-GALLERY_IMAGE_DIR = Path("data/generated_images")
+GALLERY_IMAGE_DIR = Path(GENERATED_IMAGES_DIR)
 
 
 def _gallery_image_path(filename: str) -> Path:
@@ -152,7 +169,7 @@ def setup_gallery_routes() -> APIRouter:
                     "message": "Duplicate photo skipped",
                 }
 
-            img_dir = Path("data/generated_images")
+            img_dir = Path(GENERATED_IMAGES_DIR)
             img_dir.mkdir(parents=True, exist_ok=True)
 
             ext = (
@@ -230,7 +247,7 @@ def setup_gallery_routes() -> APIRouter:
             content = await read_upload_limited(
                 file, GALLERY_UPLOAD_MAX_BYTES, "Gallery replacement"
             )
-            img_dir = Path("data/generated_images")
+            img_dir = Path(GENERATED_IMAGES_DIR)
             img_dir.mkdir(parents=True, exist_ok=True)
             img_path = img_dir / _sanitize_gallery_filename(img.filename)
             img_path.write_bytes(content)
@@ -1175,7 +1192,10 @@ def setup_gallery_routes() -> APIRouter:
             try:
                 ep = _visible_image_endpoint_for_base(db, _target, user)
                 if ep:
+                    base = (ep.base_url or base).rstrip("/")
                     api_key = ep.api_key
+                elif user and not _current_user_is_admin(request, user):
+                    raise HTTPException(403, "Choose a registered image endpoint")
             finally:
                 db.close()
 
@@ -1391,7 +1411,10 @@ def setup_gallery_routes() -> APIRouter:
             try:
                 ep = _visible_image_endpoint_for_base(db, base, user)
                 if ep:
+                    base = (ep.base_url or base).rstrip("/")
                     api_key = ep.api_key
+                elif user and not _current_user_is_admin(request, user):
+                    raise HTTPException(403, "Choose a registered image endpoint")
             finally:
                 db.close()
 

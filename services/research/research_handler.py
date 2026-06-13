@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from src.research_utils import is_low_quality
+from src.constants import DEEP_RESEARCH_DIR
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 
-RESEARCH_DATA_DIR = Path("data/deep_research")
+RESEARCH_DATA_DIR = Path(DEEP_RESEARCH_DIR)
 
 
 class ResearchHandler:

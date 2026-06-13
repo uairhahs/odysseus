@@ -14,7 +14,7 @@ from sqlalchemy import and_, or_
 
 from core.database import CalendarCal, CalendarEvent, SessionLocal
 from src.auth_helpers import require_user
-from src.upload_limits import read_upload_limited
+from src.upload_limits import read_upload_limited, ICS_MAX_BYTES
 from src.user_time import (
     get_user_tz_name,
     get_user_tz_offset,
@@ -1285,9 +1285,9 @@ def setup_calendar_routes() -> APIRouter:
         finally:
             db.close()
 
-    # 10 MB hard cap on ICS upload. Loading the whole file into memory is
-    # unavoidable with python-icalendar, so an unbounded upload would OOM.
-    _ICS_MAX_BYTES = 10 * 1024 * 1024
+    # Hard cap on ICS upload (ICS_MAX_BYTES, default 10 MB). Loading the whole
+    # file into memory is unavoidable with python-icalendar, so an unbounded
+    # upload would OOM.
 
     @router.post("/import")
     async def import_ics(
@@ -1301,7 +1301,7 @@ def setup_calendar_routes() -> APIRouter:
         owner = _require_user(request)
         db = SessionLocal()
         try:
-            content = await read_upload_limited(file, _ICS_MAX_BYTES, "ICS file")
+            content = await read_upload_limited(file, ICS_MAX_BYTES, "ICS file")
             try:
                 cal_data = iCal.from_ical(content)
             except Exception as e:

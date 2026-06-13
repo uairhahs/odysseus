@@ -57,7 +57,62 @@ _THROWAWAY_NAMES = {
 }
 _THROWAWAY_MAX_MESSAGES = 4
 _FRESH_EMPTY_SESSION_GRACE = timedelta(minutes=10)
+_FRESH_SESSION_GRACE = _FRESH_EMPTY_SESSION_GRACE
 
+
+def _utcnow_naive() -> datetime:
+    """Return naive UTC for existing session DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _as_naive_utc(value):
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def is_session_recently_active(row, now=None, grace=_FRESH_SESSION_GRACE) -> bool:
+    """Return True while a new or active session is too fresh to auto-delete."""
+    now = _as_naive_utc(now) or _utcnow_naive()
+    for attr in ("last_message_at", "last_accessed", "updated_at", "created_at"):
+        value = _as_naive_utc(getattr(row, attr, None))
+        if not value:
+            continue
+        if value >= now:
+            return True
+        if now - value <= grace:
+            return True
+    return False
+
+
+_FRESH_SESSION_GRACE = _FRESH_EMPTY_SESSION_GRACE
+
+def _utcnow_naive() -> datetime:
+    """Return naive UTC for existing session DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+def _as_naive_utc(value):
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def is_session_recently_active(row, now=None, grace=_FRESH_SESSION_GRACE) -> bool:
+    """Return True while a new or active session is too fresh to auto-delete."""
+    now = _as_naive_utc(now) or _utcnow_naive()
+    for attr in ("last_message_at", "last_accessed", "updated_at", "created_at"):
+        value = _as_naive_utc(getattr(row, attr, None))
+        if not value:
+            continue
+        if value >= now:
+            return True
+        if now - value <= grace:
+            return True
+    return False
 
 async def run_auto_sort(
     owner: str, skip_llm: bool = False, delete_throwaway: bool = True
@@ -94,16 +149,19 @@ async def run_auto_sort(
             .all()
         )
 
+        cleanup_now = _utcnow_naive()
         for row in rows:
             if getattr(row, "is_important", False):
                 continue
-            created_at = row.created_at or row.updated_at or datetime.now(timezone.utc)
+            created_at = _as_naive_utc(row.created_at or row.updated_at) or _now_naive(timezone.utc)
             is_fresh = (
-                datetime.now(timezone.utc) - created_at
+                _now_naive(timezone.utc) - created_at
             ) < _FRESH_EMPTY_SESSION_GRACE
             if (row.name or "").strip() == "Incognito":
                 deleted_throwaway += 1
                 db.delete(row)
+                continue
+            if is_session_recently_active(row, now=cleanup_now):
                 continue
 
             msg_count = (
@@ -289,7 +347,7 @@ async def run_auto_sort(
                     )
                     if db_sess:
                         db_sess.folder = folder_name
-                        db_sess.updated_at = datetime.now(timezone.utc)
+                        db_sess.updated_at = _utcnow_naive()
                         updated += 1
         db.commit()
 

@@ -21,7 +21,6 @@ All routes are admin-gated (endpoint/provider management is an admin action).
 
 import json
 import logging
-import threading
 import time
 import uuid
 from typing import Dict, Optional
@@ -30,31 +29,19 @@ import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 
 from core.database import ModelEndpoint, SessionLocal
-from core.middleware import require_admin
+from routes.device_flow import (
+    DeviceFlowPoll,
+    DeviceFlowStart,
+    PendingDeviceFlowStore,
+    create_device_flow_router,
+)
 from src import copilot
 from src.auth_helpers import get_current_user
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
-
-# Pending device-flow logins, keyed by an opaque poll_id. The device_code is a
-# bearer-like secret, so it lives here (server memory) rather than in the
-# browser. Entries expire with the GitHub device code.
-#
-# NOTE: this is per-process state. The device flow assumes a single worker
-# (Odysseus' default): with multiple uvicorn workers, the poll request can land
-# on a worker that never saw the start, returning "Unknown or expired login
-# session". Move this to a shared store (DB/Redis) if running multi-worker.
-_PENDING: Dict[str, Dict] = {}
-_PENDING_LOCK = threading.Lock()
-
-
-def _prune_expired() -> None:
-    now = time.time()
-    with _PENDING_LOCK:
-        for k in [k for k, v in _PENDING.items() if v.get("expires_at", 0) < now]:
-            _PENDING.pop(k, None)
+_DEVICE_FLOW_STORE = PendingDeviceFlowStore()
 
 
 def _provision_endpoint(token: str, base: str, owner: Optional[str]) -> Dict:
@@ -132,57 +119,39 @@ def setup_copilot_routes() -> APIRouter:
             status = e.response.status_code if e.response is not None else "unknown"
             raise HTTPException(
                 502, f"GitHub device-code request failed (HTTP {status})"
-            ) from e
+            )
         except Exception as e:
-            raise HTTPException(502, f"GitHub device-code request failed: {e}") from e
+            raise HTTPException(502, f"GitHub device-code request failed: {e}")
 
-        device_code = data.get("device_code")
-        if not device_code:
-            raise HTTPException(502, "GitHub did not return a device code")
-        interval = int(data.get("interval") or 5)
-        expires_in = int(data.get("expires_in") or 900)
-        poll_id = uuid.uuid4().hex
-        with _PENDING_LOCK:
-            _PENDING[poll_id] = {
-                "device_code": device_code,
-                "host": host,
-                "enterprise_url": ent,
-                "interval": interval,
-                "owner": get_current_user(request) or None,
-                "expires_at": time.time() + expires_in,
-                "next_poll_at": 0.0,
-            }
-        # verification_uri_complete embeds the user code, so the browser tab we
-        # open lands the user straight on GitHub's "Authorize" screen with the
-        # code pre-filled — one click, no manual code entry.
-        return {
-            "poll_id": poll_id,
+    device_code = data.get("device_code")
+    if not device_code:
+        raise HTTPException(502, "GitHub did not return a device code")
+
+    # verification_uri_complete embeds the user code, so the browser tab we
+    # open lands the user straight on GitHub's "Authorize" screen with the
+    # code pre-filled — one click, no manual code entry.
+    return DeviceFlowStart(
+        pending={
+            "device_code": device_code,
+            "host": host,
+            "enterprise_url": ent,
+            "owner": get_current_user(request) or None,
+        },
+        response={
             "user_code": data.get("user_code"),
             "verification_uri": data.get("verification_uri"),
             "verification_uri_complete": data.get("verification_uri_complete"),
-            "interval": interval,
-            "expires_in": expires_in,
-        }
+        },
+        interval=int(data.get("interval") or 5),
+        expires_in=int(data.get("expires_in") or 900),
+    )
 
-    @router.post("/device/poll")
-    def device_poll(request: Request, poll_id: str = Form(...)):
-        require_admin(request)
-        _prune_expired()
-        with _PENDING_LOCK:
-            pending = _PENDING.get(poll_id)
-        if not pending:
-            raise HTTPException(404, "Unknown or expired login session")
 
-        # Enforce GitHub's polling interval server-side so a chatty client
-        # can't trip slow_down.
-        now = time.time()
-        if now < pending.get("next_poll_at", 0):
-            return {"status": "pending"}
-
-        try:
-            data = copilot.poll_access_token(pending["host"], pending["device_code"])
-        except Exception as e:
-            return {"status": "pending", "detail": f"poll error: {e}"}
+def _poll_device_flow(_request: Request, pending: Dict) -> DeviceFlowPoll:
+    try:
+        data = copilot.poll_access_token(pending["host"], pending["device_code"])
+    except Exception as e:
+        return DeviceFlowPoll.pending(f"poll error: {e}")
 
         token = data.get("access_token")
         if token:
@@ -199,36 +168,27 @@ def setup_copilot_routes() -> APIRouter:
                     _PENDING.pop(poll_id, None)
                 raise HTTPException(
                     500, f"Login succeeded but provisioning failed: {e}"
-                ) from e
+                )
             with _PENDING_LOCK:
                 _PENDING.pop(poll_id, None)
             return {"status": "authorized", "endpoint": result}
 
-        err = data.get("error")
-        if err == "authorization_pending":
-            with _PENDING_LOCK:
-                if poll_id in _PENDING:
-                    _PENDING[poll_id]["next_poll_at"] = now + pending["interval"]
-            return {"status": "pending"}
-        if err == "slow_down":
-            new_interval = int(data.get("interval") or (pending["interval"] + 5))
-            with _PENDING_LOCK:
-                if poll_id in _PENDING:
-                    _PENDING[poll_id]["interval"] = new_interval
-                    _PENDING[poll_id]["next_poll_at"] = now + new_interval
-            return {"status": "pending"}
-        if err in ("expired_token", "access_denied"):
-            with _PENDING_LOCK:
-                _PENDING.pop(poll_id, None)
-            return {"status": "failed", "error": err}
-        # Unknown error — surface but keep the session for another try.
-        return {"status": "pending", "detail": err or "unknown"}
+    err = data.get("error")
+    if err == "authorization_pending":
+        return DeviceFlowPoll.pending()
+    if err == "slow_down":
+        return DeviceFlowPoll.slow_down(int(data.get("interval") or 0) or None)
+    if err in ("expired_token", "access_denied"):
+        return DeviceFlowPoll.failed(err)
+    # Unknown error — surface but keep the session for another try.
+    return DeviceFlowPoll.pending(err or "unknown")
 
-    @router.post("/device/cancel")
-    def device_cancel(request: Request, poll_id: str = Form(...)):
-        require_admin(request)
-        with _PENDING_LOCK:
-            _PENDING.pop(poll_id, None)
-        return {"status": "cancelled"}
 
-    return router
+def setup_copilot_routes():
+    return create_device_flow_router(
+        prefix="/api/copilot",
+        tags=["copilot"],
+        store=_DEVICE_FLOW_STORE,
+        start_flow=_start_device_flow,
+        poll_flow=_poll_device_flow,
+    )

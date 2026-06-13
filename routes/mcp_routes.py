@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.database import McpServer, SessionLocal
 from core.middleware import require_admin
-from src.constants import DATA_DIR
+from src.constants import DATA_DIR, MCP_OAUTH_DIR
 from src.mcp_manager import McpManager
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 def _mcp_oauth_base_dir() -> Path:
     """Directory that may contain OAuth files managed by Odysseus."""
-    return (Path(DATA_DIR) / "mcp_oauth").resolve(strict=False)
+    return Path(MCP_OAUTH_DIR).resolve(strict=False)
 
 
 def _resolve_mcp_oauth_path(raw_path, field_name: str) -> str:

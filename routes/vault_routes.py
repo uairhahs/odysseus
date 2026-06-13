@@ -18,12 +18,13 @@ from pydantic import BaseModel
 
 from core.middleware import require_admin
 from core.platform_compat import IS_WINDOWS, safe_chmod, which_tool
+from src.constants import VAULT_FILE as _VAULT_FILE
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 
-VAULT_FILE = Path("data/vault.json")
+VAULT_FILE = Path(_VAULT_FILE)
 
 
 def _find_bw() -> str:

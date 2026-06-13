@@ -11,6 +11,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from core.constants import internal_api_base
+from src.auth_helpers import get_current_user
+from src.constants import DATA_DIR, EMAIL_URGENCY_CACHE_DIR
+from src.task_scheduler import compute_next_run, HOUSEKEEPING_DEFAULTS
 from core.database import ScheduledTask, SessionLocal, TaskRun
 from routes.prefs_routes import _load_for_user, _save_for_user
 from src.auth_helpers import get_current_user
@@ -726,7 +729,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
 
         removed_files = 0
         if action == "check_email_urgency":
-            cache_dir = Path("data/email_urgency_cache")
+            cache_dir = Path(EMAIL_URGENCY_CACHE_DIR)
             if cache_dir.exists():
                 for child in cache_dir.glob("*.json"):
                     try:
@@ -737,7 +740,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             owner_slug = "".join(
                 c if (c.isalnum() or c in "-_.@") else "_" for c in (user or "default")
             )
-            for state_path in [Path(f"data/email_urgency_state_{owner_slug}.json")]:
+            for state_path in [Path(DATA_DIR) / f"email_urgency_state_{owner_slug}.json"]:
                 try:
                     if state_path.exists():
                         state_path.unlink()
@@ -1151,7 +1154,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             "schedule",
         )
         try:
-            from src.agent_tools import get_mcp_manager
+            from src.tool_utils import get_mcp_manager
 
             mcp = get_mcp_manager()
             if mcp:

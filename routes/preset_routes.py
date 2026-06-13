@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from core.middleware import require_admin
 from src.request_models import PresetUpdateRequest
+from src.auth_helpers import effective_user
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -111,7 +112,8 @@ def setup_preset_routes(preset_manager) -> APIRouter:
 
         try:
             model_spec = data.get("model") or ""
-            url, model, headers = _resolve_model(model_spec)
+            user = effective_user(request)
+            url, model, headers = _resolve_model(model_spec, owner=user)
             result = await llm_call_async(
                 url, model, messages, temperature=0.8, max_tokens=500, headers=headers
             )

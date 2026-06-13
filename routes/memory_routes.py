@@ -32,14 +32,19 @@ def _strip_list_prefix(text: str) -> str:
         return text
     return _LIST_PREFIX_RE.sub("", text, count=1).strip()
 
+from services.memory import MemoryManager
+from core.session_manager import SessionManager
+from src.request_models import MemoryAddRequest
+from core.database import SessionLocal
+from src.llm_core import llm_call_async
+from services.memory.memory_extractor import audit_memories
+from src.auth_helpers import get_current_user, require_user
+from src.endpoint_resolver import resolve_endpoint
+from src.upload_limits import read_upload_limited, MEMORY_IMPORT_MAX_BYTES
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
-
-MEMORY_IMPORT_MAX_BYTES = int(
-    os.getenv("ODYSSEUS_MEMORY_IMPORT_MAX_BYTES", str(10 * 1024 * 1024))
-)
 
 
 def setup_memory_routes(
