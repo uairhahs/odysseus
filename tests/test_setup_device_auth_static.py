@@ -1,6 +1,17 @@
 """Static regressions for `/setup` account sign-in providers."""
 
+import re
 from pathlib import Path
+
+
+def _norm(s: str) -> str:
+    """Normalize whitespace and quote style so cosmetic differences don't matter."""
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace('"', "'")
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    return s.strip()
+
 
 _REPO = Path(__file__).resolve().parent.parent
 _SLASH = (_REPO / "static" / "js" / "slashCommands.js").read_text(encoding="utf-8")
@@ -15,13 +26,18 @@ def _between(src: str, start: str, end: str) -> str:
 def test_setup_guide_lists_account_sign_in_providers():
     # unused ...
     # guide_block = _between(_SLASH, "function _showSetupEndpointChoices", "async function _hasConfiguredModels")
-
-    assert 'data-setup-provider="' in _SLASH
-    assert "provider.key" in _SLASH
-    assert "'copilot'" in _SLASH
-    assert "'chatgpt-subscription'" in _SLASH
-    assert "/setup copilot" in _SLASH
-    assert "/setup chatgpt-subscription" in _SLASH
+    haystack = _norm(_SLASH)
+    needles = [
+        'data-setup-provider="',
+        "provider.key",
+        "'copilot'",
+        "'chatgpt-subscription'",
+        "/setup copilot",
+        "/setup chatgpt-subscription",
+    ]
+    for needle in needles:
+        needle = _norm(needle)
+        assert needle in haystack
 
 
 def test_clicking_account_sign_in_provider_prefills_setup_command_not_api_key():
@@ -30,19 +46,30 @@ def test_clicking_account_sign_in_provider_prefills_setup_command_not_api_key():
         'const providerEl = e.target.closest(".setup-clickable-provider")',
         "// 3. Check",
     )
-
-    assert "providerEl.dataset.setupProvider" in click_block
-    assert "providerEl.dataset.setupKind === 'device-auth'" in click_block
-    assert "'/setup ' + providerKey" in click_block
+    haystack = _norm(click_block)
+    needles = [
+        "providerEl.dataset.setupProvider",
+        "providerEl.dataset.setupKind === 'device-auth'",
+        "'/setup ' + providerKey",
+    ]
+    for needle in needles:
+        needle = _norm(needle)
+        assert needle in haystack
 
 
 def test_setup_chatgpt_subscription_prints_auth_url_without_auto_opening_tab():
     flow_block = _between(
         _SLASH, "async function _setupProviderDeviceFlow", "async function _cmdSetup"
     )
+    flow_block = _norm(flow_block)
 
-    assert "providerKey === 'chatgpt-subscription'" in flow_block
-    assert "Open this URL" in flow_block
-    assert "authUrl" in flow_block
-    assert "href=\"' + uiModule.esc(authUrl || '') + '\"" in flow_block
-    assert "if (providerKey === 'chatgpt-subscription') return;" in flow_block
+    needles = [
+        "providerKey === 'chatgpt-subscription'",
+        "Open this URL",
+        "authUrl",
+        "href=\"' + uiModule.esc(authUrl || '') + '\"",
+        "if (providerKey === 'chatgpt-subscription') return;",
+    ]
+    for needle in needles:
+        needle = _norm(needle)
+        assert needle in flow_block

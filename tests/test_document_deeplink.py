@@ -37,7 +37,7 @@ def test_document_deeplink_handled_on_hashchange_and_load():
     normalized_js = _norm(js)
 
     # Assert against the compressed, format-agnostic strings
-    assert "addEventListener('hashchange',_maybeOpenDocFromHash)" in normalized_js
+    assert "addEventListener('hashchange', _maybeOpenDocFromHash)" in normalized_js
     assert "#document-" in normalized_js
 
 

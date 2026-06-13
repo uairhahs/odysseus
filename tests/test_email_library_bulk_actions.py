@@ -1,4 +1,11 @@
+import re
 from pathlib import Path
+
+
+def _norm(s: str) -> str:
+    s = s.replace('"', "'")
+    s = re.sub(r"\s+", " ", s)
+    return s
 
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -20,17 +27,19 @@ def test_email_bulk_read_unread_calls_provider_write_routes():
     then refresh from the provider made the message unread again.
     """
     src = _bulk_action_source()
+    haystack = _norm(src)
 
-    assert "Local toggle for now" not in src
-    assert "mark-read" in src
-    assert "mark-unread" in src
-    assert "method: 'POST'" in src
-    assert "_syncEmailReadState(uid, action === 'read')" in src
+    assert "Local toggle for now" not in haystack
+    assert "mark-read" in haystack
+    assert "mark-unread" in haystack
+    assert "method: 'POST'" in haystack
+    assert "_syncEmailReadState(uid, action === 'read')" in haystack
 
 
 def test_email_bulk_read_unread_checks_backend_success_before_syncing_cache():
     src = _bulk_action_source()
+    haystack = _norm(src)
 
-    assert "data?.success === false" in src
-    assert "throw new Error(data?.error" in src
-    assert "_libCacheWriteBack()" in src
+    assert "data?.success === false" in haystack
+    assert "throw new Error(data?.error" in haystack
+    assert "_libCacheWriteBack()" in haystack

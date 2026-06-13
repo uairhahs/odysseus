@@ -19,8 +19,7 @@ def node_available():
 
 
 def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
-    script = textwrap.dedent(
-        r"""
+    script = textwrap.dedent(r"""
         import fs from 'node:fs';
 
         globalThis.window = { location: { origin: 'http://localhost' }, katex: null };
@@ -59,7 +58,7 @@ def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
           .replace(/export const /g, 'const ')
           .replace(/export function /g, 'function ');
         source = source.replace(
-          /import \{ replaceEmojiShortcodes, hasEmojiShortcode \} from ['"]\.\/emojiShortcodes\.js['"];/,
+          /import\s*\{\s*replaceEmojiShortcodes,\s*hasEmojiShortcode,?\s*\}\s*from\s*['"]\.\/emojiShortcodes\.js['"];/,
           () => emojiSource
         );
         source = source.replace(
@@ -76,8 +75,7 @@ def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
         const mod = await import(moduleUrl);
         const input = JSON.parse(process.argv[1]);
         console.log(JSON.stringify({ html: __RENDER_EXPR__ }));
-        """
-    ).replace("__RENDER_EXPR__", render_expr)
+        """).replace("__RENDER_EXPR__", render_expr)
     result = subprocess.run(
         ["node", "--input-type=module", "-e", script, json.dumps(markdown)],
         cwd=_REPO,
@@ -86,7 +84,9 @@ def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
         text=True,
     )
     if result.returncode != 0:
-        raise AssertionError(f"node failed:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}")
+        raise AssertionError(
+            f"node failed:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
+        )
     return json.loads(result.stdout.splitlines()[-1])["html"]
 
 

@@ -197,7 +197,7 @@ def setup_compare_routes(session_manager: SessionManager):
 
         # Both endpoints validated — only now create the ephemeral [CMP]
         # sessions and copy any resolved headers.
-        for sid, model, session_endpoint_url, _headers in resolved:
+        for sid, model, session_endpoint_url, headers in resolved:
             name = (
                 f"[CMP] {slot_name[sid]}" if blind else f"[CMP] {model.split('/')[-1]}"
             )
@@ -209,21 +209,10 @@ def setup_compare_routes(session_manager: SessionManager):
                 rag=False,
                 owner=user,
             )
-            # Copy API key from endpoint config
-            db = SessionLocal()
-            try:
-                from src.endpoint_resolver import build_headers, normalize_base
-
-                # Find matching endpoint by URL, scoped to the caller so a
-                # comparison can't borrow another user's private endpoint key.
-                base = normalize_base(endpoint)
-                ep = _owned_endpoint_by_url(db, base, user)
-                if ep and ep.api_key:
-                    s = session_manager.sessions.get(sid)
-                    if s:
-                        s.headers = build_headers(ep.api_key, ep.base_url)
-            finally:
-                db.close()
+            if headers:
+                s = session_manager.sessions.get(sid)
+                if s:
+                    s.headers = headers
 
         # Store comparison record
         db = SessionLocal()

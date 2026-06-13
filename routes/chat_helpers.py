@@ -250,7 +250,7 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     owner = getattr(sess, "owner", None)
     db = SessionLocal()
     try:
-        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled._is(True))
+        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled.is_(True))
         if owner:
             from src.auth_helpers import owner_filter
 
@@ -546,7 +546,7 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
 
     db = SessionLocal()
     try:
-        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled._is(True))
+        q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled.is_(True))
         owner = getattr(sess, "owner", None)
         if owner:
             from src.auth_helpers import owner_filter

@@ -36,25 +36,23 @@ def _norm(s: str) -> str:
 
 
 def test_markdown_preview_refresh_rerenders_visible_preview():
-    body = _norm(_function_body("_refreshMarkdownPreviewIfVisible"))
-
-    assert "_isMarkdownPreviewVisible()" in body
-    assert "lang!=='markdown'" in body
-    assert "textarea.value=content;" in body
-    assert "syncHighlighting();" in body
-    assert "_setMarkdownPreviewActive(true,{remember:false});" in body
+    body = _function_body("_refreshMarkdownPreviewIfVisible")
+    haystack = _norm(body)
+    assert "_isMarkdownPreviewVisible()" in haystack
+    assert "lang !== 'markdown'" in haystack
+    assert "textarea.value = content;" in haystack
+    assert "syncHighlighting();" in haystack
+    assert "_setMarkdownPreviewActive(true, { remember: false });" in haystack
 
 
 def test_doc_update_refreshes_preview_instead_of_hidden_editor_animation():
     body = _norm(_function_body("handleDocUpdate"))
 
-    visible = "constmarkdownPreviewWasVisible=_isMarkdownPreviewVisible();"
-    exit_preview = "if(markdownPreviewWasVisible)_setMarkdownPreviewActive(false,{remember:false});"
-    diff = "enterDiffMode(oldContent,newContent);"
-    refresh = (
-        "markdownPreviewWasVisible&&_refreshMarkdownPreviewIfVisible(docId,newContent)"
-    )
-    animate = "_animateDocEdit(textarea,newContent);"
+    visible = "const markdownPreviewWasVisible = _isMarkdownPreviewVisible();"
+    exit_preview = "if (markdownPreviewWasVisible) _setMarkdownPreviewActive(false, { remember: false });"
+    diff = "enterDiffMode(oldContent, newContent);"
+    refresh = "markdownPreviewWasVisible && _refreshMarkdownPreviewIfVisible(docId, newContent)"
+    animate = "_animateDocEdit(textarea, newContent);"
 
     assert visible in body
     assert exit_preview in body
@@ -62,4 +60,4 @@ def test_doc_update_refreshes_preview_instead_of_hidden_editor_animation():
     assert body.index(exit_preview) < body.index(diff)
     assert refresh in body
     assert body.index(refresh) < body.index(animate)
-    assert "_refreshMarkdownPreviewIfVisible(docId,newContent);" in body
+    assert "_refreshMarkdownPreviewIfVisible(docId, newContent);" in body

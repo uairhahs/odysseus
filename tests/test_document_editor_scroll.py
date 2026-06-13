@@ -28,35 +28,57 @@ STYLE_CSS = _norm((ROOT / "static/style.css").read_text(encoding="utf-8"))
 
 
 def test_document_textarea_scrollbar_is_visible():
-    textarea_rule_start = STYLE_CSS.index(".doc-editor-textarea{position:absolute;")
+    textarea_rule_start = STYLE_CSS.index(".doc-editor-textarea { position: absolute;")
     textarea_rule_end = STYLE_CSS.index(
-        ".doc-editor-textarea::placeholder", textarea_rule_start
+        ".doc-editor-textarea::-webkit-scrollbar {", textarea_rule_start
     )
     textarea_css = STYLE_CSS[textarea_rule_start:textarea_rule_end]
 
-    assert "overflow-y:scroll;" in textarea_css
-    assert "scrollbar-width:thin;" in textarea_css
-    assert ".doc-editor-textarea::-webkit-scrollbar{width:8px;}" in STYLE_CSS
-    assert ".doc-editor-textarea::-webkit-scrollbar{display:none;}" not in STYLE_CSS
+    assert "overflow-y: scroll;" in textarea_css
+    assert "scrollbar-width: thin;" in textarea_css
+    assert ".doc-editor-textarea::-webkit-scrollbar { width: 8px; }" in STYLE_CSS
+    assert ".doc-editor-textarea::-webkit-scrollbar { display: none; }" not in STYLE_CSS
 
 
 def test_line_number_gutter_translates_inner_content():
-    assert "function_lineNumberContentEl(gutter)" in DOC_JS
-    assert "inner.className='doc-line-number-content';" in DOC_JS
-    assert ".style.transform=`translateY(${-textarea.scrollTop}px)`;" in DOC_JS
-    assert "gutter.scrollTop=textarea.scrollTop;" not in DOC_JS
-    assert ".doc-line-number-content" in STYLE_CSS
+    assertions = [
+        ("function _lineNumberContentEl(gutter)", True, DOC_JS),
+        ('inner.className = "doc-line-number-content";', True, DOC_JS),
+        ("`translateY(${-textarea.scrollTop}px)`;", True, DOC_JS),
+        ("gutter.scrollTop = textarea.scrollTop;", False, DOC_JS),
+        (".doc-line-number-content", True, STYLE_CSS),
+    ]
+    for snippet, should_exist, haystack in assertions:
+        snippet = _norm(snippet)
+        haystack = _norm(haystack)
+        if should_exist:
+            assert snippet in haystack
+        else:
+            assert snippet not in haystack
 
 
 def test_line_number_gutter_accounts_for_wrapped_rows():
-    assert "function_measureLineNumberHeights(textarea,lines,textWidth,style)" in DOC_JS
-    assert "probe=document.createElement('textarea');" in DOC_JS
-    assert "probe.wrap='soft';" in DOC_JS
-    assert "probe.value=line||'';" in DOC_JS
-    assert "Math.round(probe.scrollHeight/lineHeight)" in DOC_JS
-    assert "row.style.height=`${heights[i]}px`;" in DOC_JS
-    assert "label.className='doc-line-number-label';" in DOC_JS
-    assert "inner.textContent=lines;" not in DOC_JS
-    assert ".doc-line-number-row" in STYLE_CSS
-    assert ".doc-line-number-label" in STYLE_CSS
-    assert ".doc-line-number-measure" in STYLE_CSS
+    assertions = [
+        (
+            "function _measureLineNumberHeights(textarea, lines, textWidth, style)",
+            True,
+            DOC_JS,
+        ),
+        ("probe = document.createElement('textarea');", True, DOC_JS),
+        ("probe.wrap = 'soft';", True, DOC_JS),
+        ("probe.value = line || ' ';", True, DOC_JS),
+        ("Math.round(probe.scrollHeight / lineHeight)", True, DOC_JS),
+        ("row.style.height = `${heights[i]}px`;", True, DOC_JS),
+        ('label.className = "doc-line-number-label";', True, DOC_JS),
+        ("inner.textContent=lines;", False, DOC_JS),
+        (".doc-line-number-row", True, STYLE_CSS),
+        (".doc-line-number-label", True, STYLE_CSS),
+        (".doc-line-number-measure", True, STYLE_CSS),
+    ]
+    for snippet, should_exist, haystack in assertions:
+        snippet = _norm(snippet)
+        haystack = _norm(haystack)
+        if should_exist:
+            assert snippet in haystack
+        else:
+            assert snippet not in haystack
