@@ -68,9 +68,9 @@ def _merge_continue_rows_to_delete(db_messages, db1, db2):
 
 
 def setup_history_routes(session_manager) -> APIRouter:
-    router = APIRouter(tags=["history"])
+    router = APIRouter(prefix="/api", tags=["history"])
 
-    @router.get("/api/history/{session_id}")
+    @router.get("/history/{session_id}")
     async def get_session_history(request: Request, session_id: str) -> Dict[str, Any]:
         _verify_session_owner(request, session_id)
 
@@ -153,7 +153,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             "name": session.name,
         }
 
-    @router.post("/api/session/{session_id}/truncate")
+    @router.post("/session/{session_id}/truncate")
     async def truncate_session(request: Request, session_id: str):
         _verify_session_owner(request, session_id)
 
@@ -168,7 +168,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Truncate error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.post("/api/session/{session_id}/message")
+    @router.post("/session/{session_id}/message")
     async def add_message(request: Request, session_id: str):
         """Add a message to a session (for slash command persistence)."""
         _verify_session_owner(request, session_id)
@@ -185,7 +185,7 @@ def setup_history_routes(session_manager) -> APIRouter:
         except KeyError as e:
             raise HTTPException(404, "Session not found") from e
 
-    @router.post("/api/session/{session_id}/delete-messages")
+    @router.post("/session/{session_id}/delete-messages")
     async def delete_messages(request: Request, session_id: str):
         """Delete specific messages by DB ID (or legacy index)."""
         _verify_session_owner(request, session_id)
@@ -266,7 +266,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Delete messages error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.post("/api/session/{session_id}/edit-message")
+    @router.post("/session/{session_id}/edit-message")
     async def edit_message(request: Request, session_id: str):
         """Edit the content of a message by its database ID."""
         _verify_session_owner(request, session_id)
@@ -330,7 +330,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Edit message error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.post("/api/session/{session_id}/mark-stopped")
+    @router.post("/session/{session_id}/mark-stopped")
     async def mark_stopped(request: Request, session_id: str):
         """Mark the last assistant message as stopped by user."""
         _verify_session_owner(request, session_id)
@@ -391,7 +391,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Mark stopped error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.post("/api/session/{session_id}/update-last-meta")
+    @router.post("/session/{session_id}/update-last-meta")
     async def update_last_meta(request: Request, session_id: str):
         """Merge metadata into the last assistant message (e.g. save variants)."""
         _verify_session_owner(request, session_id)
@@ -450,7 +450,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Update last meta error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.post("/api/session/{session_id}/merge-last-assistant")
+    @router.post("/session/{session_id}/merge-last-assistant")
     async def merge_last_assistant(request: Request, session_id: str):
         """Merge the last two assistant messages into one (for continue)."""
         _verify_session_owner(request, session_id)
@@ -566,7 +566,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Merge assistant error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.post("/api/session/{session_id}/fork")
+    @router.post("/session/{session_id}/fork")
     async def fork_session(request: Request, session_id: str):
         """Create a new session with messages copied up to keep_count."""
         _verify_session_owner(request, session_id)
@@ -617,7 +617,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             logger.error(f"Fork error {session_id}: {e}")
             raise HTTPException(500, str(e)) from e
 
-    @router.get("/api/conversations/topics")
+    @router.get("/conversations/topics")
     async def get_conversation_topics(request: Request) -> Dict[str, Any]:
         from src.auth_helpers import require_user
 
@@ -627,13 +627,15 @@ def setup_history_routes(session_manager) -> APIRouter:
         except Exception as e:
             raise HTTPException(500, f"Topic analysis failed: {e}") from e
 
+    @router.post("/session/{session_id}/compact")
     async def compact_session(request: Request, session_id: str):
         """Manually trigger context compaction for a session."""
         _verify_session_owner(request, session_id)
-        owner = _require_user(request)
+        # owner = _require_user(request)
 
         try:
             session = session_manager.get_session(session_id)
+            owner = getattr(session, "owner", None) or ""
         except KeyError as e:
             raise HTTPException(404, "Session not found") from e
         _reject_compact_during_active_run(session_id)

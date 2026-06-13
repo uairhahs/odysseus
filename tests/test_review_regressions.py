@@ -4,6 +4,7 @@ import importlib
 import json
 import sys
 import types
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -80,6 +81,7 @@ def _install_model_route_import_stubs(monkeypatch):
     db_mod.Document = MagicMock()
     db_mod.DocumentVersion = MagicMock()
     db_mod.GalleryImage = MagicMock()
+    db_mod.utcnow_naive = lambda: datetime.utcnow()
     middleware_mod = types.ModuleType("core.middleware")
     middleware_mod.require_admin = lambda request: None
     multipart_mod = types.ModuleType("python_multipart")

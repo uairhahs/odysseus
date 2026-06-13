@@ -158,12 +158,12 @@ services:
       timeout: 6s
       retries: 20
       start_period: 10s
+    restart: unless-stopped
     # If you do not set them, Compose interprets the empty strings and effectively ignores those lines.
     # Docker will then revert to the daemon's standard default behavior (inheriting from the host or falling back to 8.8.8.8).
     dns:
       - ${PRIMARY_DNS:-}
       - ${SECONDARY_DNS:-}
-    restart: unless-stopped
 
   ntfy:
     container_name: odysseus-ntfy
