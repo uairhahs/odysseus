@@ -5,7 +5,7 @@ import json
 import logging
 import random
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -290,7 +290,7 @@ def setup_compare_routes(session_manager: SessionManager):
             else:
                 raise HTTPException(400, "winner must be 'left', 'right', or 'tie'")
 
-            comp.voted_at = datetime.utcnow()
+            comp.voted_at = datetime.now(timezone.utc)
             db.commit()
 
             return {
@@ -332,7 +332,7 @@ def setup_compare_routes(session_manager: SessionManager):
                 winner=body.winner,
                 is_blind=body.is_blind,
                 blind_mapping=blind_mapping,
-                voted_at=datetime.utcnow(),
+                voted_at=datetime.now(timezone.utc),
                 owner=user,
             )
             db.add(comp)

@@ -85,6 +85,10 @@ markers = [
   "area_unit: pure parser / utility tests that do not clearly belong elsewhere",
   "area_uncategorized: tests not yet matched by the taxonomy (fallback)",
 ]
+filterwarnings = [
+  # Ignore the Starlette + httpx deprecation noise
+  "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
 
 [tool.uv]
 # uv-specific configuration

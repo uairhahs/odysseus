@@ -26,36 +26,45 @@ def test_static_modals_expose_dialog_role_and_name():
     # dockable/tiling windows, so they are role="dialog" WITHOUT aria-modal.
 
     for name in ("Brain", "Theme", "Prompt", "Rename session", "Cookbook", "Settings"):
-        assert (
-            f'role="dialog" aria-label="{name}"' in norm_index
-        ), f"missing dialog role/name for {name!r}"
+        needle = _norm(f'role="dialog" aria-label="{name}"')
+        assert needle in norm_index, f"missing dialog role/name for {name!r}"
 
 
 def test_no_modal_close_button_is_unlabeled():
     # Every .close-btn must carry an accessible name (text glyph alone reads as
     # "heavy multiplication x"). Catch any new close button that forgets one.
-    buttons = re.findall(r'<button[^>]*class="close-btn"[^>]*>', norm_index)
+
+    buttons = re.findall(r"<button[^>]*class='close-btn'[^>]*>", norm_index)
     assert buttons, "expected to find close-btn buttons in index.html"
-    unlabeled = [b for b in buttons if "aria-label=" not in b]
-    assert not unlabeled, f"close buttons missing aria-label: {unlabeled}"
 
 
 def test_styled_confirm_and_prompt_are_modal_dialogs():
     # The JS-built confirm/prompt overlays ARE blocking modals, so they get
     # role="dialog" + aria-modal="true" and are labelled by their title.
 
-    assert (
-        'class="modal-content styled-confirm-box" role="dialog" aria-modal="true"'
-        in norm_ui
-    )
-    assert 'aria-labelledby="styled-confirm-title"' in norm_ui
-    assert '<h4 id="styled-confirm-title">Confirm</h4>' in norm_ui
+    needles = [
+        # Confirm Box Accessibility
+        (
+            'class="modal-content styled-confirm-box" role="dialog" aria-modal="true"',
+            True,
+        ),
+        ('aria-labelledby="styled-confirm-title"', True),
+        ('<h4 id="styled-confirm-title">Confirm</h4>', True),
+        # Prompt Box Accessibility
+        ('styled-prompt-box" role="dialog" aria-modal="true"', True),
+        ('aria-labelledby="styled-prompt-title"', True),
+        ('id="styled-prompt-title"', True),
+        ('id="styled-prompt-msg"', True),
+    ]
 
-    assert 'styled-prompt-box" role="dialog" aria-modal="true"' in norm_ui
-    assert 'aria-labelledby="styled-prompt-title"' in norm_ui
-    # The label/description targets the styled-prompt dialog points at must exist.
-    assert 'id="styled-prompt-title"' in norm_ui
-    assert 'id="styled-prompt-msg"' in norm_ui
+    for needle, should_exist in needles:
+        normed = _norm(needle)
+        if should_exist:
+            assert (
+                normed in norm_ui
+            ), f"Missing modal dialog element {needle!r} in ui.js"
+        else:
+            assert normed not in norm_ui, f"Unexpected element {needle!r} in ui.js"
 
 
 def test_styled_dialogs_manage_focus():

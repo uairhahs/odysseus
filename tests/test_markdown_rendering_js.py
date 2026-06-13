@@ -77,7 +77,13 @@ def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
         console.log(JSON.stringify({ html: __RENDER_EXPR__ }));
         """).replace("__RENDER_EXPR__", render_expr)
     result = subprocess.run(
-        ["node", "--input-type=module", "-e", script, json.dumps(markdown)],
+        [  # noqa: S607
+            "node",
+            "--input-type=module",
+            "-e",
+            script,
+            json.dumps(markdown),
+        ],
         cwd=_REPO,
         capture_output=True,
         timeout=15,

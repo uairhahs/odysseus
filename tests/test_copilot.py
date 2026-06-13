@@ -198,7 +198,7 @@ def test_poll_access_token(monkeypatch):
 
     monkeypatch.setattr(copilot.httpx, "post", fake_post)
     data = copilot.poll_access_token("github.com", "DC")
-    assert data["access_token"] == "GHTOKEN"
+    assert data["access_token"] == "GHTOKEN"  # noqa: S105
     assert (
         captured["json"]["grant_type"] == "urn:ietf:params:oauth:grant-type:device_code"
     )

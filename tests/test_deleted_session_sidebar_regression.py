@@ -9,14 +9,27 @@ SESSIONS_JS = Path("static/js/sessions.js")
 def test_rail_delete_uses_hard_delete_endpoint():
     source = _norm(APP_JS.read_text())
     rail_block = source[source.index("const railDelete = el('rail-delete-session');") :]
-    rail_block = _norm(rail_block[: rail_block.index("// Textarea auto-resize")])
-    print(rail_block)
+    haystack = rail_block[: rail_block.index("// Textarea auto-resize")]
 
-    assert (
-        "fetch(`${API_BASE}/api/session/${currentId}`, { method: 'DELETE' })"
-        in rail_block
-    )
-    assert "api/session/${currentId}/archive" not in rail_block
+    needles = [
+        # Check the endpoint URL specifically
+        ("fetch(`${API_BASE}/api/session/${currentId}`", True),
+        # Check that the method is DELETE
+        ("method: 'DELETE'", True),
+        # Ensure we aren't using the old archive endpoint
+        ("api/session/${currentId}/archive", False),
+    ]
+
+    for needle, should_exist in needles:
+        needle = _norm(needle)
+        if should_exist:
+            assert (
+                needle in haystack
+            ), f"expected to find {needle!r} in rail delete block"
+        else:
+            assert (
+                needle not in haystack
+            ), f"unexpectedly found {needle!r} in rail delete block"
 
 
 def test_deleted_sessions_are_pruned_from_local_sidebar_state():

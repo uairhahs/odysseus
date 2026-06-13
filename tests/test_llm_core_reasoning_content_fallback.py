@@ -9,10 +9,10 @@ Covers the five cases requested during PR review:
 """
 
 import asyncio
-import json
+import sys
+from unittest.mock import MagicMock
 
 import httpx
-import pytest
 
 from src import llm_core
 
@@ -103,8 +103,6 @@ def test_llm_call_content_wins_over_reasoning_content(monkeypatch):
 # changed, these tests will fail.
 # ---------------------------------------------------------------------------
 
-import sys
-from unittest.mock import MagicMock
 
 # Mock heavy DB/tool deps before importing agent_loop
 for _mod in [

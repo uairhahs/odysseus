@@ -1,7 +1,6 @@
 import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -149,27 +148,20 @@ def test_local_tooling_path_export_preserves_spaces_and_expands_path():
 
 def test_pip_install_fallback_chain_prefers_venv_safe_install():
     chain = _pip_install_fallback_chain("huggingface_hub", upgrade=True)
+
     # Default is now uv pip — first attempt uses uv's pip layer
     assert chain.startswith("bash -c '")
-    assert "python3 -m pip install -q -U huggingface_hub" in chain
-    # Fallback: --user first, then guarded --break-system-packages for PEP-668 pip.
-    assert "python3 -m pip install --user -q -U huggingface_hub" in chain
-    assert (
-        "python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages"
-        in chain
-    )
-    assert "--user --break-system-packages" in chain
-    assert (
-        "python3 -m pip install --user --break-system-packages -q -U huggingface_hub"
-        in chain
-    )
     assert "uv pip install -q -U huggingface_hub" in chain
+
     # No python -m pip fallback in uv-managed runtimes
     assert "python3 -m pip" not in chain
+
     # No --user flag in the uv pip path
     assert "--user --break-system-packages" not in chain
+
     # No bare `| tail` (which would mask pip's exit code)
     assert "| tail" not in chain
+
     # Single wrapped uv attempt
     assert chain.count("bash -c '") == 1
 

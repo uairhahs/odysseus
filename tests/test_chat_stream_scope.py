@@ -1,19 +1,45 @@
 from pathlib import Path
 
+from tests.helpers.linter_compat import _norm
+
 
 def test_stream_render_helpers_are_visible_to_catch_block():
-    source = Path("static/js/chat.js").read_text(encoding="utf-8")
-    try_start = source.index("    try {\n      // Re-enable auto-scroll")
-    catch_start = source.index("    } catch (err) {", try_start)
+    # Read AND normalize the entire source file
+    source = _norm(Path("static/js/chat.js").read_text(encoding="utf-8"))
+
+    # Normalize your markers so strict spaces and newlines are ignored
+    marker_try = _norm("try { // Re-enable auto-scroll")
+    marker_catch = _norm("} catch (err) {")
+
+    # Slice using the normalized string
+    try_start = source.index(marker_try)
+    catch_start = source.index(marker_catch, try_start)
 
     outer_scope = source[:try_start]
     try_body = source[try_start:catch_start]
 
-    assert "let _renderStream = () => {};" in outer_scope
-    assert "let _cancelThinkingTimer = () => {};" in outer_scope
-    assert "let _removeThinkingSpinner = () => {};" in outer_scope
+    outer_needles = [
+        "let _renderStream = () => {};",
+        "let _cancelThinkingTimer = () => {};",
+        "let _removeThinkingSpinner = () => {};",
+    ]
+    for needle in outer_needles:
+        assert (
+            _norm(needle) in outer_scope
+        ), f"Missing declaration {needle!r} in outer scope"
 
-    assert "_renderStream = () => {" in try_body
-    assert "_cancelThinkingTimer = () => {" in try_body
-    assert "_removeThinkingSpinner = () => {" in try_body
-    assert "function _renderStream()" not in try_body
+    try_needles = [
+        ("_renderStream = () => {", True),
+        ("_cancelThinkingTimer = () => {", True),
+        ("_removeThinkingSpinner = () => {", True),
+        (  # Ensure we aren't using function declarations
+            "function _renderStream()",
+            False,
+        ),
+    ]
+    for needle, should_exist in try_needles:
+        normed = _norm(needle)
+        if should_exist:
+            assert normed in try_body, f"Missing assignment {needle!r} in try block"
+        else:
+            assert normed not in try_body, f"Found forbidden {needle!r} in try block"

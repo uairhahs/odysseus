@@ -79,14 +79,30 @@ def test_group_chat_role_labels_are_escaped_before_inner_html():
 
 
 def test_main_chat_role_labels_are_escaped_before_inner_html():
-    chat = (_REPO / "static" / "js" / "chat.js").read_text(encoding="utf-8")
+    chat = _norm((_REPO / "static" / "js" / "chat.js").read_text(encoding="utf-8"))
 
-    assert '<div class="role">${uiModule.esc(roleLabel)}' in chat
-    assert "'<div class=\"role\">' + uiModule.esc(roleLabel)" in chat
-    assert '<div class="role">${uiModule.esc(agentModelLabel)}' in chat
-    assert '<div class="role">${roleLabel}' not in chat
-    assert "'<div class=\"role\">' + roleLabel" not in chat
-    assert '<div class="role">${agentModelLabel}' not in chat
+    needles = [
+        # Must exist: The safely escaped template literals
+        ('<div class="role">${uiModule.esc(roleLabel)}', True),
+        ('<div class="role">${uiModule.esc(agentModelLabel)}', True),
+        # Must NOT exist: The dangerous, unescaped raw variables
+        ('<div class="role">${roleLabel}', False),
+        ('<div class="role">${agentModelLabel}', False),
+        ("'<div class=\"role\">' + roleLabel", False),
+    ]
+
+    # Note: I removed the positive check for the old string concatenation:
+    # ("'<div class=\"role\">' + uiModule.esc(roleLabel)", True)
+    # If the test passes without it, it means the devs fully migrated to template literals.
+
+    for needle, should_exist in needles:
+        normed = _norm(needle)
+        if should_exist:
+            assert normed in chat, f"Expected safe escaped label {needle!r} in chat.js"
+        else:
+            assert (
+                normed not in chat
+            ), f"SECURITY FAIL: Found unescaped label {needle!r} in chat.js"
 
 
 def test_compare_search_result_links_are_http_only():

@@ -13,7 +13,7 @@ from sqlalchemy import false
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 
 def _now() -> datetime:

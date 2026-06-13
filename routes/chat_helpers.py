@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -132,7 +133,7 @@ def _enforce_chat_privileges(request, sess) -> None:
             .filter(
                 _DbSess.owner == user,
                 _Cm.role == "user",
-                _Cm.timestamp >= _dt.utcnow() - _td(days=1),
+                _Cm.timestamp >= _dt.now(timezone.utc) - _td(days=1),
             )
             .count()
         )
