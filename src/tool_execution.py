@@ -61,14 +61,13 @@ def _unified_diff(old: str, new: str, path: str) -> Optional[Dict[str, Any]]:
     removed = sum(
         1 for line in diff_lines if line.startswith("-") and not line.startswith("---")
     )
-
     truncated = False
     if len(diff_lines) > MAX_DIFF_LINES:
         diff_lines = diff_lines[:MAX_DIFF_LINES]
         truncated = True
     text = "\n".join(diff_lines)
     if truncated:
-        text += f"\n… diff truncated at {MAX_DIFF_LINES} lines"
+        text += f"\n... diff truncated at {MAX_DIFF_LINES} lines"
     return {
         "text": text,
         "added": added,
@@ -174,7 +173,6 @@ async def _do_edit_file(
     return result
 
 
-
 # ---------------------------------------------------------------------------
 # Path confinement for read_file / write_file
 # ---------------------------------------------------------------------------
@@ -184,12 +182,12 @@ async def _do_edit_file(
 # the admin noticing.
 #
 # Policy:
-#   1. Sensitive-subpath deny list — checked FIRST. Blocks .ssh,
+#   1. Sensitive-subpath deny list -- checked FIRST. Blocks .ssh,
 #      .gnupg, shell rc files, token/env files even if the root above
 #      them is on the allowlist.
-#   2. Allowlist — only the directories the agent legitimately needs
+#   2. Allowlist -- only the directories the agent legitimately needs
 #      (project data/, system tmp). $HOME is NOT on the default list.
-#   3. Opt-in extra roots — admin can add broader roots via the
+#   3. Opt-in extra roots -- admin can add broader roots via the
 #      "tool_path_extra_roots" setting (list of path strings).
 # ---------------------------------------------------------------------------
 
@@ -221,7 +219,7 @@ _SENSITIVE_FILE_PATTERNS: tuple[str, ...] = (
 
 def _is_sensitive_path(resolved: str) -> bool:
     """Return True if *resolved* falls under a sensitive directory or
-    matches a sensitive filename — regardless of what root it sits under.
+    matches a sensitive filename -- regardless of what root it sits under.
     """
     parts = resolved.split(os.sep)
     filenames: set[str] = {parts[-1]} if parts else set()
@@ -246,7 +244,7 @@ def _tool_path_roots() -> list[str]:
     """
     roots: list[str] = []
 
-    # Project data directory — the agent's primary workspace.
+    # Project data directory -- the agent's primary workspace.
     from src.constants import DATA_DIR
 
     roots.append(DATA_DIR)
@@ -260,7 +258,7 @@ def _tool_path_roots() -> list[str]:
     except OSError:
         pass
 
-    # $TMPDIR — per-user temp root on macOS (e.g. /var/folders/.../T/).
+    # $TMPDIR -- per-user temp root on macOS (e.g. /var/folders/.../T/).
     tmpdir = os.environ.get("TMPDIR")
     if tmpdir:
         roots.append(tmpdir)
@@ -308,6 +306,7 @@ def _resolve_tool_path(raw_path: str) -> str:
     ws = get_active_workspace()
     if ws:
         return _resolve_tool_path_in_workspace(ws, raw_path)
+
     if raw_path is None or not str(raw_path).strip():
         raise ValueError("path is required")
     expanded = os.path.expanduser(str(raw_path).strip())
@@ -336,7 +335,7 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
 
     Layered on top of upstream's path policy: the workspace is the allowed
     root (relative paths resolve under it; paths that escape it are rejected),
-    and the sensitive-file deny list (.ssh, .gnupg, id_rsa, …) still applies
+    and the sensitive-file deny list (.ssh, .gnupg, id_rsa, ...) still applies
     inside it. When no workspace is set, callers use _resolve_tool_path (the
     default data/tmp allowlist) instead.
     """
@@ -355,7 +354,7 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
         # normcase so containment holds on case-insensitive filesystems
         # (Windows, default macOS): it lowercases on Windows and is a no-op on
         # POSIX. commonpath raises ValueError across Windows drives (C: vs D:)
-        # or mixed abs/rel — both mean "outside", so the except rejects them.
+        # or mixed abs/rel -- both mean "outside", so the except rejects them.
         nbase = os.path.normcase(base)
         try:
             if os.path.commonpath([os.path.normcase(resolved), nbase]) != nbase:
@@ -365,68 +364,6 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
                 f"path '{raw_path}' is outside the workspace ({workspace})"
             ) from e
     return resolved
-
-
-# Bash + python tools used to share a single 60s timeout. That's
-# enough for one-shot commands but starves real workloads (pip
-# install, ffmpeg conversions, etc.) — and worse, the agent saw the
-# 60s timeout and went silent because it had nothing to report.
-# The new default is intentionally generous: long enough that real
-# work isn't killed mid-flight, but bounded so a runaway process
-# (infinite loop, hung connect, etc.) eventually frees the worker.
-# The user can cancel sooner via the chat stop button — when the
-# SSE stream is torn down, the asyncio task running the subprocess
-# gets cancelled and the subprocess is killed by the finally block.
-DEFAULT_BASH_TIMEOUT = 3600  # in seconds, 1 hour
-DEFAULT_PYTHON_TIMEOUT = 3600  # in seconds, 1 hour
-
-# How often to push a progress event while a long-running subprocess
-# is still in flight. The frontend cares about "alive" more than
-# "every-byte" — 2s is the sweet spot.
-PROGRESS_INTERVAL_S = 2.0
-# Tail buffer size — we keep the most recent N lines of stdout +
-# stderr so the progress event includes a "what's it doing right now"
-# snippet without dragging the whole output along.
-PROGRESS_TAIL_LINES = 12
-
-
-# Directories ignored by the code-nav tools' Python fallbacks so results aren't
-# polluted by VCS internals / dependency trees / build caches. ripgrep already
-# honours .gitignore; this is the parity floor for the no-rg path (and the
-# explicit excludes passed to rg so it skips them even without a .gitignore).
-_CODENAV_SKIP_DIRS = frozenset(
-    {
-        ".git",
-        ".hg",
-        ".svn",
-        "node_modules",
-        "venv",
-        ".venv",
-        "__pycache__",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        "dist",
-        "build",
-        ".next",
-        ".cache",
-        "site-packages",
-        ".idea",
-        ".tox",
-    }
-)
-# Per-tool result caps (keep tool output cheap + model-friendly).
-_CODENAV_MAX_HITS = 200
-_CODENAV_MAX_LINE = 400
-
-
-def _resolve_search_root(raw_path: str, workspace: Optional[str] = None) -> str:
-    """Resolve + confine a code-nav path (grep/glob/ls).
-
-    With a workspace set, the workspace folder is the root and supplied paths are
-    confined inside it (same policy as read_file). Without one, an empty path
-    defaults to the agent's primary root (project data dir) and a supplied path
-    is confined by the global allowlist + sensitive-file policy.
 
 
 # ---------------------------------------------------------------------------
@@ -478,14 +415,60 @@ def agent_cwd() -> str:
     return get_active_workspace() or _AGENT_WORKDIR
 
 
-def get_mcp_manager():
-    from src import agent_tools
-    return agent_tools.get_mcp_manager()
+# Bash + python tools used to share a single 60s timeout. That's
+# enough for one-shot commands but starves real workloads (pip
+# install, ffmpeg conversions, etc.) -- and worse, the agent saw the
+# 60s timeout and went silent because it had nothing to report.
+# The new default is intentionally generous: long enough that real
+# work isn't killed mid-flight, but bounded so a runaway process
+# (infinite loop, hung connect, etc.) eventually frees the worker.
+# The user can cancel sooner via the chat stop button -- when the
+# SSE stream is torn down, the asyncio task running the subprocess
+# gets cancelled and the subprocess is killed by the finally block.
+DEFAULT_BASH_TIMEOUT = 3600  # in seconds, 1 hour
+DEFAULT_PYTHON_TIMEOUT = 3600  # in seconds, 1 hour
+
+# How often to push a progress event while a long-running subprocess
+# is still in flight. The frontend cares about "alive" more than
+# "every-byte" -- 2s is the sweet spot.
+PROGRESS_INTERVAL_S = 2.0
+# Tail buffer size -- we keep the most recent N lines of stdout +
+# stderr so the progress event includes a "what's it doing right now"
+# snippet without dragging the whole output along.
+PROGRESS_TAIL_LINES = 12
 
 
+# Directories ignored by the code-nav tools' Python fallbacks so results aren't
+# polluted by VCS internals / dependency trees / build caches. ripgrep already
+# honours .gitignore; this is the parity floor for the no-rg path (and the
+# explicit excludes passed to rg so it skips them even without a .gitignore).
+_CODENAV_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        "venv",
+        ".venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "dist",
+        "build",
+        ".next",
+        ".cache",
+        "site-packages",
+        ".idea",
+        ".tox",
+    }
+)
+# Per-tool result caps (keep tool output cheap + model-friendly).
+_CODENAV_MAX_HITS = 200
+_CODENAV_MAX_LINE = 400
 
 
-def _resolve_search_root(raw_path: str) -> str:
+def _resolve_search_root(raw_path: str, workspace: Optional[str] = None) -> str:
     """Resolve + confine a code-nav path (grep/glob/ls).
 
     With a workspace active, the workspace folder is the root and a supplied
@@ -494,21 +477,11 @@ def _resolve_search_root(raw_path: str) -> str:
     global allowlist + sensitive-file policy.
     """
     raw = (raw_path or "").strip()
-    ws = get_active_workspace()
+    ws = workspace or get_active_workspace()
     if ws:
-        return os.path.realpath(ws) if not raw else _resolve_tool_path_in_workspace(ws, raw)
-    if not raw:
-        roots = _tool_path_roots()
-        return roots[0] if roots else os.path.realpath(".")
-    return _resolve_tool_path(raw)
-
-logger = logging.getLogger(__name__)
-
-    raw = (raw_path or "").strip()
-    if workspace:
         if not raw:
-            return os.path.realpath(workspace)
-        return _resolve_tool_path_in_workspace(workspace, raw)
+            return os.path.realpath(ws)
+        return _resolve_tool_path_in_workspace(ws, raw)
     if not raw:
         roots = _tool_path_roots()
         return roots[0] if roots else os.path.realpath(".")
@@ -557,7 +530,7 @@ async def _run_subprocess_streaming(
                 tail.append(decoded)
 
     async def _progress_emitter():
-        # Skip the first push — many commands finish well under
+        # Skip the first push -- many commands finish well under
         # PROGRESS_INTERVAL_S and a 0-second "progress" event would
         # just add UI churn.
         await asyncio.sleep(PROGRESS_INTERVAL_S)
@@ -724,12 +697,13 @@ async def _call_mcp_tool(
     tool: str,
     content: str,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
+    workspace: Optional[str] = None,
 ) -> Dict:
     """Route a legacy tool call through the MCP manager, with direct fallbacks."""
     mcp = get_mcp_manager()
     if not mcp:
         return await _direct_fallback(
-            tool, content, progress_cb=progress_cb
+            tool, content, progress_cb=progress_cb, workspace=workspace
         ) or {"error": f"MCP manager not available for tool '{tool}'", "exit_code": 1}
 
     server_id, tool_name = _MCP_TOOL_MAP[tool]
@@ -744,7 +718,7 @@ async def _call_mcp_tool(
         and "not connected" in result.get("error", "")
     ):
         fallback = await _direct_fallback(
-            tool, content, progress_cb=progress_cb
+            tool, content, progress_cb=progress_cb, workspace=workspace
         )
         if fallback:
             return fallback
@@ -752,7 +726,7 @@ async def _call_mcp_tool(
     # generate_image runs as a text-only MCP tool, so the saved image URL never
     # reaches the agent loop's structured forwarding (which renders the image via
     # buildImageBubble on result["image_url"]). Lift it out of the tool's stdout so
-    # the image renders deterministically — no dependence on the model echoing the
+    # the image renders deterministically -- no dependence on the model echoing the
     # URL into its prose (which it mangles/hallucinates).
     if tool == "generate_image":
         _promote_image_fields(result)
@@ -811,7 +785,25 @@ async def _direct_fallback(
     tool: str,
     content: str,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
+    workspace: Optional[str] = None,
 ) -> Optional[Dict]:
+    """In-process execution path for the eight tools that used to live as
+    stdio MCP servers under mcp_servers/. Those servers were deleted in
+    favor of native execution; this function is now the canonical path,
+    not a fallback. The name is kept for backwards compat with callers.
+
+    `progress_cb` is called periodically while bash/python subprocesses
+    are still running, with `{elapsed_s, tail}` payloads. Other tools
+    ignore it.
+    """
+    # Inherit env + force a sane terminal so subprocesses that touch
+    # terminfo (anything calling `clear`, `tput`, `os.system("clear")`,
+    # or scripts that probe $TERM) don't spam "TERM environment variable
+    # not set" errors. The agent's bash/python tool calls run with PIPE
+    # stdin/stdout (no real TTY), so curses/termios still won't work --
+    # but at least non-interactive code with incidental TERM lookups
+    # stops failing. COLUMNS/LINES give terminal-width-aware tools (less,
+    # rich, etc.) reasonable defaults instead of 0x0.
     _subproc_env = {
         **os.environ,
         "TERM": "xterm-256color",
@@ -821,39 +813,13 @@ async def _direct_fallback(
     }
 
     try:
-        ctx = {
-            "progress_cb": progress_cb,
-            "subproc_env": _subproc_env,
-        }
-
-        from src.agent_tools import TOOL_HANDLERS
-        if tool in TOOL_HANDLERS:
-            return await TOOL_HANDLERS[tool](content, ctx)
-
-    except Exception as e:
-        return {"error": f"{tool}: {e}", "exit_code": 1}
-
-    return None
-
-
-async def _document_tool_dispatch(
-    tool: str,
-    content: str,
-    session_id: Optional[str] = None,
-    owner: Optional[str] = None,
-) -> Optional[Dict]:
-    """Route a document tool through TOOL_HANDLERS with the right ctx shape."""
-    from src.agent_tools import TOOL_HANDLERS
-    ctx = {"session_id": session_id, "owner": owner}
-    if tool in TOOL_HANDLERS:
-        return await TOOL_HANDLERS[tool](content, ctx)
         if tool == "bash":
             proc = await asyncio.create_subprocess_shell(
                 content,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_subproc_env,
-                cwd=workspace or _AGENT_WORKDIR,
+                cwd=workspace or agent_cwd(),
             )
             stdout, stderr, rc, timed_out = await _run_subprocess_streaming(
                 proc,
@@ -862,7 +828,7 @@ async def _document_tool_dispatch(
             )
             if timed_out:
                 return {
-                    "error": f"bash: timed out after {DEFAULT_BASH_TIMEOUT}s — process killed",
+                    "error": f"bash: timed out after {DEFAULT_BASH_TIMEOUT}s -- process killed",
                     "exit_code": 124,
                     "stdout": _truncate(stdout, MAX_OUTPUT_CHARS),
                     "stderr": _truncate(stderr, MAX_OUTPUT_CHARS),
@@ -883,7 +849,7 @@ async def _document_tool_dispatch(
             # can't take the whole server down. -I = isolated mode (skip
             # user site, no PYTHONPATH inheritance) for hygiene.
             proc = await asyncio.create_subprocess_exec(
-                # Use the running interpreter — there is no `python3.exe` on
+                # Use the running interpreter -- there is no `python3.exe` on
                 # Windows, which made the agent's `python` tool fail there.
                 (sys.executable or "python"),
                 "-I",
@@ -892,7 +858,7 @@ async def _document_tool_dispatch(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_subproc_env,
-                cwd=workspace or _AGENT_WORKDIR,
+                cwd=workspace or agent_cwd(),
             )
             stdout, stderr, rc, timed_out = await _run_subprocess_streaming(
                 proc,
@@ -901,7 +867,7 @@ async def _document_tool_dispatch(
             )
             if timed_out:
                 return {
-                    "error": f"python: timed out after {DEFAULT_PYTHON_TIMEOUT}s — process killed",
+                    "error": f"python: timed out after {DEFAULT_PYTHON_TIMEOUT}s -- process killed",
                     "exit_code": 124,
                     "stdout": _truncate(stdout, MAX_OUTPUT_CHARS),
                     "stderr": _truncate(stderr, MAX_OUTPUT_CHARS),
@@ -1001,7 +967,7 @@ async def _document_tool_dispatch(
 
                 def _write():
                     # Capture prior content (best-effort, text) so we can show a
-                    # before/after diff. Missing/binary file → treat as empty.
+                    # before/after diff. Missing/binary file -- treat as empty.
                     old = ""
                     try:
                         with open(path, "r", encoding="utf-8") as f:
@@ -1036,7 +1002,7 @@ async def _document_tool_dispatch(
 
         if tool == "grep":
             # Args (JSON): {pattern, path?, glob?, ignore_case?, max_results?}.
-            # Bare string → treated as the pattern.
+            # Bare string -- treated as the pattern.
             args: Dict[str, Any] = {}
             _s = (content or "").strip()
             if _s.startswith("{"):
@@ -1323,7 +1289,7 @@ async def _document_tool_dispatch(
             )
             output = text[:MAX_OUTPUT_CHARS] if len(text) > MAX_OUTPUT_CHARS else text
             if sources:
-                output += "\n\n<!-- SOURCES:" + json.dumps(sources) + " -->"
+                output += "\n\n"
             return {"output": output, "exit_code": 0}
 
         if tool == "web_fetch":
@@ -1418,10 +1384,10 @@ async def execute_tool_block(
     block: Any,
     session_id: Optional[str] = None,
     disabled_tools: Optional[set] = None,
+    tool_policy: Optional[ToolPolicy] = None,
     owner: Optional[str] = None,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
     workspace: Optional[str] = None,
-    tool_policy: Optional[Any] = None,
 ) -> Tuple[str, Dict]:
     """Execute a single tool block. Returns (description, result_dict).
 
@@ -1435,9 +1401,10 @@ async def execute_tool_block(
             block,
             session_id=session_id,
             disabled_tools=disabled_tools,
+            tool_policy=tool_policy,
             owner=owner,
             progress_cb=progress_cb,
-            tool_policy=tool_policy,
+            workspace=workspace,
         )
     finally:
         _active_workspace.reset(token)
@@ -1447,9 +1414,10 @@ async def _execute_tool_block_impl(
     block: Any,
     session_id: Optional[str] = None,
     disabled_tools: Optional[set] = None,
+    tool_policy: Optional[ToolPolicy] = None,
     owner: Optional[str] = None,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
-    tool_policy: Optional[Any] = None,
+    workspace: Optional[str] = None,
 ) -> Tuple[str, Dict]:
     """Execute a single tool block. Returns (description, result_dict).
 
@@ -1532,19 +1500,16 @@ async def _execute_tool_block_impl(
             pass
 
     # Reject tools that the user has disabled for this request
+    if tool_policy and tool_policy.blocks(tool):
+        desc = f"{tool}: BLOCKED"
+        result = {"error": tool_policy.reason_for(tool), "exit_code": 1}
+        logger.info("Tool blocked by policy: %s", tool)
+        return desc, result
+
     if disabled_tools and tool in disabled_tools:
         desc = f"{tool}: BLOCKED"
         result = {"error": f"Tool '{tool}' is disabled by user.", "exit_code": 1}
         logger.info(f"Tool blocked by user: {tool}")
-        return desc, result
-
-    if tool_policy and tool_policy.blocks(tool):
-        desc = f"{tool}: BLOCKED"
-        result = {
-            "error": f"Execution of tool '{tool}' is forbade by the active guide-only policy.",
-            "exit_code": 1,
-        }
-        logger.warning("Tool policy blocked tool=%s", tool)
         return desc, result
 
     if tool in _ADMIN_TOOLS and not _owner_is_admin(owner):
@@ -1566,7 +1531,7 @@ async def _execute_tool_block_impl(
         return desc, result
 
     # ask_user: the agent poses a multiple-choice question to the user to get a
-    # decision/clarification. This is a pure UI-control marker — no subprocess,
+    # decision/clarification. This is a pure UI-control marker -- no subprocess,
     # no filesystem. It returns an `ask_user` payload that the agent loop turns
     # into an `ask_user` SSE event and then ENDS the turn, so the chat waits for
     # the user's selection (their choice arrives as the next message).
@@ -1613,7 +1578,7 @@ async def _execute_tool_block_impl(
         )
         return desc, result
 
-    # update_plan: the agent writes back to the active plan — tick an item done
+    # update_plan: the agent writes back to the active plan -- tick an item done
     # or revise steps (e.g. when the user asks to change something). Pure UI
     # marker: returns a `plan_update` payload the agent loop turns into a
     # `plan_update` SSE event; the frontend replaces the stored plan and refreshes
@@ -1654,7 +1619,7 @@ async def _execute_tool_block_impl(
         return desc, result
 
     # Background execution: a `bash` block whose first line is the `#!bg`
-    # marker runs DETACHED — returns a job id immediately so the chat stream
+    # marker runs DETACHED -- returns a job id immediately so the chat stream
     # isn't held open for a multi-minute install/ffmpeg/download. The always-on
     # monitor re-invokes the agent with the full output when the job finishes.
     if tool == "bash" and session_id:
@@ -1663,13 +1628,13 @@ async def _execute_tool_block_impl(
             from src import bg_jobs
 
             rec = bg_jobs.launch(
-                _bg_cmd, session_id=session_id, cwd=agent_cwd()
+                _bg_cmd, session_id=session_id, cwd=workspace or agent_cwd()
             )
             short = _bg_cmd.strip().split(chr(10))[0][:80]
             desc = f"bash (background): {short}"
             result = {
                 "output": (
-                    f"Started background job `{rec['id']}`. It is running detached — "
+                    f"Started background job `{rec['id']}`. It is running detached -- "
                     f"do NOT wait for it or poll it. You will be automatically re-invoked "
                     f"with its full output when it finishes. Continue with other work, or "
                     f"end your turn now and resume when the result arrives."
@@ -1687,22 +1652,29 @@ async def _execute_tool_block_impl(
         first_line = content.split(chr(10))[0][:80]
         desc = f"{tool}: {first_line}"
         result = await _call_mcp_tool(
-            tool, content, progress_cb=progress_cb
+            tool, content, progress_cb=progress_cb, workspace=workspace
         )
-    elif tool in ("grep", "glob", "ls", "get_workspace"):
-        # Code-navigation tools — no MCP server; run the direct implementation.
+    elif tool in ("grep", "glob", "ls"):
+        # Code-navigation tools -- no MCP server; run the direct implementation.
+        # Confined to the workspace when one is set (same policy as read_file).
         first_line = content.split(chr(10))[0][:80]
         desc = f"{tool}: {first_line}"
         result = await _direct_fallback(
-            tool, content, progress_cb=progress_cb
+            tool, content, progress_cb=progress_cb, workspace=workspace
         ) or {"error": f"{tool}: execution failed", "exit_code": 1}
-    elif tool in ("create_document", "update_document", "edit_document",
-                  "suggest_document", "manage_documents"):
-        desc = f"{tool}: {content.split(chr(10))[0][:80]}"
-        result = await _document_tool_dispatch(tool, content, session_id, owner) \
-            or {"error": f"{tool}: execution failed", "exit_code": 1}
-        if tool in ("edit_document", "suggest_document") and "title" in (result or {}):
-            desc = f"{tool}: {result.get('title', '')}"
+    elif tool == "create_document":
+        title = content.split("\n")[0].strip()[:60]
+        desc = f"create_document: {title}"
+        result = await do_create_document(content, session_id=session_id, owner=owner)
+    elif tool == "update_document":
+        desc = f"update_document: {content.split(chr(10))[0][:60]}"
+        result = await do_update_document(content, owner=owner)
+    elif tool == "edit_document":
+        result = await do_edit_document(content, owner=owner)
+        desc = f"edit_document: {result.get('title', '')}"
+    elif tool == "suggest_document":
+        result = await do_suggest_document(content, owner=owner)
+        desc = f"suggest_document: {result.get('count', 0)} suggestions"
     elif tool == "search_chats":
         query = content.split("\n")[0].strip()
         desc = f"search_chats: {query[:80]}"
@@ -1744,6 +1716,9 @@ async def _execute_tool_block_impl(
     elif tool == "manage_tokens":
         desc = "manage_tokens"
         result = await do_manage_tokens(content, owner=owner)
+    elif tool == "manage_documents":
+        desc = "manage_documents"
+        result = await do_manage_documents(content, owner=owner)
     elif tool == "manage_settings":
         desc = "manage_settings"
         result = await do_manage_settings(content, owner=owner)
@@ -1799,7 +1774,7 @@ async def _execute_tool_block_impl(
         desc = "edit_image"
         result = await do_edit_image(content, owner=owner)
     elif tool == "edit_file":
-        result = await _direct_fallback(tool, content) or {"error": "edit failed", "exit_code": 1}
+        result = await _do_edit_file(content, workspace=workspace)
         desc = result.get("output") or result.get("error") or "edit_file"
     elif tool == "trigger_research":
         desc = "trigger_research"
@@ -1847,7 +1822,7 @@ async def _execute_tool_block_impl(
 # Result formatting
 # ---------------------------------------------------------------------------
 
-# Keys handled by the dedicated branches below — never echo them as raw JSON.
+# Keys handled by the dedicated branches below -- never echo them as raw JSON.
 _FORMATTER_HANDLED_KEYS = {
     "stdout",
     "stderr",

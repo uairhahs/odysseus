@@ -50,7 +50,7 @@ async def test_edit_file_blocked_at_execution_for_non_admin(monkeypatch):
     import src.tool_execution as te
 
     monkeypatch.setattr(te, "_owner_is_admin", lambda owner: False)
-    ws = tempfile.mkdtemp()
+    tempfile.mkdtemp()
     p = os.path.join("/tmp", "ef_block.txt")
     open(p, "w").write("a\n")
     _desc, result = await te.execute_tool_block(

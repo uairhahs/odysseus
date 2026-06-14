@@ -1,6 +1,8 @@
 """Workspace API - browse server directories to pick a tool workspace folder."""
+
 import os
-from fastapi import APIRouter, Request, HTTPException, Query
+
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.auth_helpers import get_current_user
 from src.tool_security import owner_is_admin_or_single_user
@@ -26,7 +28,9 @@ def setup_workspace_routes():
         """
         owner = get_current_user(request)
         if not owner_is_admin_or_single_user(owner):
-            raise HTTPException(status_code=403, detail="Workspace browsing is admin-only")
+            raise HTTPException(
+                status_code=403, detail="Workspace browsing is admin-only"
+            )
 
         # Resolve symlinks so the reported path is canonical and the UI navigates
         # real directories (defends against symlink games in displayed paths).
@@ -42,10 +46,17 @@ def setup_workspace_routes():
                         # Don't follow symlinks when classifying - a symlinked
                         # dir is skipped rather than letting the browser wander
                         # off via a link. Hidden entries are omitted.
-                        if entry.is_dir(follow_symlinks=False) and not entry.name.startswith("."):
+                        if entry.is_dir(
+                            follow_symlinks=False
+                        ) and not entry.name.startswith("."):
                             # Build the child path server-side with os.path.join
                             # so it's correct on Windows (backslashes) and Linux.
-                            dirs.append({"name": entry.name, "path": os.path.join(target, entry.name)})
+                            dirs.append(
+                                {
+                                    "name": entry.name,
+                                    "path": os.path.join(target, entry.name),
+                                }
+                            )
                     except OSError:
                         continue
         except (PermissionError, OSError):
@@ -55,6 +66,7 @@ def setup_workspace_routes():
         truncated = len(dirs_sorted) > _MAX_BROWSE_DIRS
         parent = os.path.dirname(target)
         from src.tool_execution import vet_workspace
+
         return {
             "path": target,
             "parent": parent if parent and parent != target else None,
@@ -77,8 +89,11 @@ def setup_workspace_routes():
         """
         owner = get_current_user(request)
         if not owner_is_admin_or_single_user(owner):
-            raise HTTPException(status_code=403, detail="Workspace selection is admin-only")
+            raise HTTPException(
+                status_code=403, detail="Workspace selection is admin-only"
+            )
         from src.tool_execution import vet_workspace
+
         resolved = vet_workspace(path)
         return {"ok": resolved is not None, "path": resolved}
 

@@ -615,8 +615,8 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
                 invalidator = getattr(request.app.state, "invalidate_token_cache", None)
                 if invalidator:
                     invalidator()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to invalidate API token cache: %s", e)
 
         try:
             ok = auth_manager.delete_user(body.username, user)

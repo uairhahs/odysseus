@@ -5,23 +5,23 @@ import sys
 import types as _types
 
 import pytest
-
-sqlalchemy = pytest.importorskip("sqlalchemy")
-if not isinstance(sqlalchemy, _types.ModuleType):
-    pytest.skip("sqlalchemy is stubbed in this environment", allow_module_level=True)
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-from tests.helpers.import_state import clear_fake_database_modules
-
-clear_fake_database_modules()
 
 import core.database as cdb
 from core.database import Base
 from core.database import Session as DbSession
 from core.models import ChatMessage as MemChatMessage
 from src.task_scheduler import TaskScheduler
+from tests.helpers.import_state import clear_fake_database_modules
+
+sqlalchemy = pytest.importorskip("sqlalchemy")
+if not isinstance(sqlalchemy, _types.ModuleType):
+    pytest.skip("sqlalchemy is stubbed in this environment", allow_module_level=True)
+
+
+clear_fake_database_modules()
+
 
 # This test needs the real core.database (real SQLAlchemy Base/ChatMessage).
 # test_null_owner_gates.py no longer leaks its stubs (per-test fixture cleanup

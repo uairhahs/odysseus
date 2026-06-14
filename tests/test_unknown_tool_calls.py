@@ -31,8 +31,6 @@ for _mod in _STUBBED:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
-import pytest  # noqa: E402
-
 import src.agent_tools  # noqa: E402,F401
 from src.tool_parsing import parse_tool_blocks  # noqa: E402
 from src.tool_schemas import function_call_to_tool_block  # noqa: E402

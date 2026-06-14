@@ -427,11 +427,11 @@ def _ensure_sender_signatures_table(conn):
         ]
         source_owner = "COALESCE(owner, '')" if "owner" in old_cols else "''"
         conn.execute(
-            f"INSERT OR IGNORE INTO sender_signatures "
+            "INSERT OR IGNORE INTO sender_signatures "  # noqa: S608
             f"({', '.join([*copy_cols, 'owner'])}) "
-            f"SELECT {', '.join([*copy_cols, source_owner])} "
-            f"FROM sender_signatures__old"
-        )
+            f"SELECT {', '.join([*copy_cols, source_owner])} "  # noqa: S608
+            "FROM sender_signatures__old"  # noqa: S608
+        )  # noqa: S608
         conn.execute("DROP TABLE sender_signatures__old")
     except Exception as _mig_e:
         import logging as _lg

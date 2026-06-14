@@ -17,13 +17,10 @@ This test pins the invariant: skill INDEX content must ALSO be wrapped
 in `untrusted_context_message`, not just the matched-skills block.
 """
 
-import json
 import sys
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
-
-import pytest
 
 # ── module-load stubbing ─────────────────────────────────────────────────
 for _mod in [

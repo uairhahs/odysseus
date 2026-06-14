@@ -21,16 +21,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
-from tests.helpers.import_state import clear_fake_database_modules
-
-clear_fake_database_modules()
-
 import core.database as cdb
 import routes.document_routes as droutes
 from core.database import Document
 from core.database import Session as DbSession
 from routes.document_helpers import DocumentPatch
 from src.agent_tools.document_tools import get_active_document, set_active_document
+from tests.helpers.import_state import clear_fake_database_modules
+
+clear_fake_database_modules()
+
 
 _TMPDB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _ENGINE = create_engine(

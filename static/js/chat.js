@@ -910,22 +910,25 @@ export async function handleChatSubmit(e) {
           } catch (e) {
             console.error("Import failed:", info.name, e);
           }
-          banner.textContent = `Imported ${imported} file${imported !== 1 ? 's' : ''}`;
-          setTimeout(() => banner.remove(), 2000);
-        });
-        banner.appendChild(importBtn);
-        const dismissBtn = document.createElement('button');
-        dismissBtn.textContent = '\u00d7';
-        dismissBtn.className = 'import-prompt-dismiss';
-        dismissBtn.setAttribute('aria-label', 'Dismiss');
-        dismissBtn.title = 'Dismiss';
-        dismissBtn.addEventListener('click', () => banner.remove());
-        banner.appendChild(dismissBtn);
-        const chatBar = document.querySelector('.chat-input-bar');
-        if (chatBar) chatBar.parentNode.insertBefore(banner, chatBar);
-        // Auto-dismiss after 15 seconds
-        setTimeout(() => { if (banner.parentNode) banner.remove(); }, 15000);
-      }
+        }
+        banner.textContent = `Imported ${imported} file${imported !== 1 ? "s" : ""}`;
+        setTimeout(() => banner.remove(), 2000);
+      });
+      banner.appendChild(importBtn);
+      const dismissBtn = document.createElement("button");
+      dismissBtn.textContent = "\u00d7";
+      dismissBtn.className = "import-prompt-dismiss";
+      dismissBtn.setAttribute("aria-label", "Dismiss");
+      dismissBtn.title = "Dismiss";
+      dismissBtn.addEventListener("click", () => banner.remove());
+      banner.appendChild(dismissBtn);
+      const chatBar = document.querySelector(".chat-input-bar");
+      if (chatBar) chatBar.parentNode.insertBefore(banner, chatBar);
+      // Auto-dismiss after 15 seconds
+      setTimeout(() => {
+        if (banner.parentNode) banner.remove();
+      }, 15000);
+    }
 
     // Auto-save document editor content before sending so the AI sees latest text
     if (
@@ -973,55 +976,67 @@ export async function handleChatSubmit(e) {
     if (_inject.suffix)
       _finalMsgWithInject = _finalMsgWithInject + " " + _inject.suffix;
 
-      const fd = new FormData();
-      fd.append('message', _finalMsgWithInject);
-      fd.append('session', streamSessionId);
-      if (ids.length) fd.append('attachments', JSON.stringify(ids));
-      // Auto-save & send active doc ID so the backend sees latest content
-      if (documentModule && documentModule.isPanelOpen() && documentModule.getCurrentDocId()) {
-        try { await documentModule.saveDocument({ silent: true }); } catch (_e) { /* best-effort */ }
-        fd.append('active_doc_id', documentModule.getCurrentDocId());
+    const fd = new FormData();
+    fd.append("message", _finalMsgWithInject);
+    fd.append("session", streamSessionId);
+    if (ids.length) fd.append("attachments", JSON.stringify(ids));
+    // Auto-save & send active doc ID so the backend sees latest content
+    if (
+      documentModule &&
+      documentModule.isPanelOpen() &&
+      documentModule.getCurrentDocId()
+    ) {
+      try {
+        await documentModule.saveDocument({ silent: true });
+      } catch (_e) {
+        /* best-effort */
       }
-      // Web toggle: pre-search in Chat mode, tool permission in Agent mode
-      const toggleState = Storage.loadToggleState();
-      let isAgentMode = (toggleState.mode || 'chat') === 'agent';
-      // Auto-escalate to agent mode when a document is open — the user expects
-      // the AI to see the document and have tools to edit it
-      if (!isAgentMode && documentModule && documentModule.isPanelOpen() && documentModule.getCurrentDocId()) {
-        isAgentMode = true;
+      fd.append("active_doc_id", documentModule.getCurrentDocId());
+    }
+    // Web toggle: pre-search in Chat mode, tool permission in Agent mode
+    const toggleState = Storage.loadToggleState();
+    let isAgentMode = (toggleState.mode || "chat") === "agent";
+    // Auto-escalate to agent mode when a document is open — the user expects
+    // the AI to see the document and have tools to edit it
+    if (
+      !isAgentMode &&
+      documentModule &&
+      documentModule.isPanelOpen() &&
+      documentModule.getCurrentDocId()
+    ) {
+      isAgentMode = true;
+    }
+    fd.append("mode", isAgentMode ? "agent" : "chat");
+    if (el("web-toggle").checked) {
+      if (isAgentMode) {
+        fd.append("allow_web_search", "true");
+      } else {
+        fd.append("use_web", "true");
       }
-      fd.append('mode', isAgentMode ? 'agent' : 'chat');
-      if (el('web-toggle').checked) {
-        if (isAgentMode) {
-          fd.append('allow_web_search', 'true');
-        } else {
-          fd.append('use_web', 'true');
-        }
-      } else if (isAgentMode) {
-        fd.append('allow_web_search', 'false');
-      }
-      if (el('research-toggle').checked) {
-        fd.append('use_research', 'true');
-        // Research always runs in chat mode — override agent if set
-        fd.set('mode', 'chat');
-      }
-      fd.append('allow_bash', el('bash-toggle').checked ? 'true' : 'false');
-      const ragChk = el('rag-toggle');
-      if (ragChk && !ragChk.checked) {
-        fd.append('use_rag', 'false');
-      }
-      const incognitoChk = el('incognito-toggle');
-      if (incognitoChk && incognitoChk.checked) {
-        fd.append('incognito', 'true');
-      }
-      const _ws = (Storage.KEYS && Storage.get(Storage.KEYS.WORKSPACE, '')) || '';
-      if (_ws) {
-        fd.append('workspace', _ws);
-      }
-      if (presetsModule.getSelectedPreset()) {
-        fd.append('preset_id', presetsModule.getSelectedPreset());
-      }
-
+    } else if (isAgentMode) {
+      fd.append("allow_web_search", "false");
+    }
+    if (el("research-toggle").checked) {
+      fd.append("use_research", "true");
+      // Research always runs in chat mode — override agent if set
+      fd.set("mode", "chat");
+    }
+    fd.append("allow_bash", el("bash-toggle").checked ? "true" : "false");
+    const ragChk = el("rag-toggle");
+    if (ragChk && !ragChk.checked) {
+      fd.append("use_rag", "false");
+    }
+    const incognitoChk = el("incognito-toggle");
+    if (incognitoChk && incognitoChk.checked) {
+      fd.append("incognito", "true");
+    }
+    const _ws = (Storage.KEYS && Storage.get(Storage.KEYS.WORKSPACE, "")) || "";
+    if (_ws) {
+      fd.append("workspace", _ws);
+    }
+    if (presetsModule.getSelectedPreset()) {
+      fd.append("preset_id", presetsModule.getSelectedPreset());
+    }
 
     const abortCtrl = new AbortController();
     abortCtrl._reason = "";
@@ -1335,45 +1350,46 @@ export async function handleChatSubmit(e) {
       }
     };
 
-      // Tool-aware thinking spinner
-      let _lastToolName = '';
-      const _searchIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="vertical-align:-2px;margin-right:4px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-      const _toolLabels = {
-        'web_search': 'Searching',
-        'bash': 'Running',
-        'python': 'Running',
-        'create_document': 'Writing',
-        'update_document': 'Writing',
-        'read_document': 'Reading',
-        'edit_file': 'Editing',
-        'read_file': 'Reading',
-        'write_file': 'Writing',
-        'list_files': 'Browsing',
-        'image_gen': 'Generating',
-        'generate_image': 'Generating',
-        'manage_memory': 'Remembering',
-        'save_memory': 'Remembering',
-        'search_memory': 'Recalling',
-        'manage_session': 'Organizing',
-        'deep_research': 'Researching',
-        'list_models': 'Browsing',
-        'ui_control': 'Adjusting',
-      };
-      const _toolIcons = {
-        'web_search': _searchIcon,
-      };
-      function _thinkingLabel() {
-        if (!_lastToolName) {
-          return 'Thinking';
-        }
-        // Check exact match first, then prefix match
-        const lower = _lastToolName.toLowerCase();
-        if (_toolLabels[lower]) return _toolLabels[lower];
-        for (const [key, label] of Object.entries(_toolLabels)) {
-          if (lower.includes(key) || key.includes(lower)) return label;
-        }
-        return 'Thinking';
+    // Tool-aware thinking spinner
+    let _lastToolName = "";
+    const _searchIcon =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="vertical-align:-2px;margin-right:4px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+    const _toolLabels = {
+      web_search: "Searching",
+      bash: "Running",
+      python: "Running",
+      create_document: "Writing",
+      update_document: "Writing",
+      read_document: "Reading",
+      edit_file: "Editing",
+      read_file: "Reading",
+      write_file: "Writing",
+      list_files: "Browsing",
+      image_gen: "Generating",
+      generate_image: "Generating",
+      manage_memory: "Remembering",
+      save_memory: "Remembering",
+      search_memory: "Recalling",
+      manage_session: "Organizing",
+      deep_research: "Researching",
+      list_models: "Browsing",
+      ui_control: "Adjusting",
+    };
+    const _toolIcons = {
+      web_search: _searchIcon,
+    };
+    function _thinkingLabel() {
+      if (!_lastToolName) {
+        return "Thinking";
       }
+      // Check exact match first, then prefix match
+      const lower = _lastToolName.toLowerCase();
+      if (_toolLabels[lower]) return _toolLabels[lower];
+      for (const [key, label] of Object.entries(_toolLabels)) {
+        if (lower.includes(key) || key.includes(lower)) return label;
+      }
+      return "Thinking";
+    }
 
     function _showThinkingSpinner(label) {
       if (document.querySelector(".agent-thinking-dots")) return;
@@ -2199,144 +2215,188 @@ export async function handleChatSubmit(e) {
                     {
                       query: holder._researchQuery || rp.query || "",
                       startedAt: _researchStartTime,
-                    });
-                    // Move it to live between spinner and timer
-                    if (_researchSynapse.element && _researchTimerEl) {
-                      spinner.element.parentNode.insertBefore(_researchSynapse.element, _researchTimerEl);
-                    }
-                  } catch (e) { console.warn('synapse init failed', e); }
-                }
-                if (_researchSynapse) {
-                  _researchSynapse.setPhase(rp.phase, rp);
-                  if (typeof rp.round === 'number') _researchSynapse.setRound(rp.round);
-                  if (typeof rp.total_sources === 'number') _researchSynapse.setSourceCount(rp.total_sources);
-                  if (rp.phase === 'error') _researchSynapse.complete();
-                }
-                if (spinner && spinner.element) {
-                  if (rp.phase === 'probing') {
-                    spinner.updateMessage(`Verifying model: ${rp.model || '?'}`);
-                  } else if (rp.phase === 'planning') {
-                    spinner.updateMessage('Analyzing question & planning research strategy');
-                  } else if (rp.phase === 'searching') {
-                    const q = rp.queries ? `${rp.queries} queries` : '';
-                    const s = rp.total_sources ? ` · ${rp.total_sources} sources` : '';
-                    spinner.updateMessage(`Round ${rp.round || '?'}: Searching${q ? ' (' + q + ')' : ''}${s}`);
-                  } else if (rp.phase === 'reading') {
-                    spinner.updateMessage(rp.title ? `Reading: ${rp.title}` : `Round ${rp.round || '?'}: Reading ${rp.new_sources || ''} pages · ${rp.total_sources || 0} sources total`);
-                  } else if (rp.phase === 'analyzing') {
-                    spinner.updateMessage(`Round ${rp.round || '?'}: Analyzing ${rp.total_findings || 0} findings`);
-                  } else if (rp.phase === 'writing') {
-                    spinner.updateMessage(`Writing report · ${rp.total_sources || 0} sources`);
-                  } else if (rp.phase === 'error') {
-                    spinner.updateMessage(rp.message || 'Search error');
+                    },
+                  );
+                  // Move it to live between spinner and timer
+                  if (_researchSynapse.element && _researchTimerEl) {
+                    spinner.element.parentNode.insertBefore(
+                      _researchSynapse.element,
+                      _researchTimerEl,
+                    );
                   }
+                } catch (e) {
+                  console.warn("synapse init failed", e);
                 }
-              } else if (json.type === 'research_sources') {
-                if (_isBg) {
-                  // Store sources HTML in background map
-                  if (json.data && json.data.length > 0) {
-                    _sourcesHtml = _buildSourcesBox(json.data, 'research');
-                    var bgE = _backgroundStreams.get(streamSessionId);
-                    if (bgE) bgE.sourcesHtml = _sourcesHtml;
-                  }
-                  // Clear researching indicator for this background session
-                  if (sessionModule && sessionModule.clearResearching) sessionModule.clearResearching(streamSessionId);
-                  continue;
+              }
+              if (_researchSynapse) {
+                _researchSynapse.setPhase(rp.phase, rp);
+                if (typeof rp.round === "number")
+                  _researchSynapse.setRound(rp.round);
+                if (typeof rp.total_sources === "number")
+                  _researchSynapse.setSourceCount(rp.total_sources);
+                if (rp.phase === "error") _researchSynapse.complete();
+              }
+              if (spinner && spinner.element) {
+                if (rp.phase === "probing") {
+                  spinner.updateMessage(`Verifying model: ${rp.model || "?"}`);
+                } else if (rp.phase === "planning") {
+                  spinner.updateMessage(
+                    "Analyzing question & planning research strategy",
+                  );
+                } else if (rp.phase === "searching") {
+                  const q = rp.queries ? `${rp.queries} queries` : "";
+                  const s = rp.total_sources
+                    ? ` · ${rp.total_sources} sources`
+                    : "";
+                  spinner.updateMessage(
+                    `Round ${rp.round || "?"}: Searching${q ? " (" + q + ")" : ""}${s}`,
+                  );
+                } else if (rp.phase === "reading") {
+                  spinner.updateMessage(
+                    rp.title
+                      ? `Reading: ${rp.title}`
+                      : `Round ${rp.round || "?"}: Reading ${rp.new_sources || ""} pages · ${rp.total_sources || 0} sources total`,
+                  );
+                } else if (rp.phase === "analyzing") {
+                  spinner.updateMessage(
+                    `Round ${rp.round || "?"}: Analyzing ${rp.total_findings || 0} findings`,
+                  );
+                } else if (rp.phase === "writing") {
+                  spinner.updateMessage(
+                    `Writing report · ${rp.total_sources || 0} sources`,
+                  );
+                } else if (rp.phase === "error") {
+                  spinner.updateMessage(rp.message || "Search error");
                 }
-                // Research done — clean up timer, show sources box, then spinner for LLM response
-                _clearResearchTimer();
-                holder._researchSources = json.data;
-                var _rSid2 = sessionModule && sessionModule.getCurrentSessionId();
-                if (_rSid2 && sessionModule.clearResearching) sessionModule.clearResearching(_rSid2);
+              }
+            } else if (json.type === "research_sources") {
+              if (_isBg) {
+                // Store sources HTML in background map
                 if (json.data && json.data.length > 0) {
-                  _sourcesData = json.data; _sourcesType = 'research';
-                  _sourcesHtml = _buildSourcesBox(json.data, 'research');
+                  _sourcesHtml = _buildSourcesBox(json.data, "research");
+                  var bgE = _backgroundStreams.get(streamSessionId);
+                  if (bgE) bgE.sourcesHtml = _sourcesHtml;
                 }
-                if (document.hidden) {
-                  _notifyResearchComplete(_rSid2 || '', holder._researchQuery || '');
-                }
-              } else if (json.type === 'research_findings') {
-                if (_isBg) {
-                  var bgEf = _backgroundStreams.get(streamSessionId);
-                  if (bgEf) bgEf.findingsData = json.data;
-                  continue;
-                }
-                if (json.data && json.data.length > 0) {
-                  _findingsData = json.data;
-                }
-              } else if (json.type === 'research_done') {
-                // Research complete — reload session to show the persisted report
-                _clearResearchTimer();
-                if (sessionModule && sessionModule.clearResearching) {
+                // Clear researching indicator for this background session
+                if (sessionModule && sessionModule.clearResearching)
                   sessionModule.clearResearching(streamSessionId);
-                }
-                _researchingStreamIds.delete(streamSessionId);
-                // Small delay then reload session history which includes the full report
-                setTimeout(async () => {
-                  // Don't yank the user back to this chat if they've navigated
-                  // away (e.g. started a new chat) while research finished —
-                  // just refresh the sidebar so the report shows when they return.
-                  if (sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId() === streamSessionId) {
-                    await sessionModule.selectSession(streamSessionId);
-                  } else {
-                    await sessionModule.loadSessions();
-                  }
-                }, 500);
                 continue;
-              } else if (json.type === 'web_sources') {
-                if (_isBg) {
-                  if (json.data && json.data.length > 0) {
-                    _sourcesHtml = _buildSourcesBox(json.data, 'web');
-                    var bgE2 = _backgroundStreams.get(streamSessionId);
-                    if (bgE2) bgE2.sourcesHtml = _sourcesHtml;
-                  }
-                  continue;
+              }
+              // Research done — clean up timer, show sources box, then spinner for LLM response
+              _clearResearchTimer();
+              holder._researchSources = json.data;
+              var _rSid2 = sessionModule && sessionModule.getCurrentSessionId();
+              if (_rSid2 && sessionModule.clearResearching)
+                sessionModule.clearResearching(_rSid2);
+              if (json.data && json.data.length > 0) {
+                _sourcesData = json.data;
+                _sourcesType = "research";
+                _sourcesHtml = _buildSourcesBox(json.data, "research");
+              }
+              if (document.hidden) {
+                _notifyResearchComplete(
+                  _rSid2 || "",
+                  holder._researchQuery || "",
+                );
+              }
+            } else if (json.type === "research_findings") {
+              if (_isBg) {
+                var bgEf = _backgroundStreams.get(streamSessionId);
+                if (bgEf) bgEf.findingsData = json.data;
+                continue;
+              }
+              if (json.data && json.data.length > 0) {
+                _findingsData = json.data;
+              }
+            } else if (json.type === "research_done") {
+              // Research complete — reload session to show the persisted report
+              _clearResearchTimer();
+              if (sessionModule && sessionModule.clearResearching) {
+                sessionModule.clearResearching(streamSessionId);
+              }
+              _researchingStreamIds.delete(streamSessionId);
+              // Small delay then reload session history which includes the full report
+              setTimeout(async () => {
+                // Don't yank the user back to this chat if they've navigated
+                // away (e.g. started a new chat) while research finished —
+                // just refresh the sidebar so the report shows when they return.
+                if (
+                  sessionModule.getCurrentSessionId &&
+                  sessionModule.getCurrentSessionId() === streamSessionId
+                ) {
+                  await sessionModule.selectSession(streamSessionId);
+                } else {
+                  await sessionModule.loadSessions();
                 }
-                // Web search done — store sources for final render (don't render mid-stream)
-                holder._webSources = json.data;
+              }, 500);
+              continue;
+            } else if (json.type === "web_sources") {
+              if (_isBg) {
                 if (json.data && json.data.length > 0) {
-                  _sourcesData = json.data; _sourcesType = 'web';
-                  _sourcesHtml = _buildSourcesBox(json.data, 'web');
-                }
-              } else if (json.type === 'workspace_rejected') {
-                // Server refused to bind the posted workspace (deleted folder,
-                // file path, sensitive dir, filesystem root). Clear the stored
-                // value so the pill stops claiming a confinement that is not in
-                // effect, and tell the user.
-                const _wsPath = (json.data && json.data.path) || '';
-                import('./workspace.js').then((m) => {
-                  const ws = m.default || m;
-                  if (ws && ws.setWorkspace) ws.setWorkspace('');
-                });
-                uiModule.showToast(
-                  `Workspace ${_wsPath || '(unknown)'} is no longer usable; running without confinement`,
-                  6000
-                );
-                continue;
-              } else if (json.type === 'model_fallback') {
-                // Model went offline — switched to fallback
-                var _fbData = json.data || {};
-                uiModule.showToast(
-                  `Model ${_fbData.old_model || '?'} offline — switched to ${_fbData.new_model || '?'}`,
-                  5000
-                );
-                // Update the model picker to reflect the new model
-                if (sessionModule && sessionModule.updateModelPicker) {
-                  sessionModule.updateModelPicker();
+                  _sourcesHtml = _buildSourcesBox(json.data, "web");
+                  var bgE2 = _backgroundStreams.get(streamSessionId);
+                  if (bgE2) bgE2.sourcesHtml = _sourcesHtml;
                 }
                 continue;
-              } else if (json.type === 'model_info') {
-                // Update role label with model name as soon as we know it
-                if (!_isBg && holder) {
-                  const roleEl = holder.querySelector('.role');
-                  if (roleEl) {
-                    holder._requestedModel = json.requested_model || json.model || holder._requestedModel;
-                    holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
-                    if (json.suffix) holder._roleSuffix = json.suffix;
-                    // Prepend character name if sent by server or set locally
-                    var _charName = json.character_name || (presetsModule.getCharacterName ? presetsModule.getCharacterName() : '');
-                    if (_charName) holder._characterName = _charName;
-                    _setRoleModelLabel(roleEl, holder._requestedModel, holder._actualModel, {
+              }
+              // Web search done — store sources for final render (don't render mid-stream)
+              holder._webSources = json.data;
+              if (json.data && json.data.length > 0) {
+                _sourcesData = json.data;
+                _sourcesType = "web";
+                _sourcesHtml = _buildSourcesBox(json.data, "web");
+              }
+            } else if (json.type === "workspace_rejected") {
+              // Server refused to bind the posted workspace (deleted folder,
+              // file path, sensitive dir, filesystem root). Clear the stored
+              // value so the pill stops claiming a confinement that is not in
+              // effect, and tell the user.
+              const _wsPath = (json.data && json.data.path) || "";
+              import("./workspace.js").then((m) => {
+                const ws = m.default || m;
+                if (ws && ws.setWorkspace) ws.setWorkspace("");
+              });
+              uiModule.showToast(
+                `Workspace ${_wsPath || "(unknown)"} is no longer usable; running without confinement`,
+                6000,
+              );
+              continue;
+            } else if (json.type === "model_fallback") {
+              // Model went offline — switched to fallback
+              var _fbData = json.data || {};
+              uiModule.showToast(
+                `Model ${_fbData.old_model || "?"} offline — switched to ${_fbData.new_model || "?"}`,
+                5000,
+              );
+              // Update the model picker to reflect the new model
+              if (sessionModule && sessionModule.updateModelPicker) {
+                sessionModule.updateModelPicker();
+              }
+              continue;
+            } else if (json.type === "model_info") {
+              // Update role label with model name as soon as we know it
+              if (!_isBg && holder) {
+                const roleEl = holder.querySelector(".role");
+                if (roleEl) {
+                  holder._requestedModel =
+                    json.requested_model ||
+                    json.model ||
+                    holder._requestedModel;
+                  holder._actualModel =
+                    json.model || holder._actualModel || holder._requestedModel;
+                  if (json.suffix) holder._roleSuffix = json.suffix;
+                  // Prepend character name if sent by server or set locally
+                  var _charName =
+                    json.character_name ||
+                    (presetsModule.getCharacterName
+                      ? presetsModule.getCharacterName()
+                      : "");
+                  if (_charName) holder._characterName = _charName;
+                  _setRoleModelLabel(
+                    roleEl,
+                    holder._requestedModel,
+                    holder._actualModel,
+                    {
                       suffix: holder._roleSuffix,
                       characterName: holder._characterName,
                     },
@@ -2645,138 +2705,184 @@ export async function handleChatSubmit(e) {
               // Track tool name for contextual spinner labels
               _lastToolName = json.tool || "";
 
-                // --- Thread timeline: group tools in a thread container ---
-                const cmd = json.command || '';
-                const chatBox = document.getElementById('chat-history');
-                // Find existing thread to append to — check last few children
-                // (agent_step may insert an empty msg-ai between tool rounds)
-                let threadWrap = null;
-                for (let ci = chatBox.children.length - 1; ci >= Math.max(0, chatBox.children.length - 5); ci--) {
-                  const child = chatBox.children[ci];
-                  if (child.classList.contains('agent-thread')) {
-                    threadWrap = child;
-                    break;
-                  }
-                  // Skip hidden (empty) bubbles and thinking spinners
-                  if (child.style.display === 'none' || child.classList.contains('agent-thinking-dots')) continue;
-                  // Stop if we hit a visible message bubble (has real content between tools)
-                  if (child.classList.contains('msg')) break;
+              // --- Thread timeline: group tools in a thread container ---
+              const cmd = json.command || "";
+              const chatBox = document.getElementById("chat-history");
+              // Find existing thread to append to — check last few children
+              // (agent_step may insert an empty msg-ai between tool rounds)
+              let threadWrap = null;
+              for (
+                let ci = chatBox.children.length - 1;
+                ci >= Math.max(0, chatBox.children.length - 5);
+                ci--
+              ) {
+                const child = chatBox.children[ci];
+                if (child.classList.contains("agent-thread")) {
+                  threadWrap = child;
+                  break;
                 }
-                if (threadWrap) {
-                  // Continuing an existing thread — remove has-bottom (agent_step may have set it
-                  // expecting text, but we got more tools instead)
-                  threadWrap.classList.remove('has-bottom');
-                } else {
-                  threadWrap = document.createElement('div');
-                  threadWrap.className = 'agent-thread';
-                  // Extend line up to connect to chat bubble above (if there is one)
-                  const _prevSib = chatBox.lastElementChild;
-                  const _hasBubbleAbove = _prevSib && (_prevSib.classList.contains('msg') && _prevSib.style.display !== 'none');
-                  const _hasThreadAbove = _prevSib && _prevSib.classList.contains('agent-thread');
-                  if (_hasBubbleAbove || _hasThreadAbove || (roundText.trim() && roundHolder && roundHolder.style.display !== 'none')) {
-                    threadWrap.classList.add('has-top');
-                  }
-                  chatBox.appendChild(threadWrap);
+                // Skip hidden (empty) bubbles and thinking spinners
+                if (
+                  child.style.display === "none" ||
+                  child.classList.contains("agent-thinking-dots")
+                )
+                  continue;
+                // Stop if we hit a visible message bubble (has real content between tools)
+                if (child.classList.contains("msg")) break;
+              }
+              if (threadWrap) {
+                // Continuing an existing thread — remove has-bottom (agent_step may have set it
+                // expecting text, but we got more tools instead)
+                threadWrap.classList.remove("has-bottom");
+              } else {
+                threadWrap = document.createElement("div");
+                threadWrap.className = "agent-thread";
+                // Extend line up to connect to chat bubble above (if there is one)
+                const _prevSib = chatBox.lastElementChild;
+                const _hasBubbleAbove =
+                  _prevSib &&
+                  _prevSib.classList.contains("msg") &&
+                  _prevSib.style.display !== "none";
+                const _hasThreadAbove =
+                  _prevSib && _prevSib.classList.contains("agent-thread");
+                if (
+                  _hasBubbleAbove ||
+                  _hasThreadAbove ||
+                  (roundText.trim() &&
+                    roundHolder &&
+                    roundHolder.style.display !== "none")
+                ) {
+                  threadWrap.classList.add("has-top");
                 }
-                threadWrap.classList.add('streaming');
-                const toolLabel = _toolLabels[json.tool.toLowerCase()] || json.tool;
-                const toolIcon = _toolIcons[json.tool.toLowerCase()] || '\u25B6';
-                const node = document.createElement('div')
-                node.className = 'agent-thread-node running';
-                const cmdHtml = cmd ? `<pre class="agent-thread-cmd">${esc(cmd)}</pre>` : '';
-                node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolIcon}</span><span class="agent-thread-tool">${esc(toolLabel)}</span><span class="agent-thread-wave">▁▂▃</span></div><div class="agent-thread-content">${cmdHtml}</div>`;
-                // Expand/collapse via delegated click handler (init at module bottom).
-                threadWrap.appendChild(node);
-                currentToolBubble = node;
-                // Animate the wave
-                const waveEl = node.querySelector('.agent-thread-wave');
-                if (waveEl) {
-                  const waveFrames = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▇', '▆▅▄', '▅▄▃', '▄▃▂'];
-                  let waveIdx = 0;
-                  node._waveInterval = setInterval(() => {
-                    waveIdx = (waveIdx + 1) % waveFrames.length;
-                    waveEl.textContent = waveFrames[waveIdx];
-                  }, 100);
+                chatBox.appendChild(threadWrap);
+              }
+              threadWrap.classList.add("streaming");
+              const toolLabel =
+                _toolLabels[json.tool.toLowerCase()] || json.tool;
+              const toolIcon = _toolIcons[json.tool.toLowerCase()] || "\u25B6";
+              const node = document.createElement("div");
+              node.className = "agent-thread-node running";
+              const cmdHtml = cmd
+                ? `<pre class="agent-thread-cmd">${esc(cmd)}</pre>`
+                : "";
+              node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolIcon}</span><span class="agent-thread-tool">${esc(toolLabel)}</span><span class="agent-thread-wave">▁▂▃</span></div><div class="agent-thread-content">${cmdHtml}</div>`;
+              // Expand/collapse via delegated click handler (init at module bottom).
+              threadWrap.appendChild(node);
+              currentToolBubble = node;
+              // Animate the wave
+              const waveEl = node.querySelector(".agent-thread-wave");
+              if (waveEl) {
+                const waveFrames = [
+                  "▁▂▃",
+                  "▂▃▄",
+                  "▃▄▅",
+                  "▄▅▆",
+                  "▅▆▇",
+                  "▆▅▄",
+                  "▅▄▃",
+                  "▄▃▂",
+                ];
+                let waveIdx = 0;
+                node._waveInterval = setInterval(() => {
+                  waveIdx = (waveIdx + 1) % waveFrames.length;
+                  waveEl.textContent = waveFrames[waveIdx];
+                }, 100);
+              }
+              // Smooth per-second "cooking" timer — ticks every second (not
+              // just on the 2s backend heartbeat) so a long-running tool
+              // always shows visible motion and never reads as frozen.
+              node._startTime = Date.now();
+              node._elapsedTicker = setInterval(() => {
+                const hdr2 = node.querySelector(".agent-thread-header");
+                if (!hdr2) return;
+                let el2 = hdr2.querySelector(".agent-thread-elapsed");
+                if (!el2) {
+                  el2 = document.createElement("span");
+                  el2.className = "agent-thread-elapsed";
+                  // Sits on the LEFT, right after the icon.
+                  const icon = hdr2.querySelector(".agent-thread-icon");
+                  if (icon && icon.nextSibling)
+                    hdr2.insertBefore(el2, icon.nextSibling);
+                  else hdr2.appendChild(el2);
                 }
-                // Smooth per-second "cooking" timer — ticks every second (not
-                // just on the 2s backend heartbeat) so a long-running tool
-                // always shows visible motion and never reads as frozen.
-                node._startTime = Date.now();
-                node._elapsedTicker = setInterval(() => {
-                  const hdr2 = node.querySelector('.agent-thread-header');
-                  if (!hdr2) return;
-                  let el2 = hdr2.querySelector('.agent-thread-elapsed');
-                  if (!el2) {
-                    el2 = document.createElement('span');
-                    el2.className = 'agent-thread-elapsed';
-                    // Sits on the LEFT, right after the icon.
-                    const icon = hdr2.querySelector('.agent-thread-icon');
-                    if (icon && icon.nextSibling) hdr2.insertBefore(el2, icon.nextSibling);
-                    else hdr2.appendChild(el2);
-                  }
-                  const s = (Date.now() - node._startTime) / 1000;
-                  // Hundredths so it visibly counts sub-second (1.00, 1.05, …).
-                  el2.textContent = s < 60 ? `${s.toFixed(2)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(2).padStart(5, '0')}s`;
-                }, 50);
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'tool_progress') {
-                // Long-running subprocess (bash, python) is still in
-                // flight — refresh the running tool card with the
-                // elapsed-time + tail of its stdout/stderr so the
-                // user doesn't stare at a blind "Running…" spinner.
-                if (_isBg) continue;
-                if (!currentToolBubble) continue;
-                // The per-second ticker (started in tool_start) owns the
-                // elapsed display; here we just surface the live output tail.
-                const tailStr = (json.tail || '').trim();
-                if (tailStr) {
-                  let tailEl = currentToolBubble.querySelector('.agent-thread-tail');
-                  if (!tailEl) {
-                    tailEl = document.createElement('pre');
-                    tailEl.className = 'agent-thread-tail';
-                    tailEl.style.cssText = 'margin:4px 0 0;padding:6px 8px;font-size:11px;background:rgba(0,0,0,0.18);border-radius:4px;max-height:140px;overflow:auto;white-space:pre-wrap;opacity:0.85;';
-                    const content = currentToolBubble.querySelector('.agent-thread-content');
-                    if (content) content.appendChild(tailEl);
-                  }
-                  tailEl.textContent = tailStr;
-                  tailEl.scrollTop = tailEl.scrollHeight;
+                const s = (Date.now() - node._startTime) / 1000;
+                // Hundredths so it visibly counts sub-second (1.00, 1.05, …).
+                el2.textContent =
+                  s < 60
+                    ? `${s.toFixed(2)}s`
+                    : `${Math.floor(s / 60)}m ${(s % 60).toFixed(2).padStart(5, "0")}s`;
+              }, 50);
+              uiModule.scrollHistory();
+            } else if (json.type === "tool_progress") {
+              // Long-running subprocess (bash, python) is still in
+              // flight — refresh the running tool card with the
+              // elapsed-time + tail of its stdout/stderr so the
+              // user doesn't stare at a blind "Running…" spinner.
+              if (_isBg) continue;
+              if (!currentToolBubble) continue;
+              // The per-second ticker (started in tool_start) owns the
+              // elapsed display; here we just surface the live output tail.
+              const tailStr = (json.tail || "").trim();
+              if (tailStr) {
+                let tailEl =
+                  currentToolBubble.querySelector(".agent-thread-tail");
+                if (!tailEl) {
+                  tailEl = document.createElement("pre");
+                  tailEl.className = "agent-thread-tail";
+                  tailEl.style.cssText =
+                    "margin:4px 0 0;padding:6px 8px;font-size:11px;background:rgba(0,0,0,0.18);border-radius:4px;max-height:140px;overflow:auto;white-space:pre-wrap;opacity:0.85;";
+                  const content = currentToolBubble.querySelector(
+                    ".agent-thread-content",
+                  );
+                  if (content) content.appendChild(tailEl);
                 }
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'tool_output') {
-                if (_isBg) continue;
-                // --- Update the current thread node ---
-                if (currentToolBubble) {
-                  // Stop wave animation + the per-second cooking ticker
-                  if (currentToolBubble._waveInterval) {
-                    clearInterval(currentToolBubble._waveInterval);
-                    currentToolBubble._waveInterval = null;
-                  }
-                  if (currentToolBubble._elapsedTicker) {
-                    clearInterval(currentToolBubble._elapsedTicker);
-                    currentToolBubble._elapsedTicker = null;
-                  }
-                  const ok = (json.exit_code === 0 || json.exit_code == null);
-                  const cmd = json.command || '';
-                  let outHtml = '';
-                  if (json.output && json.output.trim()) {
-                    outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(json.output)}</pre></details>`;
-                  }
-                  // File-write diff (write_file): show a before/after unified diff.
-                  let diffHtml = '';
-                  if (json.diff && json.diff.text) {
-                    const d = json.diff;
-                    // Collapsed summary: filename + +adds (green) / −dels (red).
-                    const stat = [
-                      d.new_file ? '<span class="diff-stat-new">new</span>' : '',
-                      d.added ? `<span class="diff-stat-add">+${d.added}</span>` : '',
-                      d.removed ? `<span class="diff-stat-del">−${d.removed}</span>` : '',
-                    ].filter(Boolean).join(' ');
-                    const rows = d.text.split('\n').map(line => {
-                      let cls = 'diff-ctx', text = line;
-                      if (line.startsWith('+++') || line.startsWith('---')) cls = 'diff-meta';
-                      else if (line.startsWith('@@')) cls = 'diff-hunk';
+                tailEl.textContent = tailStr;
+                tailEl.scrollTop = tailEl.scrollHeight;
+              }
+              uiModule.scrollHistory();
+            } else if (json.type === "tool_output") {
+              if (_isBg) continue;
+              // --- Update the current thread node ---
+              if (currentToolBubble) {
+                // Stop wave animation + the per-second cooking ticker
+                if (currentToolBubble._waveInterval) {
+                  clearInterval(currentToolBubble._waveInterval);
+                  currentToolBubble._waveInterval = null;
+                }
+                if (currentToolBubble._elapsedTicker) {
+                  clearInterval(currentToolBubble._elapsedTicker);
+                  currentToolBubble._elapsedTicker = null;
+                }
+                const ok = json.exit_code === 0 || json.exit_code == null;
+                const cmd = json.command || "";
+                let outHtml = "";
+                if (json.output && json.output.trim()) {
+                  outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(json.output)}</pre></details>`;
+                }
+                // File-write diff (write_file): show a before/after unified diff.
+                let diffHtml = "";
+                if (json.diff && json.diff.text) {
+                  const d = json.diff;
+                  // Collapsed summary: filename + +adds (green) / −dels (red).
+                  const stat = [
+                    d.new_file ? '<span class="diff-stat-new">new</span>' : "",
+                    d.added
+                      ? `<span class="diff-stat-add">+${d.added}</span>`
+                      : "",
+                    d.removed
+                      ? `<span class="diff-stat-del">−${d.removed}</span>`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  const rows = d.text
+                    .split("\n")
+                    .map((line) => {
+                      let cls = "diff-ctx",
+                        text = line;
+                      if (line.startsWith("+++") || line.startsWith("---"))
+                        cls = "diff-meta";
+                      else if (line.startsWith("@@")) cls = "diff-hunk";
                       // Drop the leading diff marker (+/-/space) — the row colour
                       // already encodes add/del, and keeping it doubles up with
                       // markdown "- " bullets (reads as "+-"/"--").

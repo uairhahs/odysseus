@@ -117,8 +117,8 @@ def _sniff_doc_language(text: str) -> str:
         try:
             _json.loads(s)
             return "json"
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to parse JSON: {e}")
     # Shebang
     first = s.split("\n", 1)[0].strip().lower()
     if first.startswith("#!"):
@@ -196,7 +196,7 @@ def _parse_tool_args(content):
         try:
             args = json.loads(content) if content.strip() else {}
         except (json.JSONDecodeError, TypeError) as e:
-            raise ValueError(str(e))
+            raise ValueError(str(e)) from e
     elif isinstance(content, dict):
         args = content
     else:

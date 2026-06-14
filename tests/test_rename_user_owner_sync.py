@@ -78,7 +78,7 @@ def rename_endpoint(monkeypatch, tmp_path):
 def _request(
     tmp_path,
     session_manager=None,
-    token="t",
+    token="t",  # noqa: S107
     research_handler=None,
     upload_handler=None,
 ):
@@ -739,6 +739,8 @@ def test_rejected_rename_does_not_mutate_files(monkeypatch, tmp_path):
     should be touched. Before the fix the deep_research and memory writes
     ran before the auth check, so a rejected rename (e.g. reserved username)
     silently moved owner fields to the new name."""
+    from fastapi import HTTPException
+
     import core.database as cdb
     import routes.auth_routes as ar
 
@@ -780,7 +782,7 @@ def test_rejected_rename_does_not_mutate_files(monkeypatch, tmp_path):
     am.rename_user.return_value = False
     endpoint = _route(ar.setup_auth_routes(am), "rename_user")
 
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         asyncio.run(
             endpoint("alice", SimpleNamespace(username="api"), _request(tmp_path))
         )

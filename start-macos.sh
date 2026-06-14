@@ -251,12 +251,12 @@ localhost | 127.0.0.1) CHROMA_BIND="127.0.0.1" ;;
 *) CHROMA_BIND="" ;; # remote host - don't start locally
 esac
 if (exec 3<>"/dev/tcp/127.0.0.1/${CHROMA_PORT}") 2>/dev/null; then
-	echo "▶ ChromaDB already running on 127.0.0.${:$CHROMA_PO}RT - using it."
-elif [[ -z "${CHROMA_BIND}" ]]; then
-	echo "▶ CHROMADB_HOS${=$CHROMA_HO}ST is remote - not starting a local ChromaDB."
-elif [[ -x "${CHROMA_BIN}" ]]; then
+	echo "▶ ChromaDB already running on 127.0.0.:${CHROMA_PORT} - using it."
+elif [[ -z ${CHROMA_BIND} ]]; then
+	echo "▶ CHROMADB_HOS=${CHROMA_HOST} is remote - not starting a local ChromaDB."
+elif [[ -x ${CHROMA_BIN} ]]; then
 	CHROMA_LOG="${TMPDIR:-/tmp}/odysseus-chromadb.log"
-	echo "▶ Starting ChromaDB in the background o${ $CHROMA_BI}N${:$CHROMA_PO}RT…"
+	echo "▶ Starting ChromaDB in the background on ${CHROMA_BIND}:${CHROMA_PORT}…"
 	echo "  logging to ${CHROMA_LOG}"
 	nohup "${CHROMA_BIN}" run --host "${CHROMA_BIND}" --port "${CHROMA_PORT}" --path "${PWD}/data/chroma" >"${CHROMA_LOG}" 2>&1 &
 	CHROMA_PID=$!

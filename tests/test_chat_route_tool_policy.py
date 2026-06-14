@@ -1,6 +1,3 @@
-import ast
-import re
-
 """Issue #3229 — allow_bash / allow_web_search must work for JSON API callers
 and admin users must get bash enabled by default.
 
@@ -12,6 +9,8 @@ Fix: (1) Read from JSON body as fallback.
          falsy value; when unset (None), defer to per-user privilege checks.
 """
 
+import ast
+import re
 from pathlib import Path
 
 _CHAT_ROUTES = Path(__file__).resolve().parent.parent / "routes" / "chat_routes.py"
@@ -229,7 +228,7 @@ def test_frontend_sends_explicit_allow_web_search_false_in_agent_mode():
 
 
 def _source() -> str:
-    return CHAT_ROUTES.read_text(encoding="utf-8")
+    return _CHAT_ROUTES.read_text(encoding="utf-8")
 
 
 def _normalise(src: str) -> str:

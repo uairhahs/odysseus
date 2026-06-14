@@ -8,7 +8,6 @@ None means an anonymous caller and gallery queries must fail closed.
 import tempfile
 import uuid
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool

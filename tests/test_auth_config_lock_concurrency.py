@@ -13,6 +13,8 @@ import time
 import types
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import pytest
+
 from tests.helpers.import_state import clear_module
 
 

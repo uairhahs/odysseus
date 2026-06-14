@@ -90,7 +90,7 @@ def _extract_thinking_blocks(text: str) -> dict:
         console.log(JSON.stringify({ out: mod.extractThinkingBlocks(input) }));
         """)
     result = subprocess.run(
-        ["node", "--input-type=module", "-e", script, json.dumps(text)],
+        ["node", "--input-type=module", "-e", script, json.dumps(text)],  # noqa: S607
         cwd=_REPO,
         capture_output=True,
         timeout=15,

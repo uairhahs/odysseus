@@ -30,7 +30,7 @@ def test_storage_owner_for_request_uses_api_token_owner(monkeypatch):
         state=SimpleNamespace(
             current_user="api",
             api_token=True,
-            api_token_owner="alice",
+            api_token_owner="alice",  # noqa: S106
         )
     )
 

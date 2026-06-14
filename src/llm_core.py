@@ -330,9 +330,10 @@ def _is_ollama_openai_compat_url(url: str) -> bool:
         return False
     host = parsed.hostname or ""
     path = (parsed.path or "").rstrip("/")
-    local_ollama_host = host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or parsed.port == 11434
+    local_ollama_host = (
+        host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or parsed.port == 11434
+    )
     return local_ollama_host and (path == "/v1" or path.startswith("/v1/"))
-
 
 
 def _is_ollama_openai_compat_url(url: str) -> bool:
@@ -349,7 +350,9 @@ def _is_ollama_openai_compat_url(url: str) -> bool:
         return False
     host = parsed.hostname or ""
     path = (parsed.path or "").rstrip("/")
-    local_ollama_host = host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or parsed.port == 11434
+    local_ollama_host = (
+        host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or parsed.port == 11434
+    )
     return local_ollama_host and (path == "/v1" or path.startswith("/v1/"))
 
 
@@ -542,10 +545,13 @@ def _is_self_hosted_openai_compatible(url: str) -> bool:
     if _detect_provider(url) != "openai" or _host_match(url, "openai.com"):
         return False
     from src.model_context import is_local_endpoint
+
     return is_local_endpoint(url)
 
 
-def _apply_local_cache_affinity(payload: Dict, url: str, session_id: Optional[str]) -> None:
+def _apply_local_cache_affinity(
+    payload: Dict, url: str, session_id: Optional[str]
+) -> None:
     """Add llama.cpp-server slot-affinity hints to an outgoing payload, in place.
 
     As diagnosed in issue #2927, llama.cpp assigns requests to processing
@@ -620,7 +626,8 @@ def _provider_label(url: str) -> str:
         return "Mistral"
     if _host_match(url, "deepseek.com"):
         return "DeepSeek"
-    if _host_match(url, "nvidia.com"): return "NVIDIA"
+    if _host_match(url, "nvidia.com"):
+        return "NVIDIA"
     if _host_match(url, "googleapis.com"):
         return "Google"
     if _host_match(url, "together.xyz", "together.ai"):
@@ -790,6 +797,7 @@ def _restricts_temperature(model: str) -> bool:
         return False
     m = model.lower()
     return any(m.startswith(p) or f"/{p}" in m for p in _FIXED_TEMPERATURE_MODELS)
+
 
 # Anthropic removed the sampling parameters (temperature, top_p, top_k) starting
 # with Claude Opus 4.7. On Opus 4.7 and later, sending `temperature` at all —
@@ -1038,7 +1046,15 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
     (content=None, since Gemini/Ollama reject tool_calls alongside ""). Dropping
     it leaves the tool result dangling and breaks the next round.
     """
-    allowed = {"role", "content", "name", "tool_call_id", "tool_calls", "function_call", "reasoning_content"}
+    allowed = {
+        "role",
+        "content",
+        "name",
+        "tool_call_id",
+        "tool_calls",
+        "function_call",
+        "reasoning_content",
+    }
     cleaned = []
     for msg in messages or []:
         if not isinstance(msg, dict):
@@ -1534,7 +1550,7 @@ async def llm_call_async(
     timeout: int = LLMConfig.STREAM_TIMEOUT,
     max_retries: int = LLMConfig.MAX_RETRIES,
     prompt_type: Optional[str] = None,
-    session_id: Optional[str] = None,,
+    session_id: Optional[str] = None,
 ) -> str:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
@@ -1741,7 +1757,8 @@ async def stream_llm(
     headers: Optional[Dict] = None,
     timeout: int = LLMConfig.STREAM_TIMEOUT,
     prompt_type: Optional[str] = None,
-    tools: Optional[List[Dict]] = None, session_id: Optional[str] = None,
+    tools: Optional[List[Dict]] = None,
+    session_id: Optional[str] = None,
 ):
     """Stream LLM responses with improved error handling.
 

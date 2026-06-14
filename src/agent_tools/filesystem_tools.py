@@ -3,6 +3,7 @@ import difflib
 import fnmatch
 import json
 import os
+import shutil
 from typing import Any, Dict, Optional
 
 from src.constants import MAX_DIFF_LINES, MAX_READ_CHARS

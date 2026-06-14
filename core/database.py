@@ -897,7 +897,6 @@ def _migrate_add_last_message_at_column():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def _migrate_add_document_archived_column():
     """Add `archived` to documents (soft-archive flag). Guarded + idempotent."""
     import sqlite3
@@ -919,8 +918,8 @@ def _migrate_add_document_archived_column():
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
 def _migrate_add_owner_column():
@@ -953,7 +952,6 @@ def _migrate_add_owner_column():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def _migrate_model_endpoints():
     """Recreate model_endpoints table if schema changed (url->base_url)."""
     import sqlite3
@@ -969,7 +967,9 @@ def _migrate_model_endpoints():
         if columns and "base_url" not in columns:
             conn.execute("DROP TABLE IF EXISTS model_endpoints")
             conn.commit()
-            logging.getLogger(__name__).info("Migrated: dropped old model_endpoints table (schema change)")
+            logging.getLogger(__name__).info(
+                "Migrated: dropped old model_endpoints table (schema change)"
+            )
         conn.close()
     except Exception as e:
         logging.getLogger(__name__).warning(
@@ -981,6 +981,7 @@ def _migrate_model_endpoints():
             conn.close()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
+
 
 def _migrate_add_hidden_models_column():
     """Add hidden_models column to model_endpoints if it doesn't exist."""
@@ -1007,7 +1008,6 @@ def _migrate_add_hidden_models_column():
             conn.close()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
-
 
 
 def _migrate_add_model_endpoint_owner_column():
@@ -1112,7 +1112,6 @@ def _migrate_add_model_type_column():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def _migrate_add_model_endpoint_refresh_columns():
     """Add endpoint classification / refresh policy columns if missing."""
     import sqlite3
@@ -1153,6 +1152,7 @@ def _migrate_add_model_endpoint_refresh_columns():
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
+
 def _migrate_add_task_run_model_column():
     """Add model column to task_runs if it doesn't exist (records which model ran)."""
     import sqlite3
@@ -1178,7 +1178,6 @@ def _migrate_add_task_run_model_column():
             conn.close()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
-
 
 
 def _migrate_add_supports_tools_column():
@@ -1234,7 +1233,6 @@ def _migrate_add_cached_models_column():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def _migrate_add_pinned_models_column():
     """Add pinned_models column to model_endpoints if it doesn't exist."""
     import sqlite3
@@ -1260,7 +1258,6 @@ def _migrate_add_pinned_models_column():
             conn.close()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
-
 
 
 def _migrate_add_notes_sort_order():
@@ -1297,7 +1294,6 @@ def _migrate_add_notes_sort_order():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def _migrate_add_mode_column():
     """Add mode column to sessions table if it doesn't exist."""
     import sqlite3
@@ -1325,7 +1321,6 @@ def _migrate_add_mode_column():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def _migrate_add_folder_column():
     """Add folder column to sessions table if it doesn't exist."""
     import sqlite3
@@ -1351,7 +1346,6 @@ def _migrate_add_folder_column():
             conn.close()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
-
 
 
 def _migrate_add_token_columns():
@@ -1385,8 +1379,9 @@ def _migrate_add_token_columns():
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
+
 
 def _migrate_add_owner_to_table(table_name: str, index_name: str):
     """Generic helper: add owner TEXT column + index to a table if missing."""
@@ -1412,7 +1407,7 @@ def _migrate_add_owner_to_table(table_name: str, index_name: str):
                 f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}(owner)"  # nosec B608
             )
             conn.commit()
-                logging.getLogger(__name__).info(
+            logging.getLogger(__name__).info(
                 f"Migrated: added 'owner' column to {table_name}"
             )
     except Exception as e:
@@ -1423,8 +1418,9 @@ def _migrate_add_owner_to_table(table_name: str, index_name: str):
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
+
 
 def _migrate_add_multiuser_owner_columns():
     """Add owner column to memories, gallery_images, user_tools, comparisons."""
@@ -1474,7 +1470,6 @@ def _migrate_add_api_token_scopes_column():
             conn.close()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
-
 
 
 def _migrate_assign_legacy_owner():
@@ -1578,8 +1573,8 @@ def _migrate_assign_legacy_owner():
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to close connection: {e}")
 
     # Also migrate memory.json
     mem_path = MEMORY_FILE
@@ -2332,8 +2327,8 @@ def _migrate_add_email_smtp_security():
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
 def _migrate_encrypt_endpoint_keys():
@@ -2483,8 +2478,8 @@ def _migrate_add_calendar_is_utc():
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
 def _migrate_add_calendar_origin():
@@ -2584,7 +2579,6 @@ def _migrate_add_calendar_metadata():
             logging.getLogger(__name__).warning(f"Failed to close connection: {e}")
 
 
-
 def get_db():
     """
     Dependency to get a database session.
@@ -2597,7 +2591,9 @@ def get_db():
         try:
             db.close()
         except Exception as e:
-            logging.getLogger(__name__).warning(f"Failed to close database session: {e}")
+            logging.getLogger(__name__).warning(
+                f"Failed to close database session: {e}"
+            )
 
 
 @contextmanager
@@ -2614,7 +2610,9 @@ def get_db_session() -> Generator:
         try:
             session.close()
         except Exception as e:
-            logging.getLogger(__name__).warning(f"Failed to close database session: {e}")
+            logging.getLogger(__name__).warning(
+                f"Failed to close database session: {e}"
+            )
 
 
 def bulk_insert_messages(session_id: str, messages: list):

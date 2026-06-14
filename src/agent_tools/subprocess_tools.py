@@ -49,8 +49,8 @@ async def _run_subprocess_streaming(
                             "tail": "\n".join(list(tail)),
                         }
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[Subprocess] Progress callback error: {e}")
             await asyncio.sleep(PROGRESS_INTERVAL_S)
 
     rd_out = asyncio.create_task(_reader(proc.stdout, stdout_full, "out"))
@@ -64,21 +64,21 @@ async def _run_subprocess_streaming(
         timed_out = True
         try:
             proc.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Subprocess] Error killing process: {e}")
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Subprocess] Error waiting for process: {e}")
     except asyncio.CancelledError:
         try:
             proc.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Subprocess] Error killing process: {e}")
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Subprocess] Error waiting for process: {e}")
         for t in (rd_out, rd_err):
             t.cancel()
         if prog_task is not None:
@@ -89,13 +89,13 @@ async def _run_subprocess_streaming(
             prog_task.cancel()
             try:
                 await prog_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except (asyncio.CancelledError, Exception) as e:
+                print(f"[Subprocess] Error waiting for progress task: {e}")
         for t in (rd_out, rd_err):
             try:
                 await asyncio.wait_for(t, timeout=1)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Subprocess] Error waiting for reader task: {e}")
 
     return (
         "\n".join(stdout_full),

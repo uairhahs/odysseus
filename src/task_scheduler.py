@@ -1666,8 +1666,8 @@ class TaskScheduler:
                         owner=task.owner,
                         task=task,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to ensure task session: {e}")
 
         # For assistant check-ins: call each tool directly and post results
         # as separate messages. More reliable than hoping the model calls tools.

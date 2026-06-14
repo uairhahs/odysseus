@@ -28,7 +28,7 @@ from src.agent_tools import (
     set_active_model,
     strip_tool_blocks,
 )
-from src.llm_core import _is_ollama_native_url, stream_llm, stream_llm_with_fallback
+from src.llm_core import _is_ollama_native_url, stream_llm_with_fallback
 from src.model_context import estimate_tokens
 from src.prompt_security import untrusted_context_message
 from src.settings import get_setting
@@ -323,7 +323,8 @@ _DOMAIN_TOOL_MAP = {
         "grep",
         "glob",
         "ls",
-    , "get_workspace"},
+        "get_workspace",
+    },
     "settings": {
         "manage_settings",
         "manage_endpoints",
@@ -411,7 +412,6 @@ Write content to a file. First line is the path, rest is the content.""",
 {"path": "<file path>", "old_string": "<exact text to replace>", "new_string": "<replacement>", "replace_all": false}
 ```
 Edit an EXISTING file by exact string replacement. PREFER this over bash (sed/echo/redirects) for changing files — it shows a before/after diff. `old_string` must match the file exactly and be unique unless `replace_all` is true. Use write_file to create a new file.""",
-
     "get_workspace": """\
 ```get_workspace
 ```
@@ -1191,7 +1191,8 @@ def _build_system_prompt(
         _rt_key,
         compact,
         _ov_sig,
-        owner, suppress_local_context,
+        owner,
+        suppress_local_context,
     )
     if (
         _cached_base_prompt
@@ -1208,7 +1209,8 @@ def _build_system_prompt(
             needs_admin,
             relevant_tools,
             mcp_disabled_map=mcp_disabled_map,
-            compact=compact, owner=owner,
+            compact=compact,
+            owner=owner,
             suppress_local_context=suppress_local_context,
         )
     else:
@@ -1248,9 +1250,10 @@ def _build_system_prompt(
     _datetime_message = None
     try:
         from src.user_time import current_datetime_context_message
+
         _datetime_message = current_datetime_context_message()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to build datetime context: %s", e, exc_info=True)
 
     # Document context is kept as a SEPARATE message (not merged into the tool
     # prompt) so the context trimmer doesn't destroy it when truncating the
@@ -2297,10 +2300,15 @@ async def stream_agent_loop(
             # agent can investigate; write/shell tools stay out until the request
             # actually calls for them (RAG retrieval adds those on a real ask).
             from src.tool_security import PLAN_MODE_READONLY_TOOLS
-            _relevant_tools |= (_DOMAIN_TOOL_MAP["files"] & PLAN_MODE_READONLY_TOOLS)
-            logger.info("[tool-rag] Low-signal but workspace active; including read-only file tools")
+
+            _relevant_tools |= _DOMAIN_TOOL_MAP["files"] & PLAN_MODE_READONLY_TOOLS
+            logger.info(
+                "[tool-rag] Low-signal but workspace active; including read-only file tools"
+            )
         else:
-            logger.info("[tool-rag] Low-signal agent message; skipping retrieval and using always-available tools only")
+            logger.info(
+                "[tool-rag] Low-signal agent message; skipping retrieval and using always-available tools only"
+            )
     if not guide_only and not _relevant_tools:
         try:
             from src.tool_index import ALWAYS_AVAILABLE, get_tool_index
@@ -2735,7 +2743,7 @@ async def stream_agent_loop(
         # only switches on a pre-content failure, so streamed output is never
         # duplicated; the dead-host cooldown keeps repeat primary attempts cheap.
         _candidates = [(endpoint_url, model, headers)] + list(fallbacks or [])
-        # stream_llm enforces a per-read INACTIVITY timeout (httpx read=timeout),
+        # enforces a per-read INACTIVITY timeout (httpx read=timeout),
         # which kills a wedged/silent endpoint. This wall-clock deadline is the
         # complementary cap for the rare stream that trickles bytes forever and
         # so never trips the inactivity timeout. Generous — only catches runaway.
@@ -2755,7 +2763,7 @@ async def stream_agent_loop(
                     f"[agent] round {round_num} stream exceeded wall-clock deadline; cutting off"
                 )
                 break
-            # Forward error events from stream_llm to the frontend
+            # Forward error events from stream_llm_with_fallback to the frontend
             if chunk.startswith("event: error"):
                 yield chunk
                 continue

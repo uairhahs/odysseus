@@ -6,10 +6,13 @@ can then resolve relative dates against the user's clock instead of the server.
 
 from __future__ import annotations
 
+import logging
 import re
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 _USER_TZ_OFFSET_MIN: ContextVar[Optional[int]] = ContextVar(
     "user_tz_offset_min", default=None
@@ -76,8 +79,8 @@ def user_timezone() -> timezone:
                 from zoneinfo import ZoneInfo
 
                 return ZoneInfo(name)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"user_timezone: failed to load ZoneInfo for {name}: {e}")
         return datetime.now().astimezone().tzinfo or timezone.utc
     return timezone(timedelta(minutes=offset))
 

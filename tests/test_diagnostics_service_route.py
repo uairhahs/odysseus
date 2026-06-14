@@ -10,12 +10,12 @@ requirements, so the tests run there.
 """
 
 import pytest
+from fastapi import FastAPI, HTTPException, Request
+from starlette.testclient import TestClient
 
 fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("starlette.testclient")
 
-from fastapi import FastAPI, HTTPException, Request
-from starlette.testclient import TestClient
 
 # Importing the route module pulls a few app deps; skip cleanly if unavailable.
 diag = pytest.importorskip("routes.diagnostics_routes")

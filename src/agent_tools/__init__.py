@@ -17,10 +17,6 @@ from collections import namedtuple
 # from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS
 from src.tool_utils import _truncate, get_mcp_manager, set_mcp_manager  # noqa: F401
 
-logger = logging.getLogger(__name__)
-# log only warnings and errors by default since some of these functions are best-effort
-logger.setLevel(logging.WARNING)
-
 from .document_tools import (
     CreateDocumentTool,
     EditDocumentTool,
@@ -39,6 +35,11 @@ from .filesystem_tools import (
 )
 from .subprocess_tools import BashTool, PythonTool
 from .web_tools import WebFetchTool, WebSearchTool
+
+logger = logging.getLogger(__name__)
+# log only warnings and errors by default since some of these functions are best-effort
+logger.setLevel(logging.WARNING)
+
 
 TOOL_HANDLERS = {
     "bash": BashTool().execute,
@@ -204,4 +205,7 @@ from src.tool_schemas import (  # noqa: E402, F401
 )
 
 # Document functions
-from .document_tools import set_active_document, set_active_model
+from .document_tools import (  # noqa: E402, F401, F811
+    set_active_document,
+    set_active_model,
+)

@@ -12,9 +12,9 @@ from src.deep_research import DeepResearcher
 class _ControlledResearcher(DeepResearcher):
     def __init__(self, *args, **kwargs):
         super().__init__(
+            *args,
             llm_endpoint="http://local.test/v1/chat/completions",
             llm_model="local-model",
-            *args,
             **kwargs,
         )
         self.active = 0

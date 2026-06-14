@@ -8,13 +8,13 @@ import uuid
 
 import pytest
 
+import core.database as cdb
+from core.database import CalendarEvent
 from tests.helpers.import_state import clear_fake_database_modules
 from tests.helpers.sqlite_db import make_temp_sqlite
 
 clear_fake_database_modules()
 
-import core.database as cdb
-from core.database import CalendarEvent
 
 _TS, _ENGINE, _TMPDB = make_temp_sqlite(cdb.Base.metadata)
 

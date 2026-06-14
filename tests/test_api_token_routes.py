@@ -455,7 +455,7 @@ def test_update_token_rejects_non_owner(monkeypatch, token_routes_mod):
         id="tok123",
         name="alice-token",
         owner="alice",
-        token_prefix="ody_alic",
+        token_prefix="ody_alic",  # noqa: S106
         scopes="chat",
         is_active=True,
     )
@@ -466,7 +466,7 @@ def test_update_token_rejects_non_owner(monkeypatch, token_routes_mod):
     req = _bob_patch_request(MagicMock(), {"name": "hijacked"})
     update_token = _get_handler(mod, "PATCH", "/tokens/{token_id}")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(update_token(request=req, token_id="tok123"))
+        asyncio.run(update_token(request=req, token_id="tok123"))  # noqa: S106
     assert exc.value.status_code == 403
     assert token.name == "alice-token"
 
@@ -486,7 +486,7 @@ def test_delete_token_rejects_non_owner(monkeypatch, token_routes_mod):
     req = _req("bob", is_admin=True, invalidator=invalidator)
     delete_token = _get_handler(mod, "DELETE", "/tokens/{token_id}")
     with pytest.raises(HTTPException) as exc:
-        delete_token(request=req, token_id="tok123")
+        delete_token(request=req, token_id="tok123")  # noqa: S106
     assert exc.value.status_code == 403
     fake_session.delete.assert_not_called()
     invalidator.assert_not_called()
@@ -503,7 +503,7 @@ def test_update_token_owner_check_skipped_when_auth_disabled(
         id="tok123",
         name="original",
         owner="alice",
-        token_prefix="ody_alic",
+        token_prefix="ody_alic",  # noqa: S106
         scopes="chat",
         is_active=True,
     )
@@ -513,7 +513,7 @@ def test_update_token_owner_check_skipped_when_auth_disabled(
 
     req = _bob_patch_request(MagicMock(), {"name": "renamed-in-single-user"})
     update_token = _get_handler(mod, "PATCH", "/tokens/{token_id}")
-    resp = asyncio.run(update_token(request=req, token_id="tok123"))
+    resp = asyncio.run(update_token(request=req, token_id="tok123"))  # noqa: S106
     assert resp["name"] == "renamed-in-single-user"
 
 
@@ -533,6 +533,6 @@ def test_delete_token_owner_check_skipped_when_auth_disabled(
     invalidator = MagicMock()
     req = _req("", is_admin=True, invalidator=invalidator)
     delete_token = _get_handler(mod, "DELETE", "/tokens/{token_id}")
-    resp = delete_token(request=req, token_id="tok123")
+    resp = delete_token(request=req, token_id="tok123")  # noqa: S106
     assert resp == {"status": "deleted"}
     fake_session.delete.assert_called_once_with(fake_token)

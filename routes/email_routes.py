@@ -1576,7 +1576,7 @@ def setup_email_routes():
                 try:
                     if sender_addr:
                         _rs = _c.execute(
-                            f"SELECT signature_text FROM sender_signatures "
+                            f"SELECT signature_text FROM sender_signatures "  # noqa: S608
                             f"WHERE from_address = ? AND {owner_clause}",
                             (sender_addr.lower().strip(), *owner_params),
                         ).fetchone()

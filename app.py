@@ -19,10 +19,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import RedirectResponse
 
 from companion import setup_companion_routes
-from core.auth import AuthManager
+from core.auth import AuthManager, normalize_known_username
 
 # Core imports
 # Core imports
@@ -47,6 +48,7 @@ from core.exceptions import (
     WebSearchError,
 )
 from core.middleware import SecurityHeadersMiddleware, is_cors_preflight
+from core.models import set_session_manager_instance
 
 # Admin Danger Zone wipes (Settings → System → Danger Zone)
 from routes.admin_wipe_routes import setup_admin_wipe_routes
@@ -160,6 +162,9 @@ from routes.vault_routes import setup_vault_routes
 # Webhooks
 from routes.webhook_routes import setup_webhook_routes
 
+# Workspace (multi-user collaboration, shared sessions, shared memory)
+from routes.workspace_routes import setup_workspace_routes
+
 # STT
 from services.stt import get_stt_service
 
@@ -185,6 +190,9 @@ from src.generated_images import GENERATED_IMAGE_HEADERS, resolve_generated_imag
 
 # MCP (Model Context Protocol)
 from src.mcp_manager import McpManager
+
+# Core imports
+from src.owner_identity import auth_disabled
 from src.rag_singleton import get_rag_manager
 
 # Scheduled tasks + event bus
@@ -226,13 +234,6 @@ if os.name == "nt":
 # utf-8-sig reads plain UTF-8 (no BOM) identically, so this is safe everywhere.
 load_dotenv(encoding="utf-8-sig")
 
-
-from starlette.middleware.gzip import GZipMiddleware
-
-from core.auth import normalize_known_username
-
-# Core imports
-from src.owner_identity import auth_disabled
 
 # ========= LOGGING =========
 logging.basicConfig(
@@ -712,7 +713,7 @@ session_manager = components["session_manager"]
 
 _set_asst_sm(session_manager)
 # Set the global session manager singleton (used by core.models.Session.add_message)
-from core.models import set_session_manager_instance
+
 
 set_session_manager_instance(session_manager)
 app.state.session_manager = session_manager
@@ -887,7 +888,6 @@ app.include_router(setup_shell_routes())
 
 app.include_router(cookbook_router)
 
-from routes.workspace_routes import setup_workspace_routes
 
 app.include_router(setup_workspace_routes())
 

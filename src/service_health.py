@@ -409,8 +409,8 @@ def email_health(
             conn = connect(acc.get("account_id"))
             try:
                 conn.logout()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"email_health: logout failed for {name}: {e}")
             return {"name": name, "ok": True, "error": None}
         except Exception as e:
             return {"name": name, "ok": False, "error": _classify_error(e)}

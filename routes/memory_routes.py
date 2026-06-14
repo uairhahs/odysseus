@@ -120,8 +120,8 @@ def setup_memory_routes(
         if memory_data.session_id:
             try:
                 session_obj = session_manager.get_session(memory_data.session_id)
-            except KeyError:
-                raise HTTPException(404, "Session not found")
+            except KeyError as e:
+                raise HTTPException(404, "Session not found") from e
             _assert_session_owner(session_obj, user)
 
         new_entry = memory_manager.add_entry(

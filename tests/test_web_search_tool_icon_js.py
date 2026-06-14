@@ -63,7 +63,7 @@ console.log(JSON.stringify(results));
 def _run(cases: list) -> list:
     js = _CHECK_JS.replace("CASES_JSON", json.dumps(cases))
     proc = subprocess.run(
-        ["node", "--input-type=module"],
+        ["node", "--input-type=module"],  # noqa: S607
         input=js,
         capture_output=True,
         text=True,

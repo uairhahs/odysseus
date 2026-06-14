@@ -1142,12 +1142,13 @@ async def action_learn_sender_signatures(owner: str, **kwargs) -> Tuple[str, boo
             cached = {
                 r[0]: r[1]
                 for r in conn.execute(
-                    f"SELECT from_address, last_built_at FROM sender_signatures WHERE {owner_clause}",
+                    f"SELECT from_address, last_built_at FROM sender_signatures WHERE {owner_clause}",  # noqa: S608
                     owner_params,
                 ).fetchall()
             }
             conn.close()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"sig cache read failed: {e}")
             cached = {}
 
         cutoff_iso = (_dt.now(timezone.utc) - _td(days=30)).isoformat()
