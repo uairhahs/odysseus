@@ -3,7 +3,6 @@
 import importlib.util
 import json
 import os
-import pathlib
 import sys
 import types
 from unittest.mock import MagicMock
@@ -11,7 +10,13 @@ from unittest.mock import MagicMock
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# Add CLI _lib so `from cli import ...` resolves to scripts/_lib/cli.py
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "_lib"
+    ),
+)
 # Importing core.database below runs init_db() at import time, and its default
 # (sqlite:///./data/app.db) can't be opened in a clean worktree because SQLite
 # won't create the missing ./data parent dir - pytest then dies during
@@ -99,6 +104,7 @@ if "src.database" not in sys.modules:
 # Pre-import core.models before test_agent_loop.py's module-level stubs
 # run (it replaces sys.modules['core.models'] with a MagicMock during
 # collection, which breaks session import in subsequent tests).
+import core.models  # noqa: E402, F401
 
 
 def pytest_configure(config):
@@ -109,6 +115,7 @@ def pytest_configure(config):
     unknown-mark warnings still surface genuine typos outside the taxonomy. This
     only registers marker names; it imports no production module.
     """
+    import pathlib
 
     from tests._taxonomy import discover_markers
 

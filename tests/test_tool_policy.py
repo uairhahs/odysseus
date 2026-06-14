@@ -96,7 +96,6 @@ def test_executor_policy_backstop_blocks_tools():
 
     # Configure mock to return specific string for tool_type
     mock_tool = ToolBlock("bash", "echo should-not-run")
-    mock_tool.tool_type = "bash"
 
     desc, result = asyncio.run(execute_tool_block(mock_tool, tool_policy=policy))
     assert desc == "bash: BLOCKED"

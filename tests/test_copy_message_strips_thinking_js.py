@@ -71,7 +71,7 @@ def _extract_thinking_blocks(text: str) -> dict:
           .replace(/export const /g, 'const ')
           .replace(/export function /g, 'function ');
         source = source.replace(
-          /import \{ replaceEmojiShortcodes, hasEmojiShortcode \} from ['"]\.\/emojiShortcodes\.js['"];/,
+          /import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/emojiShortcodes\.js['"];/,
           () => emojiSource
         );
         source = source.replace(

@@ -1,3 +1,5 @@
+"""Helpers to assure test validity regardless of linter formatting changes."""
+
 import re
 
 
