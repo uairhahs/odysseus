@@ -56,11 +56,13 @@ from routes.cookbook_helpers import (
 from routes.cookbook_ps1_builders import build_ps1_download_lines, build_ps1_serve_lines
 from routes.cookbook_utils import (
     binary_available,
+    decrypt_secret,
     encrypt_secret,
     get_cookbook_known_hosts_path,
     get_cookbook_ssh_dir,
     get_cookbook_ssh_key_path,
     load_stored_hf_token,
+    mask_secret,
     missing_binary_message,
     read_cookbook_public_key,
 )
@@ -575,27 +577,7 @@ async def get_cookbook_tasks_status(request: Request):
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
-            if proc.returncode == 0:
-                return "running"
-            # Session is gone. Check the retained tmux pane history for the
-            # runner's exit sentinel to distinguish a completed download from
-            # a crashed/stopped task.
-            cap_proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "capture-pane",
-                "-p",
-                "-S",
-                "-200",
-                "-t",
-                sid,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            cap_out, _ = await cap_proc.communicate()
-            if cap_proc.returncode == 0:
-                snapshot = cap_out.decode("utf-8", errors="replace")
-                return _resolve_gone_session_status(snapshot, t.get("type", ""))
-            return "stopped"
+            return "running" if proc.returncode == 0 else "stopped"
         except Exception:
             return status
 
