@@ -1022,8 +1022,13 @@ export function stripToolBlocks(text) {
  * nothing (e.g. turns interrupted mid-thinking).
  */
 export function copyMessageText(msgElement) {
-  const raw = msgElement.dataset.raw || msgElement.querySelector('.body')?.textContent || '';
-  const { content } = markdownModule.extractThinkingBlocks(stripToolBlocks(raw));
+  const raw =
+    msgElement.dataset.raw ||
+    msgElement.querySelector(".body")?.textContent ||
+    "";
+  const { content } = markdownModule.extractThinkingBlocks(
+    stripToolBlocks(raw),
+  );
   return content || raw;
 }
 
@@ -1702,37 +1707,93 @@ export function createMsgFooter(msgElement) {
 
   // Define all available actions: { id, icon, title, className, handler }
   const allActions = [
-    { id: 'copy', icon: COPY_ICON, title: 'Copy message', cls: 'footer-copy-btn', html: true, handler(e) {
-      e.stopPropagation();
-      const btn = e.currentTarget;
-      uiModule.copyToClipboard(copyMessageText(msgElement));
-      btn.innerHTML = CHECK_ICON;
-      setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1500);
-    }},
-    { id: 'edit', icon: '\u270E', title: 'Edit', cls: 'msg-action-btn', handler(e) {
-      e.stopPropagation();
-      if (window.chatModule?.editAIMessage) window.chatModule.editAIMessage(msgElement);
-    }},
-    { id: 'regen', icon: '\u21BB', title: 'Regenerate from here', cls: 'msg-action-btn', handler(e) {
-      e.stopPropagation();
-      if (window.chatModule?.regenerateFrom) window.chatModule.regenerateFrom(msgElement);
-    }},
-    { id: 'shorten', icon: '\u2702', title: 'Rewrite shorter', cls: 'msg-action-btn', handler(e) {
-      e.stopPropagation();
-      if (window.chatModule?.rewriteWith) window.chatModule.rewriteWith(msgElement, 'Rewrite your last response to be shorter and more concise. Keep the key information but cut the fluff.');
-    }},
-    { id: 'explain', icon: '?', title: 'Explain simpler', cls: 'msg-action-btn', handler(e) {
-      e.stopPropagation();
-      if (window.chatModule?.rewriteWith) window.chatModule.rewriteWith(msgElement, 'Explain your last response in simpler terms. Use plain language and short sentences.');
-    }},
-    { id: 'fork', icon: '\u2ADD', title: 'Fork conversation', cls: 'msg-action-btn', handler(e) {
-      e.stopPropagation();
-      if (window.chatModule?.forkFrom) window.chatModule.forkFrom(msgElement);
-    }},
-    { id: 'delete', icon: '\u2715', title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', handler(e) {
-      e.stopPropagation();
-      if (window.chatModule?.deleteMessage) window.chatModule.deleteMessage(msgElement);
-    }},
+    {
+      id: "copy",
+      icon: COPY_ICON,
+      title: "Copy message",
+      cls: "footer-copy-btn",
+      html: true,
+      handler(e) {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        uiModule.copyToClipboard(copyMessageText(msgElement));
+        btn.innerHTML = CHECK_ICON;
+        setTimeout(() => {
+          btn.innerHTML = COPY_ICON;
+        }, 1500);
+      },
+    },
+    {
+      id: "edit",
+      icon: "\u270E",
+      title: "Edit",
+      cls: "msg-action-btn",
+      handler(e) {
+        e.stopPropagation();
+        if (window.chatModule?.editAIMessage)
+          window.chatModule.editAIMessage(msgElement);
+      },
+    },
+    {
+      id: "regen",
+      icon: "\u21BB",
+      title: "Regenerate from here",
+      cls: "msg-action-btn",
+      handler(e) {
+        e.stopPropagation();
+        if (window.chatModule?.regenerateFrom)
+          window.chatModule.regenerateFrom(msgElement);
+      },
+    },
+    {
+      id: "shorten",
+      icon: "\u2702",
+      title: "Rewrite shorter",
+      cls: "msg-action-btn",
+      handler(e) {
+        e.stopPropagation();
+        if (window.chatModule?.rewriteWith)
+          window.chatModule.rewriteWith(
+            msgElement,
+            "Rewrite your last response to be shorter and more concise. Keep the key information but cut the fluff.",
+          );
+      },
+    },
+    {
+      id: "explain",
+      icon: "?",
+      title: "Explain simpler",
+      cls: "msg-action-btn",
+      handler(e) {
+        e.stopPropagation();
+        if (window.chatModule?.rewriteWith)
+          window.chatModule.rewriteWith(
+            msgElement,
+            "Explain your last response in simpler terms. Use plain language and short sentences.",
+          );
+      },
+    },
+    {
+      id: "fork",
+      icon: "\u2ADD",
+      title: "Fork conversation",
+      cls: "msg-action-btn",
+      handler(e) {
+        e.stopPropagation();
+        if (window.chatModule?.forkFrom) window.chatModule.forkFrom(msgElement);
+      },
+    },
+    {
+      id: "delete",
+      icon: "\u2715",
+      title: "Delete message",
+      cls: "msg-action-btn msg-delete-btn",
+      handler(e) {
+        e.stopPropagation();
+        if (window.chatModule?.deleteMessage)
+          window.chatModule.deleteMessage(msgElement);
+      },
+    },
   ];
 
   // Filter out unavailable actions (e.g. TTS when not enabled)

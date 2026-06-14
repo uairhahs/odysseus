@@ -15,6 +15,7 @@ import src.agent_loop as al
 def _collect(gen):
     async def _run():
         return [c async for c in gen]
+
     return asyncio.run(_run())
 
 
@@ -24,20 +25,23 @@ def _types(chunks):
         if c.startswith("data: ") and not c.startswith("data: [DONE]"):
             try:
                 out.append(json.loads(c[6:]))
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Failed to parse {c[6:]}: {e}")
     return out
 
 
 def _patch_common(monkeypatch):
     # Skip RAG/tool-index, MCP, and settings lookups; keep the real loop body,
     # _resolve_tool_blocks, and parse_tool_blocks.
-    monkeypatch.setattr(al, "get_setting", lambda key, default=None: default, raising=False)
+    monkeypatch.setattr(
+        al, "get_setting", lambda key, default=None: default, raising=False
+    )
     monkeypatch.setattr(al, "get_mcp_manager", lambda: None, raising=False)
     monkeypatch.setattr(al, "estimate_tokens", lambda *a, **k: 10, raising=False)
 
     async def _fake_exec(block, *a, **k):
         return ("bash", {"output": "ok", "exit_code": 0})
+
     monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
 
 
@@ -45,10 +49,12 @@ def _run_loop(monkeypatch, round_text, max_rounds=2):
     async def _fake_stream(_candidates, messages, **kwargs):
         yield f'data: {json.dumps({"delta": round_text})}\n\n'
         yield "data: [DONE]\n\n"
+
     monkeypatch.setattr(al, "stream_llm_with_fallback", _fake_stream, raising=False)
 
     gen = al.stream_agent_loop(
-        "http://x/v1", "m",
+        "http://x/v1",
+        "m",
         [{"role": "user", "content": "do a long multi-step task"}],
         max_rounds=max_rounds,
         relevant_tools={"bash"},

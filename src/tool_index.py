@@ -45,11 +45,6 @@ ALWAYS_AVAILABLE = frozenset(
         "ask_user",
         # Write back to the active plan (tick steps done / revise) during execution.
         "update_plan",
-    }
-)
-# These are the most commonly needed and should never be missing.
-ALWAYS_AVAILABLE = frozenset(
-    {
         "bash",
         "python",
         "web_search",
@@ -88,15 +83,6 @@ ALWAYS_AVAILABLE = frozenset(
         "adopt_served_model",
         # Generic API loopback — the catch-all when no named tool fits.
         "app_api",
-        # Memory is ambient — "remember this" can follow any message regardless
-        # of topic. Without this, RAG drops it and the agent falls back to
-        # app_api /api/memory/add which fails with 422 on first attempt.
-        "manage_memory",
-        # Ask the user a multiple-choice question for a decision/clarification.
-        # Always reachable so the agent can pause and ask at any point.
-        "ask_user",
-        # Write back to the active plan (tick steps done / revise) during execution.
-        "update_plan",
     }
 )
 

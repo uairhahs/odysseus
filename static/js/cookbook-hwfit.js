@@ -1759,10 +1759,11 @@ export function _hwfitInit() {
       }
     });
   }
-  if (search) search.addEventListener('input', () => {
-    clearTimeout(_hwfitDebounce);
-    _hwfitDebounce = setTimeout(() => _hwfitFetch(), 400);
-  });
+  if (search)
+    search.addEventListener("input", () => {
+      clearTimeout(_hwfitDebounce);
+      _hwfitDebounce = setTimeout(() => _hwfitFetch(), 400);
+    });
   // HF token save is owned by cookbook.js (_wireTabEvents) — do not wire a
   // second change/input handler here. The old duplicate ran after cookbook.js
   // cleared the input on save and overwrote _envState.hfToken with "", so the

@@ -20,7 +20,7 @@ import chatRenderer from "./chatRenderer.js";
 import spinnerModule from "./spinner.js";
 import themeModule from "./theme.js";
 import documentModule from "./document.js";
-import workspaceModule from './workspace.js';
+import workspaceModule from "./workspace.js";
 import settingsModule from "./settings.js";
 import cookbookModule from "./cookbook.js";
 import { EVAL_PROMPTS } from "./compare/index.js";
@@ -55,7 +55,7 @@ const PROVIDER_PATTERNS = [
     url: "https://generativelanguage.googleapis.com/v1beta/openai",
   },
   { re: /^xai-/, name: "xAI", url: "https://api.x.ai/v1" },
-  { re: /^nvapi-/,           name: 'NVIDIA',     url: 'https://integrate.api.nvidia.com/v1' },
+  { re: /^nvapi-/, name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1" },
 ];
 const SETUP_PROVIDER_URLS = {
   deepseek: { name: "DeepSeek", url: "https://api.deepseek.com/v1" },
@@ -75,7 +75,7 @@ const SETUP_PROVIDER_URLS = {
   },
   "opencode-zen": { name: "OpenCode Zen", url: "https://opencode.ai/zen/v1" },
   "opencode-go": { name: "OpenCode Go", url: "https://opencode.ai/zen/go/v1" },
-  nvidia: { name: 'NVIDIA', url: 'https://integrate.api.nvidia.com/v1' },
+  nvidia: { name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1" },
 };
 const SETUP_PROVIDER_NAMES = [
   "deepseek",
@@ -88,7 +88,9 @@ const SETUP_PROVIDER_NAMES = [
   "gemini",
   "opencode-zen",
   "opencode-go",
-, 'nvidia'];
+  ,
+  "nvidia",
+];
 const SETUP_DEVICE_AUTH_PROVIDERS = [
   {
     key: "copilot",
@@ -160,7 +162,7 @@ function _setupProviderFromInput(input) {
     google: "gemini",
     xai: "xai",
     grok: "xai",
-    nvidia: 'nvidia',
+    nvidia: "nvidia",
   };
   return SETUP_PROVIDER_URLS[aliases[raw] || raw] || null;
 }
@@ -209,7 +211,7 @@ function _extractSetupProviderCredential(input) {
     ["x ai", "xai"],
     ["xai", "xai"],
     ["grok", "xai"],
-    ['nvidia', 'nvidia'],
+    ["nvidia", "nvidia"],
   ];
   for (const [alias, key] of providerAliases) {
     const re = new RegExp(
@@ -1642,34 +1644,46 @@ async function _cmdToggleDoc(args, ctx) {
 // Workspace: confine the agent's file/shell tools to a folder. Not a boolean -
 // show / set <path> / clear / pick (open the directory browser).
 async function _cmdWorkspace(args, ctx) {
-  const sub = (args[0] || '').toLowerCase();
-  const rest = args.slice(1).join(' ').trim();
+  const sub = (args[0] || "").toLowerCase();
+  const rest = args.slice(1).join(" ").trim();
   const cur = workspaceModule.getWorkspace();
-  if (!sub || sub === 'show' || sub === 'status' || sub === 'info') {
-    slashReply(cur ? `Workspace: <code>${uiModule.esc(cur)}</code>` : 'No workspace set. <code>/workspace pick</code> or <code>/workspace set /path</code>.');
+  if (!sub || sub === "show" || sub === "status" || sub === "info") {
+    slashReply(
+      cur
+        ? `Workspace: <code>${uiModule.esc(cur)}</code>`
+        : "No workspace set. <code>/workspace pick</code> or <code>/workspace set /path</code>.",
+    );
     return true;
   }
-  if (sub === 'set' || sub === 'cd' || sub === 'use') {
-    if (!rest) { slashReply('Usage: <code>/workspace set /absolute/path</code>'); return true; }
+  if (sub === "set" || sub === "cd" || sub === "use") {
+    if (!rest) {
+      slashReply("Usage: <code>/workspace set /absolute/path</code>");
+      return true;
+    }
     // Validate server-side before persisting so the pill never claims a
     // workspace the backend will refuse to bind (typo, file path, deleted
     // folder, sensitive dir, filesystem root).
     workspaceModule.vetAndSetWorkspace(rest).then(({ ok, path }) => {
       if (ok) slashReply(`Workspace set: <code>${uiModule.esc(path)}</code>`);
-      else slashReply(`Not a usable workspace folder: <code>${uiModule.esc(rest)}</code>. It must be an existing directory, not a filesystem root or sensitive path.`);
+      else
+        slashReply(
+          `Not a usable workspace folder: <code>${uiModule.esc(rest)}</code>. It must be an existing directory, not a filesystem root or sensitive path.`,
+        );
     });
     return true;
   }
-  if (sub === 'clear' || sub === 'off' || sub === 'none' || sub === 'unset') {
+  if (sub === "clear" || sub === "off" || sub === "none" || sub === "unset") {
     workspaceModule.clearWorkspace();
-    slashReply('Workspace cleared.');
+    slashReply("Workspace cleared.");
     return true;
   }
-  if (sub === 'pick' || sub === 'browse' || sub === 'open') {
+  if (sub === "pick" || sub === "browse" || sub === "open") {
     workspaceModule.openWorkspaceBrowser();
     return true;
   }
-  slashReply('Usage: <code>/workspace</code> · <code>set /path</code> · <code>clear</code> · <code>pick</code>');
+  slashReply(
+    "Usage: <code>/workspace</code> · <code>set /path</code> · <code>clear</code> · <code>pick</code>",
+  );
 
   return true;
 }
@@ -1677,34 +1691,46 @@ async function _cmdWorkspace(args, ctx) {
 // Workspace: confine the agent's file/shell tools to a folder. Not a boolean -
 // show / set <path> / clear / pick (open the directory browser).
 async function _cmdWorkspace(args, ctx) {
-  const sub = (args[0] || '').toLowerCase();
-  const rest = args.slice(1).join(' ').trim();
+  const sub = (args[0] || "").toLowerCase();
+  const rest = args.slice(1).join(" ").trim();
   const cur = workspaceModule.getWorkspace();
-  if (!sub || sub === 'show' || sub === 'status' || sub === 'info') {
-    slashReply(cur ? `Workspace: <code>${uiModule.esc(cur)}</code>` : 'No workspace set. <code>/workspace pick</code> or <code>/workspace set /path</code>.');
+  if (!sub || sub === "show" || sub === "status" || sub === "info") {
+    slashReply(
+      cur
+        ? `Workspace: <code>${uiModule.esc(cur)}</code>`
+        : "No workspace set. <code>/workspace pick</code> or <code>/workspace set /path</code>.",
+    );
     return true;
   }
-  if (sub === 'set' || sub === 'cd' || sub === 'use') {
-    if (!rest) { slashReply('Usage: <code>/workspace set /absolute/path</code>'); return true; }
+  if (sub === "set" || sub === "cd" || sub === "use") {
+    if (!rest) {
+      slashReply("Usage: <code>/workspace set /absolute/path</code>");
+      return true;
+    }
     // Validate server-side before persisting so the pill never claims a
     // workspace the backend will refuse to bind (typo, file path, deleted
     // folder, sensitive dir, filesystem root).
     workspaceModule.vetAndSetWorkspace(rest).then(({ ok, path }) => {
       if (ok) slashReply(`Workspace set: <code>${uiModule.esc(path)}</code>`);
-      else slashReply(`Not a usable workspace folder: <code>${uiModule.esc(rest)}</code>. It must be an existing directory, not a filesystem root or sensitive path.`);
+      else
+        slashReply(
+          `Not a usable workspace folder: <code>${uiModule.esc(rest)}</code>. It must be an existing directory, not a filesystem root or sensitive path.`,
+        );
     });
     return true;
   }
-  if (sub === 'clear' || sub === 'off' || sub === 'none' || sub === 'unset') {
+  if (sub === "clear" || sub === "off" || sub === "none" || sub === "unset") {
     workspaceModule.clearWorkspace();
-    slashReply('Workspace cleared.');
+    slashReply("Workspace cleared.");
     return true;
   }
-  if (sub === 'pick' || sub === 'browse' || sub === 'open') {
+  if (sub === "pick" || sub === "browse" || sub === "open") {
     workspaceModule.openWorkspaceBrowser();
     return true;
   }
-  slashReply('Usage: <code>/workspace</code> · <code>set /path</code> · <code>clear</code> · <code>pick</code>');
+  slashReply(
+    "Usage: <code>/workspace</code> · <code>set /path</code> · <code>clear</code> · <code>pick</code>",
+  );
   return true;
 }
 
@@ -7504,21 +7530,20 @@ const COMMANDS = {
     },
   },
   workspace: {
-    alias: ['ws'],
-    category: 'Agent',
-    help: 'Set the folder the agent works in',
+    alias: ["ws"],
+    category: "Agent",
+    help: "Set the folder the agent works in",
     handler: _cmdWorkspace,
     noUserBubble: true,
-    usage: '/workspace [set <path> | clear | pick]',
+    usage: "/workspace [set <path> | clear | pick]",
   },
   workspace: {
-    alias: ['ws'],
-    category: 'Agent',
-    help: 'Set the folder the agent works in',
+    alias: ["ws"],
+    category: "Agent",
+    help: "Set the folder the agent works in",
     handler: _cmdWorkspace,
     noUserBubble: true,
-    usage: '/workspace [set <path> | clear | pick]',
-    
+    usage: "/workspace [set <path> | clear | pick]",
   },
   memory: {
     alias: ["m"],

@@ -2388,7 +2388,26 @@ async def stream_agent_loop(
             _relevant_tools.update({"web_search", "web_fetch"})
         if "ui" in (_intent.get("domains") or set()):
             _relevant_tools.add("ui_control")
-
+    # Workspace confinement: enforce tool surface limits based on workspace
+    # presence and signal strength AFTER all selection paths have run.
+    # This is a hard gate — even if RAG/keyword retrieval added write/shell
+    # tools, they must not surface on a low-signal message without workspace,
+    # or ever surface write/shell tools when workspace is set but signal is low.
+    if not guide_only and _relevant_tools is not None:
+        _FILE_WRITE_SHELL = {"write_file", "edit_file", "bash", "python"}
+        _ALL_FILE_TOOLS = _FILE_WRITE_SHELL | {
+            "read_file",
+            "get_workspace",
+            "grep",
+            "glob",
+            "ls",
+        }
+        if not workspace:
+            # No workspace at all: strip every file tool regardless of signal.
+            _relevant_tools -= _ALL_FILE_TOOLS
+        elif bool(_intent.get("low_signal")):
+            # Workspace present but low-signal: read-only file tools only.
+            _relevant_tools -= _FILE_WRITE_SHELL
     # If a document is open the model needs the editing tools available
     # regardless of which selection path (RAG, keyword, caller-provided) ran
     # or what keywords were in the latest user message.

@@ -39,8 +39,6 @@ from .web_tools import WebFetchTool, WebSearchTool
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
-
-
 TOOL_HANDLERS = {
     "bash": BashTool().execute,
     "python": PythonTool().execute,
@@ -159,14 +157,21 @@ _mcp_manager = None
 # Re-exports from sub-modules
 # ---------------------------------------------------------------------------
 
+
+# Document functions
+from src.agent_tools.document_tools import (  # noqa: E402, F401 , F811
+    set_active_document,
+    set_active_model,
+)
+
 # Execution
-from src.tool_execution import (  # noqa: E402, F401
+from src.tool_execution import (  # noqa: E402, F401 , F811
     execute_tool_block,
     format_tool_result,
 )
 
 # Implementations
-from src.tool_implementations import (  # noqa: E402, F401
+from src.tool_implementations import (  # noqa: E402, F401 , F811
     do_api_call,
     do_create_document,
     do_edit_document,
@@ -202,10 +207,4 @@ from src.tool_parsing import (  # noqa: E402, F401
 from src.tool_schemas import (  # noqa: E402, F401
     FUNCTION_TOOL_SCHEMAS,
     function_call_to_tool_block,
-)
-
-# Document functions
-from .document_tools import (  # noqa: E402, F401, F811
-    set_active_document,
-    set_active_model,
 )

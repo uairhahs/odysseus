@@ -1867,6 +1867,26 @@ async def _execute_tool_block_impl(
         else:
             desc = f"mcp: {tool}"
             result = {"error": "MCP manager not available", "exit_code": 1}
+    elif tool == "get_workspace":
+        ws = get_active_workspace()
+        if ws:
+            desc = f"get_workspace: {ws}"
+            result = {
+                "output": (
+                    f"{ws}\n(File tools are confined to this folder; the shell starts "
+                    f"here but is not sandboxed and can reach outside it.)"
+                ),
+                "exit_code": 0,
+            }
+        else:
+            desc = "get_workspace: none"
+            result = {
+                "output": (
+                    "No workspace is set. File tools use the default allowed roots; "
+                    "resolve paths from the user or use absolute paths."
+                ),
+                "exit_code": 0,
+            }
     else:
         desc = f"unknown: {tool}"
         result = {"error": f"Unknown tool type: {tool}", "exit_code": 1}
