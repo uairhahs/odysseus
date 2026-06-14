@@ -9,7 +9,10 @@ from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from src.owner_identity import auth_disabled
+
 logger = logging.getLogger(__name__)
+
 # log only warnings and errors by default since some of these functions are best-effort
 logger.setLevel(logging.WARNING)
 # Per-process token that lets the in-app tool layer hit admin-gated
@@ -49,7 +52,7 @@ def require_admin(request: Request):
         pass
 
     auth_mgr = getattr(request.app.state, "auth_manager", None)
-    if os.getenv("AUTH_ENABLED", "true").lower() == "false":
+    if auth_disabled():
         return
     if not auth_mgr or not auth_mgr.is_configured:
         raise HTTPException(403, "Admin only")

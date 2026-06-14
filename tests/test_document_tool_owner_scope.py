@@ -4,7 +4,11 @@ import types
 
 from sqlalchemy.sql.elements import False_, Null, True_
 
-from src import tool_implementations as tools
+from src.agent_tools import TOOL_HANDLERS
+from src.agent_tools.document_tools import (
+    _owned_document_query,
+    set_active_document,
+)
 from tests.helpers.linter_compat import _norm
 
 
@@ -133,14 +137,14 @@ def _install_database_stub(monkeypatch, module_name, query):
 def test_owned_document_query_rejects_missing_owner():
     query = _Query()
 
-    assert tools._owned_document_query(query, _Document, None) is query
+    assert _owned_document_query(query, _Document, None) is query
     assert False in query.filters
 
 
 def test_owned_document_query_filters_to_owner():
     query = _Query()
 
-    assert tools._owned_document_query(query, _Document, "alice") is query
+    assert _owned_document_query(query, _Document, "alice") is query
     assert ("owner", "eq", "alice") in query.filters
 
 
@@ -148,7 +152,9 @@ def test_manage_documents_list_filters_to_calling_owner(monkeypatch):
     query = _Query()
     _install_database_stub(monkeypatch, "core.database", query)
 
-    result = asyncio.run(tools.do_manage_documents('{"action":"list"}', owner="alice"))
+    result = asyncio.run(
+        TOOL_HANDLERS["manage_documents"]('{"action":"list"}', {"owner": "alice"})
+    )
 
     assert result["documents"] == []
     assert ("owner", "eq", "alice") in query.filters
@@ -159,8 +165,8 @@ def test_manage_documents_read_filters_to_calling_owner(monkeypatch):
     _install_database_stub(monkeypatch, "core.database", query)
 
     result = asyncio.run(
-        tools.do_manage_documents(
-            '{"action":"read","document_id":"doc-bob"}', owner="alice"
+        TOOL_HANDLERS["manage_documents"](
+            '{"action":"read","document_id":"doc-bob"}', {"owner": "alice"}
         )
     )
 
@@ -172,11 +178,13 @@ def test_manage_documents_read_filters_to_calling_owner(monkeypatch):
 def test_update_document_active_id_filters_to_calling_owner(monkeypatch):
     query = _Query()
     _install_database_stub(monkeypatch, "src.database", query)
-    tools.set_active_document("doc-bob")
+    set_active_document("doc-bob")
     try:
-        result = asyncio.run(tools.do_update_document("new content", owner="alice"))
+        result = asyncio.run(
+            TOOL_HANDLERS["update_document"]("new content", {"owner": "alice"})
+        )
     finally:
-        tools.set_active_document(None)
+        set_active_document(None)
 
     assert result["error"] == "No documents exist to update"
     assert ("id", "eq", "doc-bob") in query.filters
@@ -186,16 +194,16 @@ def test_update_document_active_id_filters_to_calling_owner(monkeypatch):
 def test_suggest_document_active_id_filters_to_calling_owner(monkeypatch):
     query = _Query()
     _install_database_stub(monkeypatch, "src.database", query)
-    tools.set_active_document("doc-bob")
+    set_active_document("doc-bob")
     try:
         result = asyncio.run(
-            tools.do_suggest_document(
+            TOOL_HANDLERS["suggest_document"](
                 "<<<FIND>>>\nold\n<<<SUGGEST>>>\nnew\n<<<REASON>>>\nbetter\n<<<END>>>",
-                owner="alice",
+                {"owner": "alice"},
             )
         )
     finally:
-        tools.set_active_document(None)
+        set_active_document(None)
 
     assert result["error"] == "Document doc-bob not found"
     assert ("id", "eq", "doc-bob") in query.filters
@@ -205,10 +213,15 @@ def test_suggest_document_active_id_filters_to_calling_owner(monkeypatch):
 def test_document_tool_dispatch_forwards_owner():
     source = _norm(open("src/tool_execution.py", encoding="utf-8").read())
 
-    assert (
-        _norm("do_create_document(content, session_id=session_id, owner=owner)")
-        in source
-    )
-    assert _norm("do_update_document(content, owner=owner)") in source
-    assert _norm("do_edit_document(content, owner=owner)") in source
-    assert _norm("do_suggest_document(content, owner=owner)") in source
+    assert "_document_tool_dispatch(tool, content, session_id, owner)" in source
+
+    # Also verify TOOL_HANDLERS has the expected entries
+    for key in (
+        "create_document",
+        "update_document",
+        "edit_document",
+        "suggest_document",
+        "manage_documents",
+    ):
+        assert key in TOOL_HANDLERS, f"TOOL_HANDLERS missing key: {key}"
+        assert callable(TOOL_HANDLERS[key]), f"TOOL_HANDLERS[{key!r}] is not callable"

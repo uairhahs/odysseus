@@ -42,4 +42,7 @@ croniter
 pytest
 pytest-asyncio
 pydantic>=2.4.0
-pydantic-settings>=2.4.0
+pydantic-settings>=2.4.0# starlette.testclient prefers httpx2 since Starlette 1.2.0 and warns on every
+# TestClient import when only classic httpx is present. Runtime code keeps
+# using `httpx` above; this is test-client only.
+httpx2

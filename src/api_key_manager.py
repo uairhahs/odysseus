@@ -64,7 +64,12 @@ class APIKeyManager:
                 type(encrypted_keys).__name__,
             )
             return {}
-        return encrypted_keys
+
+        return {
+            str(provider): key
+            for provider, key in encrypted_keys.items()
+            if isinstance(key, str)
+        }
 
     def save(self, provider: str, api_key: str):
         """Save encrypted API key to file.

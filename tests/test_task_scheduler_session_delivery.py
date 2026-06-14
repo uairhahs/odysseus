@@ -1,4 +1,5 @@
 """Regression tests for task-result delivery into chat sessions (issue #326)."""
+
 import asyncio
 import sys
 import types as _types
@@ -17,7 +18,9 @@ from tests.helpers.import_state import clear_fake_database_modules
 clear_fake_database_modules()
 
 import core.database as cdb
-from core.database import Base, Session as DbSession
+from core.database import Base
+from core.database import Session as DbSession
+from core.models import ChatMessage as MemChatMessage
 from src.task_scheduler import TaskScheduler
 
 # This test needs the real core.database (real SQLAlchemy Base/ChatMessage).
@@ -29,7 +32,9 @@ from src.task_scheduler import TaskScheduler
 # Skip in that case — the test passes correctly in isolation or when collected
 # before the stubbing files.
 if type(Base).__name__ == "MagicMock":
-    pytest.skip("core.database is stubbed — run this file in isolation", allow_module_level=True)
+    pytest.skip(
+        "core.database is stubbed — run this file in isolation", allow_module_level=True
+    )
 
 
 def _make_db():
@@ -71,3 +76,43 @@ def test_session_delivery_survives_empty_database(monkeypatch):
     assert len(sessions) == 1
     assert sessions[0].endpoint_url == ""
     assert sessions[0].model == ""
+
+
+def test_session_delivery_uses_in_memory_messages_with_manager(monkeypatch):
+    """Manager delivery must not construct the SQLAlchemy ChatMessage model."""
+    monkeypatch.setitem(sys.modules, "core.database", cdb)
+    parent = sys.modules.get("core")
+    if parent is not None:
+        monkeypatch.setattr(parent, "database", cdb, raising=False)
+
+    class RecordingManager:
+        def __init__(self):
+            self.messages = []
+
+        def add_message(self, session_id, message):
+            assert isinstance(message, MemChatMessage)
+            self.messages.append((session_id, message))
+
+    db = _make_db()
+    manager = RecordingManager()
+    scheduler = TaskScheduler.__new__(TaskScheduler)
+    scheduler._session_manager = manager
+    task = _make_task()
+    task.session_id = "existing-session"
+    task.endpoint_url = "http://endpoint"
+    task.model = "test-model"
+
+    asyncio.run(scheduler._deliver_task_result(task, "done", db))
+
+    assert [message.role for _, message in manager.messages] == [
+        "user",
+        "assistant",
+    ]
+    assert [message.content for _, message in manager.messages] == [
+        "tidy",
+        "done",
+    ]
+    assert all(session_id == "existing-session" for session_id, _ in manager.messages)
+    assert all(
+        message.metadata == {"model": "test-model"} for _, message in manager.messages
+    )

@@ -1,5 +1,7 @@
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +14,9 @@ def _route_endpoint(router, path: str, method: str):
     raise AssertionError(f"route not found: {method} {path}")
 
 
-def test_email_tag_clause_excludes_legacy_owner_rows_for_authenticated_owner(monkeypatch):
+def test_email_tag_clause_excludes_legacy_owner_rows_for_authenticated_owner(
+    monkeypatch,
+):
     import routes.email_routes as email_routes
 
     monkeypatch.setattr(
@@ -43,15 +47,16 @@ def test_email_tag_clause_keeps_legacy_rows_for_single_user_mode(monkeypatch):
     assert params == [""]
 
 
-def test_email_ai_cache_tables_are_owner_scoped_and_migrate_legacy_rows(tmp_path, monkeypatch):
+def test_email_ai_cache_tables_are_owner_scoped_and_migrate_legacy_rows(
+    tmp_path, monkeypatch
+):
     import routes.email_helpers as email_helpers
 
     db_path = tmp_path / "scheduled_emails.db"
     monkeypatch.setattr(email_helpers, "SCHEDULED_DB", db_path)
 
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE email_summaries (
             message_id TEXT PRIMARY KEY,
             uid TEXT,
@@ -62,15 +67,12 @@ def test_email_ai_cache_tables_are_owner_scoped_and_migrate_legacy_rows(tmp_path
             model_used TEXT,
             created_at TEXT NOT NULL
         )
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO email_summaries
         (message_id, uid, folder, subject, sender, summary, model_used, created_at)
         VALUES ('<shared@example.com>', '1', 'INBOX', 'Subject', 'a@example.com', 'legacy', 'm', '2026-01-01')
-        """
-    )
+        """)
     conn.commit()
     conn.close()
 
@@ -85,7 +87,9 @@ def test_email_ai_cache_tables_are_owner_scoped_and_migrate_legacy_rows(tmp_path
             "email_urgency_alerts",
         ):
             info = conn.execute(f"PRAGMA table_info({table})").fetchall()
-            pk_cols = [r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])]
+            pk_cols = [
+                r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])
+            ]
             assert pk_cols == ["message_id", "owner"]
         assert conn.execute(
             "SELECT owner, summary FROM email_summaries WHERE message_id=?",
@@ -98,7 +102,17 @@ def test_email_ai_cache_tables_are_owner_scoped_and_migrate_legacy_rows(tmp_path
             (message_id, owner, uid, folder, subject, sender, summary, model_used, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("<shared@example.com>", "alice", "2", "INBOX", "Subject", "a@example.com", "alice", "m", "2026-01-02"),
+            (
+                "<shared@example.com>",
+                "alice",
+                "2",
+                "INBOX",
+                "Subject",
+                "a@example.com",
+                "alice",
+                "m",
+                "2026-01-02",
+            ),
         )
         conn.execute(
             """
@@ -106,13 +120,86 @@ def test_email_ai_cache_tables_are_owner_scoped_and_migrate_legacy_rows(tmp_path
             (message_id, owner, uid, folder, subject, sender, summary, model_used, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("<shared@example.com>", "bob", "3", "INBOX", "Subject", "a@example.com", "bob", "m", "2026-01-03"),
+            (
+                "<shared@example.com>",
+                "bob",
+                "3",
+                "INBOX",
+                "Subject",
+                "a@example.com",
+                "bob",
+                "m",
+                "2026-01-03",
+            ),
         )
         rows = conn.execute(
             "SELECT owner, summary FROM email_summaries WHERE message_id=? ORDER BY owner",
             ("<shared@example.com>",),
         ).fetchall()
         assert rows == [("", "legacy"), ("alice", "alice"), ("bob", "bob")]
+    finally:
+        conn.close()
+
+
+def test_sender_signature_cache_is_owner_scoped_and_migrates_legacy_rows(
+    tmp_path, monkeypatch
+):
+    import routes.email_helpers as email_helpers
+
+    db_path = tmp_path / "scheduled_emails.db"
+    monkeypatch.setattr(email_helpers, "SCHEDULED_DB", db_path)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE sender_signatures (
+            from_address TEXT PRIMARY KEY,
+            signature_text TEXT,
+            sample_count INTEGER,
+            last_built_at TEXT NOT NULL,
+            model_used TEXT,
+            source TEXT
+        )
+        """)
+    conn.execute("""
+        INSERT INTO sender_signatures
+        (from_address, signature_text, sample_count, last_built_at, model_used, source)
+        VALUES ('writer@example.com', 'legacy sig', 3, '2026-01-01', 'm', 'llm')
+        """)
+    conn.commit()
+    conn.close()
+
+    email_helpers._init_scheduled_db()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        info = conn.execute("PRAGMA table_info(sender_signatures)").fetchall()
+        pk_cols = [r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])]
+        assert pk_cols == ["from_address", "owner"]
+        assert conn.execute(
+            "SELECT owner, signature_text FROM sender_signatures WHERE from_address=?",
+            ("writer@example.com",),
+        ).fetchone() == ("", "legacy sig")
+        conn.execute(
+            """
+            INSERT INTO sender_signatures
+            (from_address, owner, signature_text, sample_count, last_built_at, model_used, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("writer@example.com", "alice", "alice sig", 3, "2026-01-02", "m", "llm"),
+        )
+        conn.execute(
+            """
+            INSERT INTO sender_signatures
+            (from_address, owner, signature_text, sample_count, last_built_at, model_used, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("writer@example.com", "bob", "bob sig", 3, "2026-01-03", "m", "llm"),
+        )
+        rows = conn.execute(
+            "SELECT owner, signature_text FROM sender_signatures WHERE from_address=? ORDER BY owner",
+            ("writer@example.com",),
+        ).fetchall()
+        assert rows == [("", "legacy sig"), ("alice", "alice sig"), ("bob", "bob sig")]
     finally:
         conn.close()
 
@@ -134,7 +221,15 @@ async def test_ai_reply_cache_lookup_is_owner_scoped(tmp_path, monkeypatch):
         (message_id, owner, uid, folder, reply, model_used, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        ("<shared@example.com>", "alice", "1", "INBOX", "alice private draft", "m-a", "2026-01-01"),
+        (
+            "<shared@example.com>",
+            "alice",
+            "1",
+            "INBOX",
+            "alice private draft",
+            "m-a",
+            "2026-01-01",
+        ),
     )
     conn.execute(
         """
@@ -142,7 +237,15 @@ async def test_ai_reply_cache_lookup_is_owner_scoped(tmp_path, monkeypatch):
         (message_id, owner, uid, folder, reply, model_used, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        ("<shared@example.com>", "bob", "2", "INBOX", "bob private draft", "m-b", "2026-01-02"),
+        (
+            "<shared@example.com>",
+            "bob",
+            "2",
+            "INBOX",
+            "bob private draft",
+            "m-b",
+            "2026-01-02",
+        ),
     )
     conn.commit()
     conn.close()
@@ -164,6 +267,158 @@ async def test_ai_reply_cache_lookup_is_owner_scoped(tmp_path, monkeypatch):
     assert result["cached"] is True
     assert result["reply"] == "bob private draft"
     assert result["model_used"] == "m-b"
+
+
+@pytest.mark.asyncio
+async def test_sender_signature_read_lookup_is_owner_scoped(tmp_path, monkeypatch):
+    import routes.email_helpers as email_helpers
+    import routes.email_routes as email_routes
+
+    db_path = tmp_path / "scheduled_emails.db"
+    monkeypatch.setattr(email_helpers, "SCHEDULED_DB", db_path)
+    monkeypatch.setattr(email_routes, "SCHEDULED_DB", db_path)
+    email_helpers._init_scheduled_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO sender_signatures
+        (from_address, owner, signature_text, sample_count, last_built_at, model_used, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "writer@example.com",
+            "alice",
+            "alice private sig",
+            3,
+            "2026-01-01",
+            "m-a",
+            "llm",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO sender_signatures
+        (from_address, owner, signature_text, sample_count, last_built_at, model_used, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("writer@example.com", "bob", "bob private sig", 3, "2026-01-02", "m-b", "llm"),
+    )
+    conn.commit()
+    conn.close()
+
+    raw = (
+        b"From: Writer <writer@example.com>\r\n"
+        b"To: Bob <bob@example.com>\r\n"
+        b"Subject: Hello\r\n"
+        b"Message-ID: <shared@example.com>\r\n"
+        b"Date: Tue, 01 Jan 2026 12:00:00 +0000\r\n"
+        b"Content-Type: text/plain; charset=utf-8\r\n"
+        b"\r\n"
+        b"Body"
+    )
+
+    class FakeImap:
+        def select(self, *_args, **_kwargs):
+            return "OK", []
+
+        def uid(self, command, _uid, query):
+            assert command == "FETCH"
+            assert query == "(BODY.PEEK[])"
+            return "OK", [(b"1 (UID 1 BODY[])", raw)]
+
+    @contextmanager
+    def fake_imap(_account_id=None, owner=""):
+        assert owner == "bob"
+        yield FakeImap()
+
+    monkeypatch.setattr(email_routes, "_imap", fake_imap)
+    router = email_routes.setup_email_routes()
+    read_email = _route_endpoint(router, "/api/email/read/{uid}", "GET")
+
+    result = await read_email(
+        "1", folder="INBOX", account_id=None, owner="bob", mark_seen=False
+    )
+
+    assert result["sender_signature"] == "bob private sig"
+
+
+@pytest.mark.asyncio
+async def test_sender_signature_clear_cache_keeps_other_owner_rows(
+    tmp_path, monkeypatch
+):
+    import routes.email_helpers as email_helpers
+    import routes.task_routes as task_routes
+
+    db_path = tmp_path / "scheduled_emails.db"
+    monkeypatch.setattr(email_helpers, "SCHEDULED_DB", db_path)
+    email_helpers._init_scheduled_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO sender_signatures
+        (from_address, owner, signature_text, sample_count, last_built_at, model_used, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "writer@example.com",
+            "alice",
+            "alice private sig",
+            3,
+            "2026-01-01",
+            "m-a",
+            "llm",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO sender_signatures
+        (from_address, owner, signature_text, sample_count, last_built_at, model_used, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("writer@example.com", "bob", "bob private sig", 3, "2026-01-02", "m-b", "llm"),
+    )
+    conn.commit()
+    conn.close()
+
+    class FakeQuery:
+        def filter(self, *_args):
+            return self
+
+        def first(self):
+            return SimpleNamespace(
+                id="task-1",
+                owner="alice",
+                action="learn_sender_signatures",
+            )
+
+    class FakeDb:
+        def query(self, _model):
+            return FakeQuery()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(task_routes, "SessionLocal", lambda: FakeDb())
+    monkeypatch.setattr(task_routes, "get_current_user", lambda _request: "alice")
+
+    router = task_routes.setup_task_routes(
+        task_scheduler=SimpleNamespace(pop_notifications=lambda owner: [])
+    )
+    clear_cache = _route_endpoint(router, "/api/tasks/{task_id}/clear-cache", "POST")
+
+    result = await clear_cache(SimpleNamespace(), "task-1")
+
+    assert result["cleared"]["sender_signatures"] == 1
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT owner, signature_text FROM sender_signatures ORDER BY owner",
+        ).fetchall()
+    finally:
+        conn.close()
+    assert rows == [("bob", "bob private sig")]
 
 
 @pytest.mark.asyncio
@@ -265,10 +520,18 @@ def test_scheduled_poller_resolves_config_with_row_owner(tmp_path, monkeypatch):
             calls.append(("append", folder))
 
     monkeypatch.setattr(email_pollers, "_get_email_config", fake_get_email_config)
-    monkeypatch.setattr(email_pollers, "_send_smtp_message", lambda *args, **kwargs: calls.append(("send", args[1], args[2])))
+    monkeypatch.setattr(
+        email_pollers,
+        "_send_smtp_message",
+        lambda *args, **kwargs: calls.append(("send", args[1], args[2])),
+    )
     monkeypatch.setattr(email_pollers, "_imap", FakeImap)
     monkeypatch.setattr(email_pollers, "_detect_sent_folder", lambda imap: "Sent")
-    monkeypatch.setattr(email_pollers, "_cleanup_compose_uploads", lambda attachments: calls.append(("cleanup", attachments)))
+    monkeypatch.setattr(
+        email_pollers,
+        "_cleanup_compose_uploads",
+        lambda attachments: calls.append(("cleanup", attachments)),
+    )
 
     result = email_pollers._scheduled_poll_once()
 

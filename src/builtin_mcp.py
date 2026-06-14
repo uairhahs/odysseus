@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import shutil
+import subprocess
 import sys
 
 from core.platform_compat import IS_WINDOWS, which_tool
@@ -224,6 +225,16 @@ async def _is_npx_package_cached(npx_path, package_spec, timeout_s=5):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+    except NotImplementedError:
+        try:
+            result = subprocess.run(
+                [npx_path, "--no-install", package_spec, "--version"],
+                capture_output=True,
+                timeout=timeout_s,
+            )
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            return False
+        return result.returncode == 0 and bool(result.stdout.strip())
     except (OSError, ValueError):
         return False
     try:

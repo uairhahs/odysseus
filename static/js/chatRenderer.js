@@ -1014,6 +1014,20 @@ export function stripToolBlocks(text) {
 }
 
 /**
+ * Plain-text payload for the message copy buttons: the reply as the renderer
+ * displays it — tool blocks and <think> reasoning stripped. dataset.raw keeps
+ * the full model output (chat.js even embeds the elapsed time into the
+ * <think> tag for reload persistence), so copying it verbatim leaks the
+ * thinking block (#3722). Falls back to the raw text when stripping leaves
+ * nothing (e.g. turns interrupted mid-thinking).
+ */
+export function copyMessageText(msgElement) {
+  const raw = msgElement.dataset.raw || msgElement.querySelector('.body')?.textContent || '';
+  const { content } = markdownModule.extractThinkingBlocks(stripToolBlocks(raw));
+  return content || raw;
+}
+
+/**
  * Build a collapsible sources box (used by both research and web search).
  */
 export function buildSourcesBox(sources, type, expanded) {
@@ -1688,97 +1702,37 @@ export function createMsgFooter(msgElement) {
 
   // Define all available actions: { id, icon, title, className, handler }
   const allActions = [
-    {
-      id: "copy",
-      icon: COPY_ICON,
-      title: "Copy message",
-      cls: "footer-copy-btn",
-      html: true,
-      handler(e) {
-        e.stopPropagation();
-        const btn = e.currentTarget;
-        uiModule.copyToClipboard(
-          msgElement.dataset.raw ||
-            msgElement.querySelector(".body")?.textContent ||
-            "",
-        );
-        btn.innerHTML = CHECK_ICON;
-        setTimeout(() => {
-          btn.innerHTML = COPY_ICON;
-        }, 1500);
-      },
-    },
-    {
-      id: "edit",
-      icon: "\u270E",
-      title: "Edit",
-      cls: "msg-action-btn",
-      handler(e) {
-        e.stopPropagation();
-        if (window.chatModule?.editAIMessage)
-          window.chatModule.editAIMessage(msgElement);
-      },
-    },
-    {
-      id: "regen",
-      icon: "\u21BB",
-      title: "Regenerate from here",
-      cls: "msg-action-btn",
-      handler(e) {
-        e.stopPropagation();
-        if (window.chatModule?.regenerateFrom)
-          window.chatModule.regenerateFrom(msgElement);
-      },
-    },
-    {
-      id: "shorten",
-      icon: "\u2702",
-      title: "Rewrite shorter",
-      cls: "msg-action-btn",
-      handler(e) {
-        e.stopPropagation();
-        if (window.chatModule?.rewriteWith)
-          window.chatModule.rewriteWith(
-            msgElement,
-            "Rewrite your last response to be shorter and more concise. Keep the key information but cut the fluff.",
-          );
-      },
-    },
-    {
-      id: "explain",
-      icon: "?",
-      title: "Explain simpler",
-      cls: "msg-action-btn",
-      handler(e) {
-        e.stopPropagation();
-        if (window.chatModule?.rewriteWith)
-          window.chatModule.rewriteWith(
-            msgElement,
-            "Explain your last response in simpler terms. Use plain language and short sentences.",
-          );
-      },
-    },
-    {
-      id: "fork",
-      icon: "\u2ADD",
-      title: "Fork conversation",
-      cls: "msg-action-btn",
-      handler(e) {
-        e.stopPropagation();
-        if (window.chatModule?.forkFrom) window.chatModule.forkFrom(msgElement);
-      },
-    },
-    {
-      id: "delete",
-      icon: "\u2715",
-      title: "Delete message",
-      cls: "msg-action-btn msg-delete-btn",
-      handler(e) {
-        e.stopPropagation();
-        if (window.chatModule?.deleteMessage)
-          window.chatModule.deleteMessage(msgElement);
-      },
-    },
+    { id: 'copy', icon: COPY_ICON, title: 'Copy message', cls: 'footer-copy-btn', html: true, handler(e) {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      uiModule.copyToClipboard(copyMessageText(msgElement));
+      btn.innerHTML = CHECK_ICON;
+      setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1500);
+    }},
+    { id: 'edit', icon: '\u270E', title: 'Edit', cls: 'msg-action-btn', handler(e) {
+      e.stopPropagation();
+      if (window.chatModule?.editAIMessage) window.chatModule.editAIMessage(msgElement);
+    }},
+    { id: 'regen', icon: '\u21BB', title: 'Regenerate from here', cls: 'msg-action-btn', handler(e) {
+      e.stopPropagation();
+      if (window.chatModule?.regenerateFrom) window.chatModule.regenerateFrom(msgElement);
+    }},
+    { id: 'shorten', icon: '\u2702', title: 'Rewrite shorter', cls: 'msg-action-btn', handler(e) {
+      e.stopPropagation();
+      if (window.chatModule?.rewriteWith) window.chatModule.rewriteWith(msgElement, 'Rewrite your last response to be shorter and more concise. Keep the key information but cut the fluff.');
+    }},
+    { id: 'explain', icon: '?', title: 'Explain simpler', cls: 'msg-action-btn', handler(e) {
+      e.stopPropagation();
+      if (window.chatModule?.rewriteWith) window.chatModule.rewriteWith(msgElement, 'Explain your last response in simpler terms. Use plain language and short sentences.');
+    }},
+    { id: 'fork', icon: '\u2ADD', title: 'Fork conversation', cls: 'msg-action-btn', handler(e) {
+      e.stopPropagation();
+      if (window.chatModule?.forkFrom) window.chatModule.forkFrom(msgElement);
+    }},
+    { id: 'delete', icon: '\u2715', title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', handler(e) {
+      e.stopPropagation();
+      if (window.chatModule?.deleteMessage) window.chatModule.deleteMessage(msgElement);
+    }},
   ];
 
   // Filter out unavailable actions (e.g. TTS when not enabled)
@@ -3108,6 +3062,7 @@ const chatRenderer = {
   updateSessionCostUI,
   roleTimestamp,
   stripToolBlocks,
+  copyMessageText,
   safeToolScreenshotSrc,
   safeDisplayImageSrc,
   buildSourcesBox,

@@ -937,26 +937,19 @@ def setup_calendar_routes() -> APIRouter:
         return await sync_caldav(owner)
 
     @router.delete("/calendars/{cal_id}")
-    async def delete_calendar(cal_id: str, request: Request):
+    async def delete_calendar(request: Request, cal_id: str):
         owner = _require_user(request)
         db = SessionLocal()
         try:
-            cal = (
-                db.query(CalendarCal)
-                .filter(
-                    CalendarCal.id == cal_id,
-                    CalendarCal.owner == owner,
-                )
-                .first()
-            )
-            if not cal:
-                raise HTTPException(404, "Calendar not found")
+            cal = _get_or_404_calendar(db, cal_id, owner)
+            db.query(CalendarEvent).filter(CalendarEvent.calendar_id == cal_id).delete()
             db.delete(cal)
             db.commit()
             return {"ok": True}
         except HTTPException:
             raise
         except Exception as e:
+            db.rollback()
             logger.error("Failed to delete calendar %s: %s", cal_id, e)
             raise HTTPException(500, "Failed to delete calendar") from e
         finally:

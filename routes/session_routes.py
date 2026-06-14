@@ -19,7 +19,12 @@ from core.database import (
 )
 from core.models import ChatMessage
 from core.session_manager import SessionManager
-from src.auth_helpers import _auth_disabled, effective_user, get_current_user
+from src.auth_helpers import (
+    _auth_disabled,
+    effective_user,
+    get_current_user,
+    owner_filter,
+)
 from src.request_models import SessionResponse
 from src.session_actions import is_session_recently_active
 
@@ -288,7 +293,7 @@ def setup_session_routes(
             last_msg_map = {}
             mode_map = {}
             msg_count_map = {}
-            rows = (
+            q = (
                 db.query(
                     DbSession.id,
                     DbSession.folder,
@@ -301,8 +306,10 @@ def setup_session_routes(
                     DbSession.mode,
                     DbSession.message_count,
                 )
-                .filter(DbSession.archived.is_(False), DbSession.owner == user)
-                .all()
+                .filter(DbSession.archived.is_(False))
+            q = owner_filter(q, DbSession, user)
+                
+            rows = q.all()
             )
             for row in rows:
                 folder_map[row.id] = row.folder
@@ -333,23 +340,20 @@ def setup_session_routes(
             from sqlalchemy import func
 
             doc_session_ids = set(
-                r[0]
-                for r in db.query(Document.session_id)
-                .filter(
-                    Document.is_active,
-                    Document.current_content.isnot(None),
-                    func.trim(Document.current_content) != "",
-                    Document.owner == user,
-                )
-                .distinct()
-                .all()
+                r[0] for r in owner_filter(
+                    db.query(Document.session_id)
+                    .filter(Document.is_active.is_(True),
+                            Document.current_content.isnot(None),
+                            func.trim(Document.current_content) != ""),
+                    Document, user)
+                .distinct().all()
             )
             img_session_ids = set(
-                r[0]
-                for r in db.query(GalleryImage.session_id)
-                .filter(GalleryImage.session_id.isnot(None), GalleryImage.owner == user)
-                .distinct()
-                .all()
+                r[0] for r in owner_filter(
+                    db.query(GalleryImage.session_id)
+                    .filter(GalleryImage.session_id.isnot(None)),
+                    GalleryImage, user)
+                .distinct().all()
             )
         finally:
             db.close()

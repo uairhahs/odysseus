@@ -234,6 +234,7 @@ def create_plain_pdf_document(
     so the existing /render-pages and /page/{n}.png endpoints can serve the
     pages without form-field overlays.
     """
+    from src.agent_tools.document_tools import set_active_document
     from src.database import (
         Document,
         DocumentVersion,
@@ -242,7 +243,6 @@ def create_plain_pdf_document(
     from src.database import (
         SessionLocal,
     )
-    from src.tool_implementations import set_active_document
 
     content = render_plain_pdf_markdown(upload_id, title, body_text)
     db = SessionLocal()
@@ -424,6 +424,7 @@ def create_form_markdown_document(
     "markdown" — the form-ness is signalled only by the front-matter pointer
     inside the content, which the export route looks for.
     """
+    from src.agent_tools.document_tools import set_active_document
     from src.database import (
         Document,
         DocumentVersion,
@@ -432,7 +433,6 @@ def create_form_markdown_document(
     from src.database import (
         SessionLocal,
     )
-    from src.tool_implementations import set_active_document
 
     content = render_form_as_markdown(fields, upload_id, title, intro_text=intro_text)
     db = SessionLocal()

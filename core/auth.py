@@ -54,25 +54,29 @@ ADMIN_PRIVILEGES["allowed_models_restricted"] = False
 # backwards for this sentinel.
 ADMIN_PRIVILEGES["block_all_models"] = False
 
+from src.owner_identity import RESERVED_AUTH_USERNAMES
 
 DEFAULT_AUTH_PATH = AUTH_FILE
 TOKEN_TTL = 60 * 60 * 24 * 7  # 7 days
 
-# Usernames the auth + middleware layer reserve as internal "synthetic owner"
-# sentinels; they must never belong to a real account. The most dangerous is
-# "internal-tool": `core.middleware.require_admin` treats any request whose
-# `current_user == "internal-tool"` as the in-process tool loopback and grants
-# admin, and because the cookie auth path sets `current_user` to the raw
-# username, an account literally named "internal-tool" would be silently
-# treated as an admin by every `require_admin`-gated route. "api" collides with
-# the bearer-token owner-attribution sentinel. "demo"/"system" round out the
-# synthetic-owner set the rest of the codebase already special-cases (see
-# `_SYNTHETIC_OWNERS` in routes/assistant_routes.py and the matching guards in
-# src/task_scheduler.py / routes/research_routes.py) — a real account with one
-# of those names would be denied an assistant and inconsistently owner-scoped.
-# Refuse to create or rename into any of them so the sentinels can't be
-# impersonated. (Keep this in sync with that synthetic-owner set.)
-RESERVED_USERNAMES = frozenset({"internal-tool", "api", "demo", "system"})
+# Usernames the auth + middleware layer reserves for request sentinels and
+# internal storage owners; they must never belong to a real login account.
+# "internal-tool" is the most dangerous because `core.middleware.require_admin`
+# treats it as the in-process tool loopback. "api" collides with bearer-token
+# attribution. "demo"/"system" are synthetic owners already special-cased by
+# scheduler/assistant/research paths. The Default/Local owner is a storage
+# bucket for explicit auth-disabled no-login mode, not a login username.
+RESERVED_USERNAMES = frozenset(RESERVED_AUTH_USERNAMES)
+
+
+def normalize_known_username(
+    users: Dict[str, Any], username: str | None
+) -> Optional[str]:
+    """Return a normalized username only when it exists in the auth user map."""
+    key = str(username or "").strip().lower()
+    if not key or key not in users:
+        return None
+    return key
 
 
 def _hash_password(password: str) -> str:
@@ -104,6 +108,7 @@ class AuthManager:
         self._load()
         self._load_sessions()
         self._migrate_single_user()
+        self._drop_reserved_loaded_users()
         self._migrate_legacy_admin_role()
 
     def _load(self):
@@ -157,7 +162,15 @@ class AuthManager:
     def _migrate_single_user(self):
         """Migrate old single-user format to multi-user format."""
         if "password_hash" in self._config and "users" not in self._config:
-            old_user = self._config.get("username", "admin")
+            old_user = (
+                str(self._config.get("username", "admin") or "admin").strip().lower()
+            )
+            if old_user in RESERVED_USERNAMES:
+                logger.warning(
+                    "Migrating legacy single-user reserved username '%s' to 'admin'",
+                    old_user,
+                )
+                old_user = "admin"
             old_hash = self._config["password_hash"]
             self._config = {
                 "users": {
@@ -170,6 +183,30 @@ class AuthManager:
             }
             self._save()
             logger.info(f"Migrated single-user auth to multi-user (admin: {old_user})")
+
+    def _drop_reserved_loaded_users(self):
+        """Fail closed for legacy/manual auth rows that collide with sentinels."""
+        users = self._config.get("users")
+        if not isinstance(users, dict):
+            return
+        normalized = {}
+        removed = []
+        for username, data in users.items():
+            key = str(username or "").strip().lower()
+            if not key:
+                continue
+            if key in RESERVED_USERNAMES:
+                removed.append(key)
+                continue
+            normalized[key] = data
+        if removed or normalized != users:
+            self._config["users"] = normalized
+            self._save()
+        if removed:
+            logger.warning(
+                "Removed reserved username(s) from auth config: %s",
+                ", ".join(sorted(set(removed))),
+            )
 
     def _migrate_legacy_admin_role(self):
         """Normalize setup.py's old role='admin' marker to is_admin=True."""
@@ -254,6 +291,27 @@ class AuthManager:
             if username == requesting_user:
                 return False
             if not self.users.get(requesting_user, {}).get("is_admin"):
+                return False
+            # Revoke API bearer tokens before removing the auth row. The bearer
+            # path authenticates from ApiToken rows and does not require the
+            # owner to still exist, so a successful delete must not leave active
+            # rows behind. If the token store is unavailable, fail closed and
+            # keep the user/session state intact so the admin can retry.
+            try:
+                from core.database import ApiToken, get_db_session
+
+                with get_db_session() as db:
+                    removed_tokens = (
+                        db.query(ApiToken).filter(ApiToken.owner == username).delete()
+                    )
+                if removed_tokens:
+                    logger.info(
+                        f"Revoked {removed_tokens} API token(s) owned by deleted user '{username}'"
+                    )
+            except Exception:
+                logger.warning(
+                    f"Failed to revoke API tokens for deleted user '{username}'"
+                )
                 return False
             del self._config["users"][username]
             self._save()

@@ -462,9 +462,9 @@ def _update_session_history(
     )
     new_history = system_prefix + [summary_msg] + recent_history
     try:
-        from core import models as _core_models
+        from core.models import get_session_manager_instance
 
-        manager = getattr(_core_models, "_session_manager", None)
+        manager = get_session_manager_instance()
     except Exception:
         manager = None
     if manager and getattr(session, "id", None):

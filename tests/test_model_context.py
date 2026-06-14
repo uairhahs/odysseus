@@ -6,7 +6,7 @@ import types
 from sqlalchemy.sql.elements import False_, Null, True_
 
 import src.model_context as model_context
-from src.model_context import _is_local_endpoint, _lookup_known, estimate_tokens
+from src.model_context import _lookup_known, estimate_tokens, is_local_endpoint
 
 
 def _unwrap_sqla(value):
@@ -91,22 +91,20 @@ def _install_endpoint_db(monkeypatch, rows):
 
 class TestIsLocalEndpoint:
     def test_localhost(self):
-        assert _is_local_endpoint("http://localhost:5000/v1/chat/completions") is True
+        assert is_local_endpoint("http://localhost:5000/v1/chat/completions") is True
 
     def test_loopback_ipv4(self):
-        assert _is_local_endpoint("http://127.0.0.1:8080/v1/chat/completions") is True
+        assert is_local_endpoint("http://127.0.0.1:8080/v1/chat/completions") is True
 
     def test_private_192_168(self):
-        assert (
-            _is_local_endpoint("http://192.168.1.1:11434/v1/chat/completions") is True
-        )
+        assert is_local_endpoint("http://192.168.1.1:11434/v1/chat/completions") is True
 
     def test_private_10(self):
-        assert _is_local_endpoint("http://10.0.0.5:8000/v1/chat/completions") is True
+        assert is_local_endpoint("http://10.0.0.5:8000/v1/chat/completions") is True
 
     def test_tailscale_100(self):
         # 100.64.0.0/10 is the CGNAT range Tailscale uses.
-        assert _is_local_endpoint("http://100.64.0.1:5000/v1/chat/completions") is True
+        assert is_local_endpoint("http://100.64.0.1:5000/v1/chat/completions") is True
 
     def test_configured_tailscale_proxy_is_remote(self, monkeypatch):
         _install_endpoint_db(
@@ -122,21 +120,21 @@ class TestIsLocalEndpoint:
         )
 
         assert (
-            _is_local_endpoint("http://100.117.136.97:34521/v1/chat/completions")
+            is_local_endpoint("http://100.117.136.97:34521/v1/chat/completions")
             is False
         )
 
     def test_openai_is_remote(self):
-        assert _is_local_endpoint("https://api.openai.com/v1/chat/completions") is False
+        assert is_local_endpoint("https://api.openai.com/v1/chat/completions") is False
 
     def test_anthropic_is_remote(self):
-        assert _is_local_endpoint("https://api.anthropic.com/v1/messages") is False
+        assert is_local_endpoint("https://api.anthropic.com/v1/messages") is False
 
     def test_empty_url(self):
-        assert _is_local_endpoint("") is False
+        assert is_local_endpoint("") is False
 
     def test_malformed_url(self):
-        assert _is_local_endpoint("not-a-url") is False
+        assert is_local_endpoint("not-a-url") is False
 
 
 class TestEstimateTokens:

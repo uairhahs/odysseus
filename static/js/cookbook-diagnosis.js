@@ -695,7 +695,7 @@ export const ERROR_PATTERNS = [
           _launchServeTask(
             "repair-kernels",
             "pip-update",
-            `(uv pip install kernels<0.15 || python3 -m pip install --user --break-system-packages kernels<0.15)`,
+            `(uv pip install kernels<0.15 || python3 -m pip install --user --break-system-packages "kernels<0.15")`,
           );
         },
       },

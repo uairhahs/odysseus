@@ -1658,13 +1658,16 @@ class TaskScheduler:
             db.commit()
             if self._session_manager:
                 try:
-                    self._session_manager.sessions[session_id] = (
-                        self._session_manager._db_to_session(sess)
+                    self._session_manager.ensure_task_session(
+                        session_id,
+                        f"[Task] {task.name}",
+                        endpoint_url,
+                        model,
+                        owner=task.owner,
+                        task=task,
                     )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to add session {session_id} to session manager: {e}"
-                    )
+                except Exception:
+                    pass
 
         # For assistant check-ins: call each tool directly and post results
         # as separate messages. More reliable than hoping the model calls tools.
@@ -1784,6 +1787,7 @@ class TaskScheduler:
         """
         from core.database import ChatMessage, CrewMember
         from core.database import Session as DbSession
+        from core.models import ChatMessage as MemChatMessage
 
         output = task.output_target or "session"
         if (
@@ -1845,12 +1849,17 @@ class TaskScheduler:
             db.commit()
             if self._session_manager:
                 try:
-                    self._session_manager.sessions[session_id] = (
-                        self._session_manager._db_to_session(sess)
+                    self._session_manager.ensure_task_session(
+                        session_id,
+                        f"[Task] {task.name}",
+                        endpoint_url,
+                        model_name,
+                        owner=task.owner,
+                        task=task,
                     )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to add session {session_id} to session manager: {e}"
+                        "Failed to ensure task session for task %s: %s", task.id, e
                     )
 
         meta = {}
@@ -1858,27 +1867,52 @@ class TaskScheduler:
             meta["model"] = model_name
         if crew and crew.is_default_assistant:
             meta.update({"source": "cron", "task_id": task.id, "task_name": task.name})
-        msg_meta = json.dumps(meta)
-        user_content = task.prompt or f"[Task] {task.name}"
-        user_msg = ChatMessage(
-            id=str(uuid.uuid4()),
-            session_id=session_id,
-            role="user",
-            content=user_content,
-            timestamp=_now(),
-            meta_data=msg_meta,
-        )
-        assistant_msg = ChatMessage(
-            id=str(uuid.uuid4()),
-            session_id=session_id,
-            role="assistant",
-            content=result or "",
-            timestamp=_now(),
-            meta_data=msg_meta,
-        )
-        db.add(user_msg)
-        db.add(assistant_msg)
-        db.commit()
+
+        # Use SessionManager for persistence so in-memory cache stays in sync
+        if self._session_manager and session_id:
+            try:
+                self._session_manager.add_message(
+                    session_id,
+                    MemChatMessage(
+                        "user",
+                        task.prompt or f"[Task] {task.name}",
+                        metadata=dict(meta),
+                    ),
+                )
+                self._session_manager.add_message(
+                    session_id,
+                    MemChatMessage(
+                        "assistant",
+                        result or "",
+                        metadata=dict(meta),
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to deliver task %s through SessionManager", task.id
+                )
+        else:
+            # Fallback: raw DB write (no session manager available)
+            msg_meta = json.dumps(meta)
+            user_msg = ChatMessage(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                role="user",
+                content=task.prompt or f"[Task] {task.name}",
+                timestamp=_now(),
+                meta_data=msg_meta,
+            )
+            assistant_msg = ChatMessage(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                role="assistant",
+                content=result or "",
+                timestamp=_now(),
+                meta_data=msg_meta,
+            )
+            db.add(user_msg)
+            db.add(assistant_msg)
+            db.commit()
 
         if self._session_manager:
             try:

@@ -226,6 +226,14 @@ if os.name == "nt":
 # utf-8-sig reads plain UTF-8 (no BOM) identically, so this is safe everywhere.
 load_dotenv(encoding="utf-8-sig")
 
+
+from starlette.middleware.gzip import GZipMiddleware
+
+from core.auth import normalize_known_username
+
+# Core imports
+from src.owner_identity import auth_disabled
+
 # ========= LOGGING =========
 logging.basicConfig(
     level=logging.INFO,
@@ -267,6 +275,16 @@ app.add_middleware(
         "X-TZ-Offset",
     ],
 )
+
+# ========= RESPONSE COMPRESSION (gzip) =========
+# The frontend's text assets (style.css, index.html, the JS bundles) shipped
+# uncompressed on every cold load. gzip cuts CSS/JS/HTML by ~75-85% on the wire
+# with no behavioural change. Starlette's GZipMiddleware excludes
+# `text/event-stream` by default, so the SSE streams (chat, shell, research,
+# model-probe — all served with media_type="text/event-stream") are never
+# compressed or buffered; only complete bodies over minimum_size are. The
+# security-header middleware composes cleanly on top.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # ========= SECURITY HEADERS MIDDLEWARE =========
 app.add_middleware(SecurityHeadersMiddleware)
@@ -315,7 +333,7 @@ app.add_middleware(_RequestTimeoutMiddleware)
 
 auth_manager = AuthManager()
 app.state.auth_manager = auth_manager
-AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() != "false"
+AUTH_ENABLED = not auth_disabled()
 LOCALHOST_BYPASS = os.getenv("LOCALHOST_BYPASS", "false").lower() == "true"
 if LOCALHOST_BYPASS:
     logger.warning(
@@ -381,14 +399,22 @@ if AUTH_ENABLED:
         try:
             rows = db.query(ApiToken).filter(ApiToken.is_active).all()
             for r in rows:
+                owner_key = normalize_known_username(
+                    auth_manager.users, getattr(r, "owner", None)
+                )
+                if not owner_key:
+                    logger.warning(
+                        "Ignoring active API token '%s' for unknown auth user '%s'",
+                        getattr(r, "id", ""),
+                        getattr(r, "owner", None),
+                    )
+                    continue
                 scopes = [
                     s.strip()
                     for s in (getattr(r, "scopes", "") or "chat").split(",")
                     if s.strip()
                 ]
-                new_map[r.token_prefix].append(
-                    (r.id, r.token_hash, getattr(r, "owner", None), scopes)
-                )
+                new_map[r.token_prefix].append((r.id, r.token_hash, owner_key, scopes))
         finally:
             db.close()
         _token_cache.clear()
@@ -685,14 +711,21 @@ components = initialize_managers(BASE_DIR, rag_manager)
 session_manager = components["session_manager"]
 
 _set_asst_sm(session_manager)
+# Set the global session manager singleton (used by core.models.Session.add_message)
+from core.models import set_session_manager_instance
+
+set_session_manager_instance(session_manager)
+app.state.session_manager = session_manager
 memory_manager = components["memory_manager"]
 memory_vector = components.get("memory_vector")
 upload_handler = components["upload_handler"]
+app.state.upload_handler = upload_handler
 personal_docs_mgr = components["personal_docs_manager"]
 api_key_manager = components["api_key_manager"]
 preset_manager = components["preset_manager"]
 chat_processor = components["chat_processor"]
 research_handler = components["research_handler"]
+app.state.research_handler = research_handler
 chat_handler = components["chat_handler"]
 model_discovery = components["model_discovery"]
 skills_manager = components["skills_manager"]
@@ -797,7 +830,9 @@ app.include_router(setup_search_routes(config))
 app.include_router(setup_preset_routes(preset_manager))
 
 app.include_router(
-    setup_diagnostics_routes(rag_manager, rag_available, research_handler)
+    setup_diagnostics_routes(
+        rag_manager, rag_available, research_handler, memory_vector
+    )
 )
 
 
@@ -851,6 +886,10 @@ app.include_router(calendar_router)
 app.include_router(setup_shell_routes())
 
 app.include_router(cookbook_router)
+
+from routes.workspace_routes import setup_workspace_routes
+
+app.include_router(setup_workspace_routes())
 
 app.include_router(setup_hwfit_routes())
 
@@ -1151,16 +1190,22 @@ async def _startup_event():
     # Warmup: ping all known LLM endpoints to prime connections
     async def _warmup_endpoints():
         try:
-            endpoints = model_discovery.get_endpoints() if model_discovery else []
-            for ep in endpoints[:5]:
-                url = ep.get("url", "").replace("/chat/completions", "/models")
-                if url:
-                    try:
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            await client.get(url)
-                        logger.info(f"Warmup ping OK: {url}")
-                    except Exception as e:
-                        logger.debug(f"Warmup ping failed for endpoint: {e}")
+            # model_discovery has no get_endpoints(); that call raised
+            # AttributeError every run and silently disabled warmup/keepalive.
+            # Resolve the /models probe URLs via the real discovery API, off the
+            # event loop since discovery does a blocking port scan.
+            urls = (
+                await asyncio.to_thread(model_discovery.warmup_ping_urls)
+                if model_discovery
+                else []
+            )
+            for url in urls:
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        await client.get(url)
+                    logger.info(f"Warmup ping OK: {url}")
+                except Exception as e:
+                    logger.debug(f"Warmup ping failed for endpoint: {e}")
         except Exception as e:
             logger.debug(f"Warmup ping skipped: {e}")
 

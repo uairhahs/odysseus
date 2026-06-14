@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
 from core.database import GalleryImage
+from src.auth_helpers import _auth_disabled
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -141,19 +142,18 @@ def _image_to_dict(img: GalleryImage, session_name: str = None) -> Dict[str, Any
     }
 
 
-def _owner_filter(q, user):
+def _owner_filter(q, user, model_cls=GalleryImage):
     """Apply owner filtering to a gallery query.
 
-    When auth is disabled (single-user mode) get_current_user returns None
-    and there is no per-user scoping. The main library list and stats already
-    treat None as "show everything" (`if user is not None`), so this helper
-    must too — otherwise the tag/model filter sidebars come back empty and the
-    tag-cleanup endpoints (clear-user-tags, clear-ai-tags, dedupe-tags)
-    silently affect zero rows in the most common self-hosted deployment.
+    ``get_current_user`` returns None both in auth-disabled single-user mode
+    and when auth is enabled but no current user was resolved. Preserve the
+    single-user behavior, but fail closed for auth-enabled null-user states.
     """
-    if user is None:
+    if user is not None:
+        return q.filter(model_cls.owner == user)
+    if _auth_disabled():
         return q
-    return q.filter(GalleryImage.owner == user)
+    return q.filter(False)
 
 
 def _human_size(nbytes):

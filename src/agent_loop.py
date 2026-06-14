@@ -28,13 +28,13 @@ from src.agent_tools import (
     set_active_model,
     strip_tool_blocks,
 )
-from src.llm_core import _is_ollama_native_url, stream_llm_with_fallback
+from src.llm_core import _is_ollama_native_url, stream_llm, stream_llm_with_fallback
 from src.model_context import estimate_tokens
 from src.prompt_security import untrusted_context_message
 from src.settings import get_setting
 from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
-from src.tool_utils import get_mcp_manager
+from src.tool_utils import _truncate, get_mcp_manager
 
 logger = logging.getLogger(__name__)
 # log only warnings and errors by default since some of these functions are best-effort
@@ -323,7 +323,7 @@ _DOMAIN_TOOL_MAP = {
         "grep",
         "glob",
         "ls",
-    },
+    , "get_workspace"},
     "settings": {
         "manage_settings",
         "manage_endpoints",
@@ -378,6 +378,7 @@ NEVER pipe multi-line Python through `python -c "..."` — shell quoting eats re
 <python code>
 ```
 Execute Python code. Use for computation, data processing, scripting. NOT for writing code for the user (use create_document for that). Same sandbox limits as bash — no TTY, no GUI, no `input()`; for anything the user should interact with, generate a single HTML file with inline JS instead.
+Prefer a dedicated tool whenever one fits the job (reading, searching, or writing files); use python only for computation/processing no dedicated tool covers - not for reading or writing files.
 Do NOT use Python/requests for web lookup/search/latest/current requests when `web_search` or `web_fetch` is available.""",
     "web_search": """\
 ```web_search
@@ -410,6 +411,11 @@ Write content to a file. First line is the path, rest is the content.""",
 {"path": "<file path>", "old_string": "<exact text to replace>", "new_string": "<replacement>", "replace_all": false}
 ```
 Edit an EXISTING file by exact string replacement. PREFER this over bash (sed/echo/redirects) for changing files — it shows a before/after diff. `old_string` must match the file exactly and be unique unless `replace_all` is true. Use write_file to create a new file.""",
+
+    "get_workspace": """\
+```get_workspace
+```
+Return the absolute path of the active workspace folder. File tools are CONFINED to it (paths can be RELATIVE to it); the shell starts there (cwd) but is NOT sandboxed. Call this first when the user says "the project"/"the code"/"this folder" without a path, instead of asking them. No arguments.""",
     "create_document": """\
 ```create_document
 <title>
@@ -1185,7 +1191,7 @@ def _build_system_prompt(
         _rt_key,
         compact,
         _ov_sig,
-        suppress_local_context,
+        owner, suppress_local_context,
     )
     if (
         _cached_base_prompt
@@ -1202,7 +1208,7 @@ def _build_system_prompt(
             needs_admin,
             relevant_tools,
             mcp_disabled_map=mcp_disabled_map,
-            compact=compact,
+            compact=compact, owner=owner,
             suppress_local_context=suppress_local_context,
         )
     else:
@@ -1213,6 +1219,7 @@ def _build_system_prompt(
             relevant_tools,
             mcp_disabled_map=mcp_disabled_map,
             compact=compact,
+            owner=owner,
             suppress_local_context=suppress_local_context,
         )
         if not active_document:
@@ -1228,16 +1235,21 @@ def _build_system_prompt(
 
     # Current date/time for every agent request. This is user-local when the
     # browser provided timezone headers, with a server-local fallback.
+    #
+    # IMPORTANT: this is intentionally NOT prepended into agent_prompt (the
+    # system message) anymore. Its text changes every minute, and local
+    # OpenAI-compatible backends (llama.cpp / LM Studio) key their KV-cache
+    # prefix off the system message byte-for-byte — mixing ever-changing
+    # timestamp text into the (already large, tool-laden) agent system prompt
+    # would invalidate the cached prefix on every single request, forcing a
+    # full prompt re-evaluation each turn (issue #2927). It's built here as a
+    # standalone *user*-role message and inserted near the end of the array,
+    # right alongside _doc_message / _skills_message, below.
+    _datetime_message = None
     try:
-        from src.user_time import current_datetime_prompt
-
-        agent_prompt = current_datetime_prompt() + agent_prompt
-    except Exception as e:
-        logger.warning(
-            "Failed to get current datetime for prompt: %s \n using fallback",
-            e,
-            exc_info=True,
-        )
+        from src.user_time import current_datetime_context_message
+        _datetime_message = current_datetime_context_message()
+    except Exception:
         pass
 
     # Document context is kept as a SEPARATE message (not merged into the tool
@@ -1649,6 +1661,9 @@ def _build_system_prompt(
         last_user_idx += 1  # the document message is now at last_user_idx
     if _skills_message:
         merged.insert(last_user_idx, _skills_message)
+        last_user_idx += 1
+    if _datetime_message:
+        merged.insert(last_user_idx, _datetime_message)
 
     return merged, mcp_schemas
 
@@ -1679,6 +1694,7 @@ def _build_base_prompt(
     relevant_tools=None,
     mcp_disabled_map=None,
     compact: bool = False,
+    owner: Optional[str] = None,
     suppress_local_context: bool = False,
 ):
     """Build the agent prompt with only relevant tools included.
@@ -1742,7 +1758,7 @@ def _build_base_prompt(
 
             _sm = SkillsManager(DATA_DIR)
             active_tools = list(set(TOOL_SECTIONS.keys()) - set(disabled or []))
-            skill_idx = _sm.index_for(owner=None, active_toolsets=active_tools)
+            skill_idx = _sm.index_for(owner=owner, active_toolsets=active_tools)
             if skill_idx:
                 lines = [
                     "## Available skills",
@@ -2198,10 +2214,10 @@ async def stream_agent_loop(
     owner: Optional[str] = None,
     relevant_tools: Optional[Set[str]] = None,
     fallbacks: Optional[List[tuple]] = None,
-    workspace: Optional[str] = None,
     plan_mode: bool = False,
     approved_plan: Optional[str] = None,
     tool_policy: Optional[ToolPolicy] = None,
+    workspace: Optional[str] = None,
     _is_teacher_run: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
@@ -2274,9 +2290,17 @@ async def stream_agent_loop(
         from src.tool_index import ALWAYS_AVAILABLE
 
         _relevant_tools = set(ALWAYS_AVAILABLE)
-        logger.info(
-            "[tool-rag] Low-signal agent message; skipping retrieval and using always-available tools only"
-        )
+        if workspace:
+            # An active workspace IS the file-work signal: a vague "look at the
+            # project" means explore this folder. Surface only the READ-ONLY file
+            # tools (intersection with the plan-mode read-only allowlist) so the
+            # agent can investigate; write/shell tools stay out until the request
+            # actually calls for them (RAG retrieval adds those on a real ask).
+            from src.tool_security import PLAN_MODE_READONLY_TOOLS
+            _relevant_tools |= (_DOMAIN_TOOL_MAP["files"] & PLAN_MODE_READONLY_TOOLS)
+            logger.info("[tool-rag] Low-signal but workspace active; including read-only file tools")
+        else:
+            logger.info("[tool-rag] Low-signal agent message; skipping retrieval and using always-available tools only")
     if not guide_only and not _relevant_tools:
         try:
             from src.tool_index import ALWAYS_AVAILABLE, get_tool_index
@@ -2472,29 +2496,6 @@ async def stream_agent_loop(
         owner=owner,
         suppress_local_context=guide_only,
     )
-    if workspace and not guide_only:
-        # PREPEND (not append) so it dominates the large base prompt — appended
-        # at the end, small models ignored it and asked the user for code. The
-        # folder IS the project; the agent must explore it, not ask.
-        _ws_note = (
-            f"## ACTIVE WORKSPACE — READ FIRST\n"
-            f"The user is working in this folder: {workspace}\n"
-            f"It IS the project. bash/python run with cwd set here and "
-            f"read_file/write_file are confined to it (paths outside are rejected).\n"
-            f'When the user says "the code" / "this project" / "the workspace" '
-            f"or asks to review/find/edit something WITHOUT a path, they mean THIS "
-            f"folder. Do NOT ask the user for code or a path, and do NOT read a file "
-            f'literally named "workspace". ALWAYS start by exploring it yourself: '
-            f"run `bash` → `git ls-files` (or `ls -R`) to see the files, then "
-            f"read_file the relevant ones by path RELATIVE to the workspace."
-        )
-        if messages and messages[0].get("role") == "system":
-            messages[0]["content"] = (
-                _ws_note + "\n\n" + (messages[0].get("content") or "")
-            )
-        else:
-            messages.insert(0, {"role": "system", "content": _ws_note})
-        logger.info("[workspace] active for this turn: %s", workspace)
     if plan_mode and not guide_only:
         # Steer the model to investigate-then-propose. Hard tool gating handles
         # every write path except shell; this directive is what keeps the
@@ -2747,6 +2748,7 @@ async def stream_agent_loop(
             prompt_type=prompt_type if round_num == 1 else None,
             tools=all_tool_schemas if all_tool_schemas else None,
             timeout=agent_stream_timeout,
+            session_id=session_id,
         ):
             if time.time() > _round_deadline:
                 logger.warning(
@@ -3467,20 +3469,20 @@ async def stream_agent_loop(
                 # On a bash/python timeout the result carries error + (often
                 # empty) stdout/stderr; fall back to the error so the "timed
                 # out" reason reaches the UI instead of a blank result.
-                output_text = (
-                    result["stdout"] or result["stderr"] or result.get("error", "")
-                )[:2000]
+                raw = result["stdout"] or result["stderr"] or result.get("error", "")
+                output_text = _truncate(raw)
             elif "output" in result:
                 # bash / python canonical result: {"output": ..., "exit_code": ...}
-                output_text = (result["output"] or "")[:2000]
+                raw = result["output"] or ""
+                output_text = _truncate(raw)
             elif "response" in result:
                 # AI interaction tools (chat_with_model, send_to_session)
                 label = result.get("model", result.get("session_name", "AI"))
-                output_text = f"{label}: {result['response']}"[:4000]
+                output_text = _truncate(f"{label}: {result['response']}")
             elif "content" in result:
-                output_text = result["content"][:2000]
+                output_text = _truncate(result["content"])
             elif "results" in result:
-                output_text = result["results"][:4000]
+                output_text = _truncate(result["results"])
             elif "session_id" in result and "name" in result:
                 output_text = (
                     f"Session created: {result['name']} (id: {result['session_id']})"
@@ -3492,7 +3494,7 @@ async def stream_agent_loop(
                     else f"Error: {result.get('error', '')}"
                 )
             elif "error" in result:
-                output_text = result["error"][:2000]
+                output_text = _truncate(result["error"])
 
             # Emit tool_output (include ui_event data if present)
             tool_output_data = {

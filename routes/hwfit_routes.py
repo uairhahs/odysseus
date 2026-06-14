@@ -1,13 +1,31 @@
 import re
 from copy import deepcopy
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+
+from routes._validators import validate_remote_host, validate_ssh_port
 
 # Backends the manual hardware simulator accepts. Must stay a subset of what
 # services.hwfit.fit understands so a simulated box ranks like a real one:
 # "metal" routes through the Apple-Silicon path (GGUF-only, llama.cpp/Ollama),
 # the CPU backends through the RAM/offload path, cuda/rocm through vLLM.
 _MANUAL_BACKENDS = {"cuda", "rocm", "metal", "cpu_x86", "cpu_arm"}
+
+
+def _validate_detection_target(host: str = "", ssh_port: str = "") -> tuple[str, str]:
+    host_value = validate_remote_host(host) or ""
+    port_value = validate_ssh_port(ssh_port) or ""
+    if port_value and not host_value:
+        raise HTTPException(400, "ssh_port requires host")
+    return host_value, port_value
+
+
+def _validate_detection_target(host: str = "", ssh_port: str = "") -> tuple[str, str]:
+    host_value = validate_remote_host(host) or ""
+    port_value = validate_ssh_port(ssh_port) or ""
+    if port_value and not host_value:
+        raise HTTPException(400, "ssh_port requires host")
+    return host_value, port_value
 
 
 def _apply_manual_hardware(
@@ -115,6 +133,7 @@ def setup_hwfit_routes():
         fresh=true bypasses the per-host cache (the Rescan button)."""
         from services.hwfit.hardware import detect_system
 
+        host, ssh_port = _validate_detection_target(host, ssh_port)
         return detect_system(
             host=host, ssh_port=ssh_port, platform=platform, fresh=fresh
         )
@@ -152,6 +171,7 @@ def setup_hwfit_routes():
         from services.hwfit.hardware import detect_system
         from services.hwfit.models import get_models, model_catalog_path
 
+        host, ssh_port = _validate_detection_target(host, ssh_port)
         system = deepcopy(
             detect_system(host=host, ssh_port=ssh_port, platform=platform, fresh=fresh)
         )
@@ -208,8 +228,14 @@ def setup_hwfit_routes():
             system["gpu_name"] = g["name"]
             system["active_group"] = {**g, "use_count": n}
 
-        if gpu_count != "":
-            n = int(gpu_count)
+        # Parse the optional count defensively (matches the gpu_group guard
+        # above): a non-numeric query param previously raised ValueError ->
+        # HTTP 500. A malformed value is ignored, same as omitting it.
+        try:
+            n = int(gpu_count) if gpu_count != "" else None
+        except ValueError:
+            n = None
+        if n is not None:
             if n == 0:
                 # RAM-only mode: rank against system memory, offload allowed.
                 system["has_gpu"] = False
@@ -284,6 +310,7 @@ def setup_hwfit_routes():
         from services.hwfit.models import get_models
         from services.hwfit.profiles import compute_serve_profiles
 
+        host, ssh_port = _validate_detection_target(host, ssh_port)
         system = detect_system(
             host=host, ssh_port=ssh_port, platform=platform, fresh=fresh
         )
@@ -360,6 +387,7 @@ def setup_hwfit_routes():
         from services.hwfit.hardware import detect_system
         from services.hwfit.image_models import rank_image_models
 
+        host, ssh_port = _validate_detection_target(host, ssh_port)
         system = deepcopy(
             detect_system(host=host, ssh_port=ssh_port, platform=platform, fresh=fresh)
         )

@@ -16,6 +16,7 @@ let _sshCmd;
 let _getPort;
 let _sshPrefix;
 let _serverByVal;
+let _serverByVal;
 let _getPlatform;
 let _isWindows;
 let _isMetal;
@@ -142,6 +143,7 @@ function _selectedServeTarget(panel) {
     port: host ? _getPort(host) || server?.port || "" : "",
     venv,
     platform: server?.platform || _envState.platform || "",
+    platform: server?.platform || _envState.platform || '',
     label,
   };
 }
@@ -2713,9 +2715,7 @@ async function _deleteCachedModel(
 function _retryCachedModel(repo, m) {
   const payload = { repo_id: repo };
   if (_envState.hfToken) payload.hf_token = _envState.hfToken;
-  const _target = _selectedServeTarget(
-    document.getElementById("cookbook-modal") || document,
-  );
+  const _target = _selectedServeTarget(document.getElementById('cookbook-modal') || document);
   if (_target.host) {
     payload.remote_host = _target.host;
     if (_target.port) payload.ssh_port = _target.port;
