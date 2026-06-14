@@ -21,6 +21,15 @@ import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from src.constants import DATA_DIR, MAX_DIFF_LINES, MAX_OUTPUT_CHARS, MAX_READ_CHARS
+
+# Import document handlers at the module level to populate TOOL_HANDLERS
+from src.tool_implementations import (
+    do_create_document,
+    do_edit_document,
+    do_manage_documents,
+    do_suggest_document,
+    do_update_document,
+)
 from src.tool_policy import ToolPolicy
 from src.tool_security import is_public_blocked_tool, owner_is_admin_or_single_user
 from src.tool_utils import _truncate, get_mcp_manager
@@ -31,6 +40,54 @@ from src.tool_utils import _truncate, get_mcp_manager
 # Using this as cwd and HOME prevents the agent from silently creating files
 # in ephemeral container layers that are lost on the next rebuild.
 _AGENT_WORKDIR = DATA_DIR
+
+# ---------------------------------------------------------------------------
+# Document Tool Registry
+# ---------------------------------------------------------------------------
+# Used by _document_tool_dispatch to route document operations securely,
+# ensuring owner context is preserved.
+
+TOOL_HANDLERS: Dict[str, Callable] = {
+    "create_document": do_create_document,
+    "update_document": do_update_document,
+    "edit_document": do_edit_document,
+    "suggest_document": do_suggest_document,
+    "manage_documents": do_manage_documents,
+}
+
+
+async def _document_tool_dispatch(
+    tool: str, content: str, session_id: Optional[str], owner: Optional[str]
+) -> Tuple[str, Dict]:
+    """Dispatch document-related tools, ensuring owner context is preserved."""
+    handler = TOOL_HANDLERS.get(tool)
+    if not handler:
+        return f"unknown: {tool}", {
+            "error": f"Unknown document tool: {tool}",
+            "exit_code": 1,
+        }
+
+    if tool == "create_document":
+        title = content.split("\n")[0].strip()[:60]
+        desc = f"create_document: {title}"
+        result = await handler(content, session_id=session_id, owner=owner)
+    elif tool == "update_document":
+        desc = f"update_document: {content.split(chr(10))[0][:60]}"
+        result = await handler(content, owner=owner)
+    elif tool == "edit_document":
+        result = await handler(content, owner=owner)
+        desc = f"edit_document: {result.get('title', '')}"
+    elif tool == "suggest_document":
+        result = await handler(content, owner=owner)
+        desc = f"suggest_document: {result.get('count', 0)} suggestions"
+    elif tool == "manage_documents":
+        desc = "manage_documents"
+        result = await handler(content, owner=owner)
+    else:
+        desc = f"{tool}"
+        result = await handler(content, owner=owner)
+
+    return desc, result
 
 
 def _unified_diff(old: str, new: str, path: str) -> Optional[Dict[str, Any]]:

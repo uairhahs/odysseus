@@ -1,20 +1,10 @@
 """Regression guards for same-host Cookbook SSH server profiles (#3337)."""
 
-import re
 from pathlib import Path
 
+from tests.helpers.linter_compat import _norm
+
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace, quote style, and formatting anomalies."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    s = s.replace(",)", ")")
-    s = s.replace(",]", "]")
-    return s.strip()
 
 
 # Read and normalize the sources at module initialization

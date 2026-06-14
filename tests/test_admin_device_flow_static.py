@@ -1,24 +1,14 @@
 """Regression tests for the Admin Panel device auth flow."""
 
-import re
 from pathlib import Path
+
+from tests.helpers.linter_compat import _norm
 
 _REPO = Path(__file__).resolve().parent.parent
 
 # Adjust the path to index.html if it lives in a different directory in your project
 _INDEX = (_REPO / "static" / "index.html").read_text(encoding="utf-8")
 _ADMIN = (_REPO / "static" / "js" / "admin.js").read_text(encoding="utf-8")
-
-
-def _norm(s: str) -> str:
-    """Normalize whitespace, quote style, and formatting anomalies."""
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace('"', "'")
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    s = s.replace(",)", ")")
-    s = s.replace(",]", "]")
-    return s.strip()
 
 
 def _between_norm(src: str, start: str, end: str) -> str:

@@ -10,8 +10,9 @@ Fix: (1) Read from JSON body as fallback.
 """
 
 import ast
-import re
 from pathlib import Path
+
+from tests.helpers.linter_compat import _norm
 
 _CHAT_ROUTES = Path(__file__).resolve().parent.parent / "routes" / "chat_routes.py"
 
@@ -212,32 +213,25 @@ _CHAT_JS = Path(__file__).resolve().parent.parent / "static" / "js" / "chat.js"
 def test_frontend_always_sends_explicit_allow_bash():
     """chat.js must always send allow_bash (both true and false), not only on toggle ON."""
     source = _CHAT_JS.read_text(encoding="utf-8")
+    haystack = _norm(source)
     # Must not only append 'true' — must also handle the false case
     assert (
-        "allow_bash', el('bash-toggle').checked ? 'true' : 'false'" in source
-        or "allow_bash', 'false'" in source
+        _norm("allow_bash', el('bash-toggle').checked ? 'true' : 'false'") in haystack
+        or _norm("allow_bash', 'false'") in haystack
     ), "Frontend must send explicit allow_bash=false when toggle is off"
 
 
 def test_frontend_sends_explicit_allow_web_search_false_in_agent_mode():
     """chat.js must send allow_web_search=false when web toggle is off in agent mode."""
     source = _CHAT_JS.read_text(encoding="utf-8")
+    haystack = _norm(source)
     assert (
-        "allow_web_search', 'false'" in source
+        "allow_web_search', 'false'" in haystack
     ), "Frontend must send explicit allow_web_search=false in agent mode when toggle is off"
 
 
 def _source() -> str:
     return _CHAT_ROUTES.read_text(encoding="utf-8")
-
-
-def _normalise(src: str) -> str:
-    src = re.sub(r"#[^\n]*", "", src)
-    src = re.sub(r"'([^']*)'", r'"\1"', src)
-    src = re.sub(r"\s+", " ", src)
-    src = re.sub(r"\(\s+", "(", src)  # remove space after (
-    src = re.sub(r"\s+\)", ")", src)  # remove space before )
-    return src
 
 
 def _fn_body(src: str, fn_name: str) -> str:
@@ -255,11 +249,11 @@ def _fn_body(src: str, fn_name: str) -> str:
 
 def _assert_order(src: str, *patterns: str) -> None:
     """Assert that all patterns appear in src in the given order."""
-    norm = _normalise(src)
+    norm = _norm(src)
     search_from = 0
     prev_pat = None
     for p in patterns:
-        np = _normalise(p)
+        np = _norm(p)
         idx = norm.find(np, search_from)
         assert idx != -1, (
             f"Pattern not found in source (searching from offset {search_from}):\n  {p!r}"
@@ -270,9 +264,9 @@ def _assert_order(src: str, *patterns: str) -> None:
 
 
 def _assert_present(src: str, *patterns: str) -> None:
-    norm = _normalise(src)
+    norm = _norm(src)
     for p in patterns:
-        np = _normalise(p)
+        np = _norm(p)
         assert np in norm, f"Pattern not found in source:\n  {p!r}"
 
 
@@ -328,9 +322,7 @@ def test_image_generation_fast_path_checks_policy_before_tool_start():
 
 def test_streaming_chat_paths_disable_background_extraction_under_policy():
     src = _source()
-    norm = _normalise(src)
-    pattern = _normalise(
-        "allow_background_extraction=not tool_policy.block_all_tool_calls"
-    )
+    norm = _norm(src)
+    pattern = _norm("allow_background_extraction=not tool_policy.block_all_tool_calls")
     count = norm.count(pattern)
     assert count >= 3, f"Expected >= 3 occurrences, found {count}"
