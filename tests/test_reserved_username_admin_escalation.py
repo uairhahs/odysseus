@@ -13,6 +13,7 @@ See the privilege-escalation finding from the 2026-06 code review.
 
 import pytest
 
+from src.owner_identity import DEFAULT_LOCAL_OWNER
 from tests.helpers.import_state import clear_module
 
 
@@ -27,7 +28,17 @@ def _fresh_auth_manager(tmp_path):
 
 @pytest.mark.parametrize(
     "name",
-    ["internal-tool", "api", "demo", "system", "INTERNAL-TOOL", " Internal-Tool ", "Api", "SYSTEM"],
+    [
+        "internal-tool",
+        "api",
+        "demo",
+        "system",
+        DEFAULT_LOCAL_OWNER,
+        "INTERNAL-TOOL",
+        " Internal-Tool ",
+        "Api",
+        "SYSTEM",
+    ],
 )
 def test_create_user_rejects_reserved_usernames(tmp_path, name):
     mgr = _fresh_auth_manager(tmp_path)
@@ -42,34 +53,37 @@ def test_create_user_rejects_empty_username(tmp_path):
     assert "" not in mgr.users
 
 
-def test_setup_rejects_reserved_admin_username(tmp_path):
+@pytest.mark.parametrize("name", ["internal-tool", DEFAULT_LOCAL_OWNER])
+def test_setup_rejects_reserved_admin_username(tmp_path, name):
     mgr = _fresh_auth_manager(tmp_path)
     # First-run admin setup funnels through create_user, so it's covered too.
-    assert mgr.setup("internal-tool", "pw-123456") is False
+    assert mgr.setup(name, "pw-123456") is False
     assert mgr.is_configured is False
 
 
-def test_rename_into_reserved_username_is_blocked(tmp_path):
+@pytest.mark.parametrize("name", ["internal-tool", DEFAULT_LOCAL_OWNER])
+def test_rename_into_reserved_username_is_blocked(tmp_path, name):
     mgr = _fresh_auth_manager(tmp_path)
     assert mgr.create_user("admin", "pw-123456", is_admin=True) is True
     assert mgr.create_user("bob", "pw-123456") is True
-    assert mgr.rename_user("bob", "internal-tool", "admin") is False
-    assert "internal-tool" not in mgr.users
+    assert mgr.rename_user("bob", name, "admin") is False
+    assert name not in mgr.users
     assert "bob" in mgr.users
 
 
-def test_legacy_reserved_username_is_removed_on_load(tmp_path):
+@pytest.mark.parametrize("name", ["internal-tool", DEFAULT_LOCAL_OWNER])
+def test_legacy_reserved_username_is_removed_on_load(tmp_path, name):
     auth_path = tmp_path / "auth.json"
     auth_path.write_text(
-        '{"users": {"internal-tool": {"password_hash": "unused", "is_admin": false}, '
-        '"admin": {"password_hash": "unused", "is_admin": true}}}',
+        '{"users": {"%s": {"password_hash": "unused", "is_admin": false}, '
+        '"admin": {"password_hash": "unused", "is_admin": true}}}' % name,
         encoding="utf-8",
     )
     mgr = _fresh_auth_manager(tmp_path)
 
-    assert "internal-tool" not in mgr.users
+    assert name not in mgr.users
     assert "admin" in mgr.users
-    assert "internal-tool" not in auth_path.read_text(encoding="utf-8")
+    assert name not in auth_path.read_text(encoding="utf-8")
 
 
 def test_legacy_reserved_username_session_cannot_authenticate(tmp_path):
@@ -89,15 +103,16 @@ def test_legacy_reserved_username_session_cannot_authenticate(tmp_path):
     assert mgr.get_username_for_token("tok") is None
 
 
-def test_legacy_reserved_single_user_migrates_to_admin(tmp_path):
+@pytest.mark.parametrize("name", ["internal-tool", DEFAULT_LOCAL_OWNER])
+def test_legacy_reserved_single_user_migrates_to_admin(tmp_path, name):
     auth_path = tmp_path / "auth.json"
     auth_path.write_text(
-        '{"username": "internal-tool", "password_hash": "unused"}',
+        '{"username": "%s", "password_hash": "unused"}' % name,
         encoding="utf-8",
     )
     mgr = _fresh_auth_manager(tmp_path)
 
-    assert "internal-tool" not in mgr.users
+    assert name not in mgr.users
     assert "admin" in mgr.users
     assert mgr.is_admin("admin") is True
 
